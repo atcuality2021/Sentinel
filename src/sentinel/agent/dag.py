@@ -56,7 +56,15 @@ from sentinel.agent.program_strategy import (
     finalize_program_strategy,
     program_strategy_seed,
 )
-from sentinel.artifacts.schemas import ComparisonMatrix, ProgramStrategy, Plan, Result, Source, Step
+from sentinel.artifacts.schemas import (
+    ComparisonMatrix,
+    ExtractionSet,
+    ProgramStrategy,
+    Plan,
+    Result,
+    Source,
+    Step,
+)
 from sentinel.config import SentinelConfig, get_config
 from sentinel.config.schema import REASONER_ROLES
 from sentinel.memory.store import RunStore, data_dir
@@ -253,13 +261,111 @@ def _max_concurrency(cfg) -> int | None:
     return getattr(getattr(cfg, "backend", None), "max_concurrency", None)
 
 
+def _split_findings(findings_raw) -> list[str]:
+    """Split ``public_findings`` into per-source units for parallel extraction (SENTINEL-013 §3).
+
+    If ``findings_raw`` is a JSON list of source dicts (search result rows), each dict becomes one
+    unit. A search-tool response envelope ``{"results": [...]}`` is unwrapped first. Everything else
+    is treated as a single opaque source so ``two_tier=False`` behaviour is preserved (AC-8)."""
+    import json as _json
+
+    data = findings_raw
+    if isinstance(data, str):
+        try:
+            data = _json.loads(data)
+        except (ValueError, TypeError):
+            return [str(findings_raw)]
+
+    if isinstance(data, list) and data:
+        return [_json.dumps(item) if isinstance(item, dict) else str(item) for item in data]
+    if isinstance(data, dict):
+        inner = data.get("results") or data.get("items") or []
+        if isinstance(inner, list) and inner:
+            return [_json.dumps(item) for item in inner]
+        return [_json.dumps(data)]
+
+    return [str(findings_raw)]
+
+
+async def _run_parallel_extract(
+    extractor,
+    state: dict,
+    *,
+    spec: ResearchModeSpec,
+    cfg,
+    trace: list[str],
+    mc: int | None,
+) -> dict:
+    """Parallel per-source extraction (SENTINEL-013 Step 8).
+
+    Reads ``{public_findings}`` from state, splits into per-source units, runs the cheap 12B
+    extractor once per source concurrently (bounded by the global semaphore via :func:`_run_agents`
+    → :func:`orch.run_step`), and reduces the per-source :class:`ExtractionSet`s into one that
+    the synthesizer reads as ``{extractions}``.
+
+    Each extractor call receives exactly ONE source as its ``{public_findings}`` — this is the
+    bounded-input guarantee (AC-8). Fail-soft: a per-source failure contributes an empty extraction
+    and a trace entry; the run never crashes (NFR-3)."""
+    findings_raw = state.get("public_findings")
+    if not findings_raw:
+        state["extractions"] = ExtractionSet().model_dump()
+        trace.append("parallel extract: no public_findings — empty ExtractionSet")
+        return state
+
+    sources = _split_findings(findings_raw)
+    max_notes = getattr(getattr(cfg, "research", None), "extract_max_notes_per_source", 8)
+    trace.append(f"parallel extract: {len(sources)} source(s) from public_findings")
+
+    async def _extract_one(source_text: str, idx: int) -> ExtractionSet | None:
+        try:
+            per_source_seed = dict(state)
+            per_source_seed["public_findings"] = source_text
+            result_state = await _run_agents(
+                [extractor], name=f"{spec.capability}_extract_{idx}",
+                streaming=StreamingMode.NONE,
+                seed=per_source_seed,
+                message=f"Extract insights from source {idx}",
+                trace=trace, max_concurrency=mc,
+            )
+            raw = result_state.get("extractions")
+            if raw is None:
+                return None
+            if isinstance(raw, ExtractionSet):
+                return raw
+            if isinstance(raw, dict):
+                return ExtractionSet.model_validate(raw)
+        except Exception as exc:
+            trace.append(
+                f"parallel extract source {idx}: FAILED ({type(exc).__name__}: {str(exc)[:60]})"
+            )
+        return None
+
+    per_source = await asyncio.gather(*[_extract_one(src, i) for i, src in enumerate(sources)])
+
+    all_extractions = []
+    all_gaps: list = []
+    for es in per_source:
+        if es is not None:
+            all_extractions.extend(es.extractions[:max_notes])
+            all_gaps.extend(es.gaps or [])
+
+    state["extractions"] = ExtractionSet(extractions=all_extractions, gaps=all_gaps).model_dump()
+    return state
+
+
 async def _run_skill(
     spec: ResearchModeSpec, seed: dict, *, cfg, backend, cloud_allowed, search_provider, two_tier,
     trace: list[str],
 ) -> dict:
     """Build + run one declarative skill via the two-pass split (12B tools → 26B reasoner), the same
     partition the legacy pipeline uses — derived here from config *roles*, not a hardcoded key set, so
-    any new skill partitions correctly. Returns the final session state."""
+    any new skill partitions correctly. Returns the final session state.
+
+    When ``two_tier`` (SENTINEL-013 Step 8), the single extractor agent that :func:`build_step_agents`
+    injects is stripped from pass1 and replaced with :func:`_run_parallel_extract` — one extractor call
+    per source, bounded input, concurrent under the global semaphore. The synthesizer already carries the
+    ``_2t`` prompt variant (set by :func:`build_step_agents` when ``two_tier=True``), so it still reads
+    typed ``{extractions}``; only the production of that key changes."""
     agents = build_step_agents(
         spec, cfg, backend, cloud_allowed=cloud_allowed, search_provider=search_provider,
         two_tier=two_tier,
@@ -267,6 +373,15 @@ async def _run_skill(
     reasoner_keys = {
         s.output_key for s in spec.steps if cfg.agents[s.agent_key].role in REASONER_ROLES
     }
+    # Step 8: strip the single extractor from pass1 so we can run it per-source concurrently below.
+    extractor_agent = None
+    if two_tier and spec.extractor_key:
+        non_ext = [a for a in agents if a.output_key != "extractions"]
+        ext = [a for a in agents if a.output_key == "extractions"]
+        if ext:
+            extractor_agent = ext[0]
+            agents = non_ext
+
     pass1 = [a for a in agents if a.output_key not in reasoner_keys]
     pass2 = [a for a in agents if a.output_key in reasoner_keys]
     msg = f"Run the {spec.capability} skill"
@@ -276,6 +391,10 @@ async def _run_skill(
         state = await _run_agents(
             pass1, name=f"{spec.capability}_p1", streaming=StreamingMode.NONE,
             seed=state, message=msg, trace=trace, max_concurrency=mc,
+        )
+    if extractor_agent is not None:
+        state = await _run_parallel_extract(
+            extractor_agent, state, spec=spec, cfg=cfg, trace=trace, mc=mc,
         )
     if pass2:
         state = await _run_agents(
