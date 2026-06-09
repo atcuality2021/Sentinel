@@ -30,6 +30,12 @@ customer-controlled on-prem inference. Built by Aarna Tech Consultants Pvt. Ltd.
 ## Compliance
 
 **Mode:** `cloud_ok`
+**Production target mode:** `on_prem_preferred`
+
+> This repo has two operational contexts. Use **`cloud_ok`** for the challenge demo build
+> (Vertex AI / Gemini / Cloud Run). Use **`on_prem_preferred`** rules when working on any
+> code path destined for a pilot customer deployment — any new cloud AI dependency in that
+> path requires an ADR documenting data boundary, fallback, and rollback plan.
 
 - `on_prem_required` — strict. No external AI / cloud LLM calls in production code paths. Local inference only — vLLM, internal MCP, local embeddings. **Default for healthcare with NHA / DPDP-sensitive workloads, defence (iDEX, ADITI, DRISHTI), government B2G, BFSI with regulated data, or any client contract that mandates data sovereignty.** Auto-block on violation.
 - `on_prem_preferred` — external AI calls allowed only with an ADR documenting why local inference doesn't work, what data crosses the boundary, what fallback exists, and what the rollback plan is. An adapter / wrapper module must isolate the cloud call. Default for most BiltIQ products.
@@ -56,17 +62,19 @@ Runtime gate: `_llm_client.medical()` checks the `BILTIQ_HEALTHCARE_PROJECT=1` e
 
 ## Stack
 
-- Language: Python (3.11+)
-- Agent framework: Google Agent Development Kit (ADK) — orchestration + multi-step reasoning loop
-- Tool layer: Model Context Protocol (MCP) — public + private tool connectors
-- LLM / reasoning: Gemini 2.x (via Vertex AI in demo); swappable to vLLM on customer GPUs in prod
-- Grounded search: Gemini grounded web search (public-data boundary)
-- Web framework: FastAPI (HTTP surface for the agent runtime) — TBD if a thin ADK web entrypoint suffices
-- Runtime / container: Google Cloud Run (containerized)
-- LLM gateway: abstraction over inference backend (Vertex ↔ vLLM) — to be built
-- Database / state: TBD (session + artifact metadata) — likely Firestore (demo) / Postgres (on-prem)
-- Object / artifact store: written back to user's own workspace via MCP (CRM / doc store)
-- Vector store / cache / queue: TBD — add when retrieval or async fan-out is introduced
+- **Language:** Python 3.14.4 (venv at `.venv`; `pip install -e .`)
+- **Agent framework:** Google ADK 2.2.0 — `LlmAgent`, `SequentialAgent`, `AgentTool`, `InMemoryRunner`. `SequentialAgent` deprecated (warns "use Workflow") — works fine, revisit only if it breaks.
+- **LLM gateway:** `sentinel.llm.gateway` — `resolve_model(cfg, agent_key, backend, cloud_allowed=)`. Under `cloud_ok`+Gemini backend this returns a pinned Gemini model; under `on_prem_preferred`/vLLM this returns a `LiteLlm` wrapper on Gemma-4. Do not call `LiteLlm`/`genai` directly — always go through `resolve_model`.
+- **Two-tier inference:** 12B tool-callers (`Role.planner`, `.public_research`, `.extractor`) run `StreamingMode.NONE`; 26B reasoners (`Role.synthesizer`, `.strategist`) run `StreamingMode.SSE` to avoid Cloudflare 524 timeouts. Partition is config-driven (`backend.roles`), not hardcoded.
+- **Pluggable search:** `sentinel.tools.public.web_search.get_search_tool(provider)` — `gemini` (Gemini grounding, cloud-only), `duckduckgo` (lite SERP, keyless), `searxng` (self-hosted, sovereign primary, reads `SEARXNG_URL`), `brave`, `serpapi`. Default `gemini`. On-prem sovereign path: `searxng` or `duckduckgo`.
+- **MCP / private tools:** `sentinel.tools.private.workspace_mcp.build_private_toolset()` — Google Workspace (Calendar, Gmail, Drive) via MCP. Private boundary only; omitted when not configured.
+- **Web framework:** FastAPI (`src/sentinel/web/app.py`) — 30+ routes, PRG pattern throughout, `SENTINEL_DATA_DIR` env for hermetic test isolation.
+- **Database / state:** SQLite (WAL) at `data/sentinel.db` — `MemoryStore` (entity memory, boundary-tagged), `RunStore` (run records), `ProjectStore` (projects/tasks/plans/results), `AgentSpecStore` (registry). Managed via `sentinel.memory.store`. Never committed; override with `SENTINEL_DATA_DIR`.
+- **Artifact schemas:** Pydantic v2 in `sentinel.artifacts.schemas` — `Battlecard`, `AccountBrief`, `ExtractionSet`, `ComparisonMatrix`, `SelfProfile`, `ProgramStrategy`, `Result`, `Plan`, `Step`. Use `model_validate` / `model_dump`; never `.dict()` / `.parse_obj()`.
+- **Config:** `sentinel.config.get_config()` + `sentinel.config.defaults.build_default()`. Runtime YAML at `sentinel.config.yaml` (gitignored, env-seeded). `SentinelConfig` is a Pydantic model; all settings have typed defaults.
+- **Runtime / container:** `Dockerfile` (Cloud Run, binds `$PORT`); `deploy/cloudrun.sh` (one-command deploy, `asia-south1`).
+- **Inference endpoints (live):** Gemma-4-12B tools at `https://gemma.atcuality.com/v1`; Gemma-4-26B (omni) at `https://omni.atcuality.com/v1`. Auth via `ATCUALITY_API_KEY` header.
+- **Test command:** `SENTINEL_DATA_DIR=$(mktemp -d) python -m pytest` — 470 tests, ~3s. All tests are hermetic (mock vLLM + mock search; no network, no real sleeping).
 
 ## Working pattern (mandatory)
 

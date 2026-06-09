@@ -8,7 +8,7 @@
 - Use the structure below. Don't add new top-level sections without an ADR.
 - Don't store secrets, credentials, or PII here.
 
-**Last updated:** YYYY-MM-DD by [@dev or session-id]
+**Last updated:** 2026-06-09 by harish@atcuality.com
 
 ---
 
@@ -25,30 +25,32 @@ cloud-native for demo and sovereign on-prem (vLLM) for production without rework
 
 **Status:** Proof of concept — built for the Google for Startups AI Agents Challenge (Track 1: Build). Submission due 2026-06-11 17:00 PT.
 **Deployment:** Demo = Cloud Run + Vertex AI (Gemini 2.x). Production target = customer-controlled on-prem inference (vLLM behind LLM gateway).
-**Compliance mode:** `cloud_ok` (demo); architecture is `on_prem_required`-portable by design.
+**Compliance mode:** `cloud_ok` (demo/challenge build); `on_prem_preferred` (production target). Architecture is sovereign-portable — vLLM gateway + pluggable search, zero cloud dependency in the private-data path.
 **Primary stakeholders:** Aarna Tech Consultants Pvt. Ltd. (BiltIQ AI); challenge judges (Google Cloud / DeepMind).
 
 ---
 
 ## Current focus (this week)
 
-What the team is actively working on right now.
-
-- **Active sprint:** Challenge build, 2026-06-07 → 2026-06-11 17:00 PT. Goal: win Google AI Agents Challenge (Track 1: Build, APAC).
-- **Top 3 tasks in flight:**
-  1. Production increments via the spec→design→plan→build loop — **001/002/003/004/005/011a/009/010/011b/008 BUILT, 266 tests green**. The **Intelligence-to-Action program (008/009/010) + A2A coordinator (011) is COMPLETE.** All ship dark except 010 (additive). Remaining backlog: 006 Connectors; two-tier *inside* the coordinator (008 fast-follow).
-  2. Live run + Workspace MCP OAuth (real private connector) — **BLOCKED on user: GOOGLE_API_KEY in `.env` + Workspace OAuth**. Server live at :8080 (run pages, Settings, Accounts).
-  3. **Now the critical path:** Cloud Run deploy (run the script with a key) + demo video — pending user GCP actions. Deadline 2026-06-11 17:00 PT.
-- **Top 3 risks:**
-  1. 4-day window + maximal scope (real Workspace, all-3 writers, full vLLM proof) → mitigate with fallback ladder (see docs/srs.md).
-  2. Sovereignty claim discounted by judges → mitigated: boundary is structural (test_boundary.py) + vLLM gateway is real (test_gateway.py).
-  3. Live demo depends on user's GCP account actions (OAuth, deploy) → prep everything to one-command-away.
+- **Active sprint:** Challenge build, 2026-06-07 → **2026-06-11 17:00 PT (deadline)**. Goal: win Google AI Agents Challenge (Track 1: Build, APAC).
+- **Engine status:** 470 tests green. SENTINEL-001 through SENTINEL-013 complete. Research pipeline hardened (sovereign search, concurrent DAG, parallel extraction).
+- **Critical path (2 days left):**
+  1. **Cloud Run deploy** — run `deploy/cloudrun.sh` with `GOOGLE_API_KEY` set. One command. Blocked on user GCP project + service account setup.
+  2. **Demo video** — record a live run (competitor or account mode) showing sourced artifact + sovereignty toggle. Target: 3–5 min.
+  3. **Workspace MCP OAuth** (stretch) — real private connector. Needs Google OAuth consent screen configured by user.
+- **Top risks:**
+  1. Deploy blocked on user GCP actions → prep everything to one-command-away (done — `cloudrun.sh`).
+  2. Sovereignty claim discounted by judges → mitigated: boundary is structural (`test_boundary.py`) + vLLM gateway is real (`test_gateway.py`) + zero-Gemini introspection test (`test_governance.py`).
+  3. Demo video quality — have a good target entity ready (e.g. "Crayon" for competitor mode).
 
 ---
 
 ## Recent decisions (last 30 days)
 
-_(no decisions recorded)_
+- 2026-06-09 — Compliance mode dual-declared: `cloud_ok` (demo) + `on_prem_preferred` (production target). `on_prem_required` heuristic was too strict for the pilot customer use case.
+- 2026-06-09 — Private GitHub repo created: `atcuality2021/Sentinel`. Direct push to main (no branch protection on private repo — intentional for solo sprint).
+- 2026-06-08 — ADR-0004: `agent_specs` registry table. ADR-0003: SQLite project/task store.
+- 2026-06-07 — ADR-0001: A2A coordinator uses `AgentTool` (not `RemoteA2aAgent`; `a2a-sdk` not yet available in ADK 2.2.0).
 
 ## Recently completed
 
@@ -94,39 +96,53 @@ _(no open questions)_
 
 ## Code areas under active change
 
-Where multiple people are working concurrently.
-
-- `path/to/module/` — [@owner] is refactoring [reason]; expect merge conflicts
-- `path/to/file.py` — [@owner] is adding [feature]; coordinate before editing
+_(solo sprint — no concurrent changes)_
 
 ---
 
 ## Conventions specific to this repo
 
-Things that are *not* in `AGENT_RULES.md` because they only apply to this repo.
-
-- [e.g., "All datetime fields use `datetime_utc` suffix in DB columns"]
-- [e.g., "Error responses use envelope: `{'error': {'code': str, 'message': str}}`"]
+- **Tests:** always run with `SENTINEL_DATA_DIR=$(mktemp -d)` — web + store tests use `RunStore` and will collide without an isolated DB dir.
+- **Feature flags:** `research.two_tier`, `coordinator.enabled`, `strategy.enabled` all default `False` (ship dark). Flip in config or tests; never change defaults without a spec step.
+- **Spec format:** SENTINEL specs use `.md` (AP-11 waiver granted per SENTINEL-013 plan); BiltIQ-owned specs would normally be `.html`.
+- **Config access:** always via `sentinel.config.get_config()` or `build_default()` in tests — never instantiate `SentinelConfig` directly.
+- **Boundary rule:** `MemoryStore.recall(entity, allowed_boundaries)` is the ONLY place that enforces the public/private memory boundary. Never read the memory table elsewhere.
+- **Artifacts:** land in `artifacts_out/` (gitignored). CLI: `python -m sentinel "Target" --mode competitor`.
+- **Search tool extension:** add a new provider by registering a `_fetcher` in `tools/public/web_search._FETCHERS` and adding the literal to `SearchConfig.provider` + defaults `_SEARCH_PROVIDERS`.
 
 ---
 
 ## Glossary deltas
 
-Terms introduced or changed since `/docs/GLOSSARY.md` was last updated. When this list gets long, fold into the glossary and clear here.
+Terms introduced or changed since `/docs/GLOSSARY.md` was last updated.
 
-- [Term] — [Definition]
+- **two-tier** — 12B tool-callers (pass1, `StreamingMode.NONE`) → 26B reasoners (pass2, `StreamingMode.SSE`). Config: `backend.roles`. Default off (`two_tier=False`).
+- **SearXNG** — self-hosted metasearch engine; primary sovereign keyless search provider. URL via `SEARXNG_URL` env.
+- **_leaf_semaphore** — process-wide `asyncio.Semaphore` bounding concurrent ADK `run_step` calls. Sized by `BackendConfig.max_concurrency` (default 3). Loop-bound; auto-recreated on new event loop.
+- **parallel per-source extract** — SENTINEL-013 §3. Instead of one extractor reading all `{public_findings}`, `_run_parallel_extract` splits into N source units and runs one 12B extractor call per source concurrently.
+- **ResearchModeSpec** — declarative mode descriptor (`agent/modes/spec.py`). A new research mode is config+data, not engine code.
 
 ---
 
 ## Session log (last 5 sessions)
 
-Brief notes from recent sessions. Helps the next session understand what was tried and why.
+### 2026-06-09 — harish@atcuality.com
+- Worked on: SENTINEL-013 (Steps 8–10) + repo onboarding
+- Did: Parallel per-source extraction (470 tests, +24). Committed + pushed to `atcuality2021/Sentinel`. Ran full suite with `GOOGLE_API_KEY` (457 passed). Updated AGENT_RULES.md stack section + dual compliance mode. Updated MEMORY.md.
+- Discovered: `_split_findings` falls back to single-source when `public_findings` is free text — full parallel benefit only fires with structured JSON list from search tool.
+- Next session should: Focus on Cloud Run deploy (`deploy/cloudrun.sh`). Have `GOOGLE_API_KEY` in `.env`. Then demo video targeting "Crayon" as the competitor.
 
-### YYYY-MM-DD HH:MM — [@dev or session-id]
-- Worked on: [BILTIQ-XXX]
-- Did: [1-2 lines]
-- Discovered: [if anything noteworthy]
-- Next session should: [recommendation]
+### 2026-06-08 — harish@atcuality.com
+- Worked on: SENTINEL-012 (17 steps, 4 phases), SENTINEL-013 Phase 1 + 2
+- Did: Universal research platform (Project→Task→Orchestrator→Result). AgentRegistry + autonomy gate + injection controls. Competitor discovery UI. DDG + SearXNG + concurrent DAG (452 tests).
+- Discovered: 26B omni model causes Cloudflare 524 on long non-streamed responses; SSE streaming fixes it. DDG Instant-API returns only Wikipedia abstracts (not SERP results).
+- Next session should: Ship SENTINEL-013 Phase 3 (parallel per-source extract) then deploy.
+
+### 2026-06-07 — harish@atcuality.com
+- Worked on: SENTINEL-001 through SENTINEL-011b (all)
+- Did: Full orchestrator, governance, tiering, coordinator, account priorities, strategy, memory, settings UI, accounts UI, deploy artifacts.
+- Discovered: Gemma-4 dual-tier works live (12B tools + 26B reasoning). ADK `RemoteA2aAgent` not yet available; using `AgentTool` instead.
+- Next session should: Start SENTINEL-012 (universal research agent).
 
 ---
 
@@ -134,13 +150,17 @@ Brief notes from recent sessions. Helps the next session understand what was tri
 
 - _(none in flight)_ — last closed: **SENTINEL-013** _2026-06-09_
 
-## Today's activity
+## Today's activity (2026-06-09)
 
-_(no activity recorded today)_
+- SENTINEL-013 Steps 8–10 built and committed (`1f35d77`): parallel per-source extraction, sovereignty tests, reflect.md. 470 tests green.
+- AGENT_RULES.md: stack section rewritten with actual built state; dual compliance mode declared.
+- MEMORY.md: fully updated (date, current focus, decisions, conventions, glossary, session log).
+- Repo pushed to `atcuality2021/Sentinel` (private, `main`).
 
 ## Open blockers
 
-_(no open blockers)_
+- **Cloud Run deploy** — blocked on user completing GCP project setup + `gcloud auth login`. Command ready: `bash deploy/cloudrun.sh`.
+- **Workspace MCP OAuth** — blocked on user configuring Google OAuth consent screen.
 
 ## Doctor installs
 
@@ -148,7 +168,8 @@ _(no doctor installs recorded yet)_
 
 ## Documentation updates
 
-_(no documentation updates recorded yet)_
+- 2026-06-09 — AGENT_RULES.md stack section updated to reflect actual built state (Python 3.14.4, ADK 2.2.0, SQLite, vLLM gateway live, 470 tests).
+- 2026-06-09 — Dual compliance mode declared in AGENT_RULES.md (`cloud_ok` demo / `on_prem_preferred` production).
 
 ## Archive
 
