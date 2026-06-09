@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design: [TASK_TITLE]</title>
+  <!-- Design tokens: see /DESIGN.md for canonical BiltIQ design system -->
+  <style>
+    :root {
+      --color-border:    #e5e7eb;
+      --color-bg:        #ffffff;
+      --color-bg-subtle: #f9fafb;
+      --color-text:      #111827;
+      --color-muted:     #6b7280;
+      --color-new:       #16a34a;
+      --color-modified:  #d97706;
+      --color-risk-high: #dc2626;
+      --color-risk-med:  #d97706;
+      --color-risk-low:  #16a34a;
+      --radius:          6px;
+      --max-width:       860px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--color-text);
+      background: var(--color-bg);
+      padding: 2rem 1rem;
+    }
+    main { max-width: var(--max-width); margin: 0 auto; }
+    header {
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 1.25rem;
+      margin-bottom: 2rem;
+    }
+    header h1 { font-size: 1.5rem; margin-bottom: 0.75rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+    .meta dt { font-weight: 600; color: var(--color-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta dd { font-size: 0.9rem; }
+    section { margin-bottom: 2rem; }
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      border-left: 4px solid var(--color-border);
+      padding-left: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    h3 { font-size: 0.95rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+    p, li { margin-bottom: 0.4rem; }
+    ul { padding-left: 1.4rem; }
+    pre {
+      background: var(--color-bg-subtle);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      margin: 0.5rem 0;
+    }
+    code { font-family: ui-monospace, monospace; font-size: 0.85em; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin: 0.5rem 0;
+    }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); }
+    th { background: var(--color-bg-subtle); font-weight: 600; }
+    .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.1rem 0.4rem;
+      border-radius: 9999px;
+      white-space: nowrap;
+    }
+    .tag-new      { background: #dcfce7; color: var(--color-new);      border: 1px solid #86efac; }
+    .tag-modified { background: #fef3c7; color: var(--color-modified); border: 1px solid #fcd34d; }
+    .tag-risk-h   { background: #fee2e2; color: var(--color-risk-high);border: 1px solid #fca5a5; }
+    .tag-risk-m   { background: #fef3c7; color: var(--color-risk-med); border: 1px solid #fcd34d; }
+    .placeholder { color: var(--color-muted); font-style: italic; }
+    @media (max-width: 600px) { .meta { flex-direction: column; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Design: [TASK_TITLE]</h1>
+    <dl class="meta">
+      <div><dt>Task ID</dt><dd><!-- e.g. BILTIQ-123 --></dd></div>
+      <div><dt>Author</dt><dd><!-- @harish --></dd></div>
+      <div><dt>Created</dt><dd><!-- YYYY-MM-DD --></dd></div>
+    </dl>
+  </header>
+
+  <section id="approach">
+    <h2>Approach</h2>
+    <h3>Name</h3>
+    <p class="placeholder">One-line name for the chosen approach.</p>
+    <h3>Description</h3>
+    <p class="placeholder">Chosen approach narrative — why this option, what it trades off, what it preserves. 3–6 sentences.</p>
+  </section>
+
+  <section id="alternatives">
+    <h2>Alternatives Considered</h2>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Alternative</th><th>Why Rejected</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td class="placeholder">Alternative name</td><td class="placeholder">One-line rejection reason.</td></tr>
+        <tr><td>2</td><td class="placeholder">Alternative name</td><td class="placeholder">One-line rejection reason.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="files-to-touch">
+    <h2>Files to Touch</h2>
+    <h3>New <span class="tag tag-new">CREATE</span></h3>
+    <table>
+      <thead><tr><th>File</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code class="placeholder">path/to/file.py</code></td><td class="placeholder">What it does.</td></tr>
+      </tbody>
+    </table>
+    <h3>Modified <span class="tag tag-modified">EDIT</span></h3>
+    <table>
+      <thead><tr><th>File</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td><code class="placeholder">path/to/file.py</code></td><td class="placeholder">What changes.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="data-model">
+    <h2>Data Model Changes</h2>
+    <p class="placeholder">Schema deltas, new JSONL fields, new SQLite tables. Write "None" if no model changes.</p>
+  </section>
+
+  <section id="api-contract">
+    <h2>API Contract Changes</h2>
+    <p class="placeholder">New or changed function signatures, CLI interfaces, env vars. Write "None" if no API changes.</p>
+    <pre><code class="placeholder"># Example:
+# function_name(param: type) -> return_type
+</code></pre>
+  </section>
+
+  <section id="security-compliance">
+    <h2>Security &amp; Compliance</h2>
+    <ul>
+      <li class="placeholder">Compliance mode: <code>on_prem_preferred</code> — note any external call gating.</li>
+      <li class="placeholder">Secret handling: env vars only, never hardcoded.</li>
+      <li class="placeholder">Input escaping: note any user-controlled data embedded in output.</li>
+    </ul>
+  </section>
+
+  <section id="performance">
+    <h2>Performance Considerations</h2>
+    <p class="placeholder">Latency budget, data volume, hot paths. Write "None" if not applicable.</p>
+  </section>
+
+  <section id="rollout">
+    <h2>Rollout Plan</h2>
+    <ol style="padding-left: 1.4rem;">
+      <li class="placeholder">Step 1 — first safe change to land.</li>
+      <li class="placeholder">Step 2 — next change, depends on step 1.</li>
+    </ol>
+    <h3>Rollback</h3>
+    <p class="placeholder">How to undo if something goes wrong after merge.</p>
+  </section>
+
+  <section id="change-history">
+    <h2>Change History</h2>
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Section</th><th>What Changed</th><th>Trigger</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><!-- YYYY-MM-DD --></td>
+          <td>all</td>
+          <td>Initial draft</td>
+          <td><!-- task-id --></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

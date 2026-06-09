@@ -1,0 +1,18 @@
+# Keep the build context tiny and free of secrets/local state.
+.venv/
+.env
+.git/
+artifacts_out/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+tests/
+docs/
+docstrings/
+test-scaffolds/
+.remember/
+.biltiq/
+.github/
+*.md
+!README.md

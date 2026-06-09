@@ -1,0 +1,38 @@
+# Pre-commit hooks for BiltIQ repos.
+# Install with: pre-commit install
+# These match the CI gates in .github/workflows/biltiq-gates.yml so issues are caught locally first.
+
+repos:
+  - repo: local
+    hooks:
+      - id: biltiq-no-residue
+        name: BiltIQ — block debugging residue files (Anti-Pattern #7)
+        entry: bash -c 'files=$(git diff --cached --name-only --diff-filter=A | grep -E "(_v2|_new|_old|_temp|test_scratch|\.bak|\.orig|\.rej)\." || true); if [ -n "$files" ]; then echo "Anti-Pattern #7: residue files staged"; echo "$files"; exit 1; fi'
+        language: system
+        pass_filenames: false
+
+      - id: biltiq-no-banned-vocab
+        name: BiltIQ — block banned vocabulary
+        entry: bash -c 'matches=$(git diff --cached -U0 | grep -iE "^\+.*(cutting-edge|revolutionary|empowering|seamless|future-ready)" || true); if [ -n "$matches" ]; then echo "Banned vocabulary in staged diff:"; echo "$matches"; exit 1; fi'
+        language: system
+        pass_filenames: false
+
+      - id: biltiq-no-bare-except
+        name: BiltIQ — block bare except (Anti-Pattern #3, Python only)
+        entry: bash -c 'matches=$(git diff --cached -U0 -- "*.py" | grep -E "^\+\s*except\s*:\s*$" || true); if [ -n "$matches" ]; then echo "Anti-Pattern #3: bare except added"; echo "$matches"; exit 1; fi'
+        language: system
+        pass_filenames: false
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        args: [--strict]
+        exclude: ^(tests/|scripts/|dev/)

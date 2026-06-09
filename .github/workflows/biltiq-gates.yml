@@ -1,0 +1,153 @@
+# BiltIQ engineering CI gates.
+# Catches the things the team agreed should auto-block at the PR level.
+# Adjust the runs-on, language matrix, and tool versions to match the project.
+#
+# Security note: the only ${{ ... }} expansion in run: blocks goes through an
+# env var (MODE) per GitHub's recommended pattern; no user-controlled fields
+# (issue title/body, PR description, commit message, head ref) are interpolated.
+
+name: biltiq-gates
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  residue-files:
+    name: Anti-Pattern #7 — Debugging residue
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block residue file names
+        shell: bash
+        run: |
+          set -euo pipefail
+          residue=$(git ls-files | grep -E "(^|/)([^/]*_v2|[^/]*_new|[^/]*_old|[^/]*_temp|test_scratch[^/]*|[^/]*\.bak|[^/]*\.orig|[^/]*\.rej)$" || true)
+          if [ -n "$residue" ]; then
+            echo "::error::Anti-Pattern #7: residue files committed."
+            echo "$residue"
+            exit 1
+          fi
+
+  banned-vocab:
+    name: Banned vocabulary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: scan for real banned-vocab usage (not rule listings)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Collect candidate hits, then filter out lines that are rule definitions:
+          #   - Lines containing 2+ banned words (multi-term listing).
+          #   - Lines mentioning 'banned' / 'do not use' / 'no marketing' / 'use plain' / 'enforced' / 'flag' (rule context).
+          #   - Bulleted single-word listings (a banned term alone on a list item).
+          # Real violations: lines using the banned word in normal prose.
+          hits=$(grep -rIniE 'cutting-edge|revolutionary|empowering|seamless|future-ready' \
+                  --exclude-dir=.git --exclude-dir=node_modules \
+                  --exclude=AGENT_RULES.md --exclude=CHEATSHEET.md \
+                  . || true)
+          if [ -z "$hits" ]; then
+            echo "no banned-vocab matches"
+            exit 0
+          fi
+          # Hand off to a python filter that's stricter
+          violations=$(printf '%s\n' "$hits" | python3 -c "
+          import sys, re
+          banned = ['cutting-edge','revolutionary','empowering','seamless','future-ready']
+          banned_re = '|'.join(banned)
+          out = []
+          for line in sys.stdin:
+              line_lower = line.lower()
+              count = sum(1 for w in banned if w in line_lower)
+              if count >= 2: continue
+              if any(x in line_lower for x in ['banned','do not use','no marketing','use plain','enforced','flag']): continue
+              # The grep prefix is 'path:lineno:content' — extract content.
+              parts = line.split(':', 2)
+              body = parts[2].strip() if len(parts) >= 3 else line.strip()
+              if re.match(rf'^[-*\\s]*[\"\\'\\\`]?({banned_re})[\"\\'\\\`]?\\s*\\.?\\s*\$', body, re.I): continue
+              out.append(line.rstrip())
+          print('\\n'.join(out))
+          ")
+          if [ -n "$violations" ]; then
+            echo "::error::Banned vocabulary used in normal prose (not rule listing). Use plain language."
+            echo "$violations"
+            exit 1
+          fi
+          echo "only rule-definition references; no real banned-vocab usage"
+
+  any-types-py:
+    name: Anti-Pattern #4 — Type safety (Python)
+    runs-on: ubuntu-latest
+    if: hashFiles('pyproject.toml') != '' || hashFiles('requirements.txt') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install mypy
+        run: pip install mypy
+      - name: Run mypy --strict
+        run: mypy --strict .
+
+  any-types-ts:
+    name: Anti-Pattern #4 — Type safety (TypeScript)
+    runs-on: ubuntu-latest
+    if: hashFiles('tsconfig.json') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - name: tsc --strict --noEmit
+        run: npx tsc --strict --noEmit
+
+  on-prem-compliance:
+    name: On-prem compliance scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect compliance mode
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode=$(awk '/^## Compliance/,/^## /' AGENT_RULES.md | grep -oE '`(on_prem_required|on_prem_preferred|cloud_ok)`' | head -n1 | tr -d '`' || echo "")
+          if [ -z "$mode" ]; then mode="on_prem_preferred"; fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "Detected compliance mode: $mode"
+      - name: Scan for cloud-AI usage
+        shell: bash
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+        run: |
+          set -euo pipefail
+          patterns='api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|api\.cohere\.com|api\.mistral\.ai|api\.together\.xyz|api\.replicate\.com|api\.perplexity\.ai|api\.groq\.com|api\.deepseek\.com|bedrock-runtime\.|api-inference\.huggingface\.co|^(import |from )(openai|anthropic|google\.generativeai|cohere|mistralai|replicate)\b'
+          hits=$(find . -type f \( -name '*.py' -o -name '*.ts' -o -name '*.js' -o -name '*.tsx' \) \
+              -not -path './scripts/*' -not -path './dev/*' -not -path './tests/*' -not -path './.git/*' \
+              -print0 | xargs -0 grep -EnH "$patterns" || true)
+          if [ -z "$hits" ]; then
+            echo "No cloud-AI usage detected. Mode=$MODE."
+            exit 0
+          fi
+          echo "Cloud-AI usage detected:"
+          echo "$hits"
+          if [ "$MODE" = "on_prem_required" ]; then
+            echo "::error::Compliance mode is on_prem_required. Cloud AI in production paths is non-compliant."
+            exit 1
+          fi
+          missing_adr=0
+          while IFS= read -r line; do
+            sdk=$(echo "$line" | grep -oE '(openai|anthropic|google|cohere|mistral|replicate|bedrock|huggingface)' | head -n1)
+            if ! grep -ril "$sdk" docs/adr/ >/dev/null 2>&1; then
+              echo "::error::Cloud AI use of $sdk has no matching ADR in /docs/adr/."
+              missing_adr=1
+            fi
+          done <<< "$hits"
+          if [ "$missing_adr" -eq 1 ]; then
+            exit 1
+          fi
+          echo "All cloud-AI use is documented in ADRs. Mode=$MODE — flag only, no block."

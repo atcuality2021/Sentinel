@@ -1,0 +1,15 @@
+# Cursor Project Rules — BiltIQ Engineering
+
+The canonical agent rules for this repo are in `AGENT_RULES.md` at repo root.
+
+**Read `AGENT_RULES.md` first.** Follow it strictly. The rules below are the same as that file — do not deviate.
+
+When working on any task:
+1. Read `/docs/specs/<task-id>/spec.md`, `design.md`, and `plan.md` before generating code.
+2. Read `/docs/architecture/stack.md` for available utilities and wrappers.
+3. Read `/docs/architecture/approved-versions.md` to avoid deprecated APIs.
+4. Honor the compliance mode declared in `AGENT_RULES.md` § Compliance.
+5. Use the skills documented in `AGENT_RULES.md` for plan review, code review, test generation, and doc generation.
+6. Avoid the 10 anti-patterns documented in `AGENT_RULES.md`.
+
+If `AGENT_RULES.md` is missing, stop and tell the dev — the repo is not properly initialized.

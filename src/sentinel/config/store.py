@@ -1,0 +1,81 @@
+"""Config persistence — YAML on disk, cached process-level accessor.
+
+`get_config()` is the runtime entry point: it reads the file once and caches it. `load_config`
+self-seeds a default file when absent (spec AC-3). The file holds no secrets (keys stay in env).
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import yaml
+
+from sentinel.config.schema import SentinelConfig
+
+_DEFAULT_FILENAME = "sentinel.config.yaml"
+_cache: SentinelConfig | None = None
+
+
+def config_path() -> Path:
+    return Path(os.getenv("SENTINEL_CONFIG_PATH", _DEFAULT_FILENAME))
+
+
+def save_config(cfg: SentinelConfig, path: str | Path | None = None) -> Path:
+    p = Path(path) if path else config_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(yaml.safe_dump(cfg.model_dump(), sort_keys=False, allow_unicode=True), "utf-8")
+    return p
+
+
+def _backfill_defaults(cfg: SentinelConfig) -> SentinelConfig:
+    """Merge any default agent/prompt keys missing from a loaded config (SENTINEL-008.1).
+
+    A config written before a feature shipped (e.g. a pre-008 file with no ``*.extractor`` agents
+    or prompts) would ``KeyError`` the moment that feature is enabled. Back-filling the shipped
+    defaults for *missing* keys only — never overwriting an admin's edits — keeps an old config
+    forward-compatible without a manual migration. New keys inherit the default (dark) behaviour.
+    """
+    d = SentinelConfig.default()
+    for key, ac in d.agents.items():
+        cfg.agents.setdefault(key, ac)
+    for key, tmpl in d.prompts.items():
+        cfg.prompts.setdefault(key, tmpl)
+    return cfg
+
+
+def load_config(path: str | Path | None = None, *, write_if_absent: bool = True) -> SentinelConfig:
+    """Load config from YAML. If absent, build defaults and (optionally) seed the file once."""
+    p = Path(path) if path else config_path()
+    if p.exists():
+        data = yaml.safe_load(p.read_text("utf-8")) or {}
+        return _backfill_defaults(SentinelConfig.model_validate(data))
+    cfg = SentinelConfig.default()
+    if write_if_absent:
+        save_config(cfg, p)
+    return cfg
+
+
+def get_config() -> SentinelConfig:
+    """Cached config for the running process (read/seed once)."""
+    global _cache
+    if _cache is None:
+        try:
+            _cache = load_config()
+        except Exception:  # never let a bad config file break agent construction
+            _cache = SentinelConfig.default()
+    return _cache
+
+
+def set_config(cfg: SentinelConfig, *, persist: bool = False) -> None:
+    """Replace the cached config (used by the Settings UI and tests)."""
+    global _cache
+    _cache = cfg
+    if persist:
+        save_config(cfg)
+
+
+def reset_config() -> None:
+    """Clear the cache so the next get_config() re-reads (tests)."""
+    global _cache
+    _cache = None

@@ -1,0 +1,47 @@
+%% Sentinel — Sovereign Intelligence Agent. Architecture (data-flow + trust boundaries).
+%% Render: https://mermaid.live  or any Mermaid-aware viewer (GitHub renders .mmd in PRs).
+flowchart TB
+    OP([Operator])
+
+    subgraph AGENT["Sentinel Agent (Google ADK)"]
+        ORCH["Orchestrator<br/>one agent · two modes"]
+        PLAN["Planner"]
+        SYNTH["Synthesizer<br/>output_schema = Battlecard / AccountBrief"]
+        ORCH --> PLAN --> PUB
+        PLAN --> PRIV
+        PUB --> SYNTH
+        PRIV --> SYNTH
+    end
+
+    subgraph PUBLICB["PUBLIC boundary"]
+        PUB["public_research<br/>tools = [google_search]"]
+    end
+    subgraph PRIVATEB["PRIVATE boundary"]
+        PRIV["private_research<br/>tools = [Workspace MCP]<br/>read-only, scoped"]
+    end
+
+    subgraph GATEWAY["LLM gateway (config-only swap)"]
+        GEM["Gemini 2.x<br/>(cloud demo)"]
+        VLLM["vLLM on-prem<br/>(customer GPUs)"]
+    end
+
+    WEB[("Public web")]
+    WS[("Your Workspace<br/>CRM · Docs · Calendar")]
+    ART["Provenance-tagged artifact<br/>every finding = public | private"]
+    WRITERS["Writers<br/>Markdown · Google Doc · CRM"]
+
+    OP -->|target + mode| ORCH
+    PUB -->|grounded search| WEB
+    PRIV -->|authorized MCP| WS
+    SYNTH -. reasons via .-> GATEWAY
+    GEM -. swap .- VLLM
+    SYNTH --> ART --> WRITERS --> OP
+
+    classDef pub fill:#11233d,stroke:#4ea1ff,color:#cfe4ff;
+    classDef priv fill:#2e2410,stroke:#ffb24d,color:#ffe2b3;
+    classDef core fill:#121826,stroke:#7c5cff,color:#e7ecf3;
+    classDef io fill:#0e1420,stroke:#1e2940,color:#8b97a8;
+    class PUB,PUBLICB,WEB pub;
+    class PRIV,PRIVATEB,WS priv;
+    class ORCH,PLAN,SYNTH,AGENT,ART,WRITERS core;
+    class OP,GATEWAY,GEM,VLLM io;

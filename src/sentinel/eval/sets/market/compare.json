@@ -1,0 +1,20 @@
+[
+  {
+    "case_id": "market-compare-biltiq-vs-datadog",
+    "domain": "market",
+    "capability": "compare",
+    "objective": "Produce a head-to-head ComparisonMatrix of BiltIQ Sentinel vs Datadog across the axes that matter to a regulated buyer (sovereignty, deployment, pricing transparency), with a win/lose/parity verdict per axis. Cite every axis.",
+    "input": {
+      "subject": "BiltIQ Sentinel",
+      "rival": "Datadog",
+      "allowed_boundaries": ["public"]
+    },
+    "allowed_boundaries": ["public"],
+    "expect": {
+      "subject": "BiltIQ Sentinel",
+      "rival": "Datadog",
+      "min_axes": 2,
+      "must_cite": true
+    }
+  }
+]

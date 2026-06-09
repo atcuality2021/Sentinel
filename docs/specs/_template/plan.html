@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plan: [TASK_TITLE]</title>
+  <!-- Design tokens: see /DESIGN.md for canonical BiltIQ design system -->
+  <style>
+    :root {
+      --color-border:    #e5e7eb;
+      --color-bg:        #ffffff;
+      --color-bg-subtle: #f9fafb;
+      --color-text:      #111827;
+      --color-muted:     #6b7280;
+      --color-step-bg:   #f0fdf4;
+      --color-step-bdr:  #bbf7d0;
+      --color-risk-high: #dc2626;
+      --color-risk-med:  #d97706;
+      --color-risk-low:  #16a34a;
+      --radius:          6px;
+      --max-width:       860px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--color-text);
+      background: var(--color-bg);
+      padding: 2rem 1rem;
+    }
+    main { max-width: var(--max-width); margin: 0 auto; }
+    header {
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 1.25rem;
+      margin-bottom: 2rem;
+    }
+    header h1 { font-size: 1.5rem; margin-bottom: 0.75rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+    .meta dt { font-weight: 600; color: var(--color-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta dd { font-size: 0.9rem; }
+    section { margin-bottom: 2rem; }
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      border-left: 4px solid var(--color-border);
+      padding-left: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    h3 { font-size: 0.95rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+    p, li { margin-bottom: 0.4rem; }
+    ul, ol { padding-left: 1.4rem; }
+    code { font-family: ui-monospace, monospace; font-size: 0.85em; background: var(--color-bg-subtle); padding: 0.1em 0.3em; border-radius: 3px; }
+    .step {
+      border: 1px solid var(--color-step-bdr);
+      background: var(--color-step-bg);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .step-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem; }
+    .step-title { font-weight: 700; font-size: 0.95rem; }
+    .band {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: 9999px;
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #7dd3fc;
+    }
+    .step-meta { font-size: 0.8rem; color: var(--color-muted); margin-bottom: 0.5rem; }
+    .step-tests { font-size: 0.82rem; margin-top: 0.5rem; }
+    .step-tests strong { color: var(--color-muted); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 0.5rem 0; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); }
+    th { background: var(--color-bg-subtle); font-weight: 600; }
+    .risk-h { color: var(--color-risk-high); font-weight: 700; }
+    .risk-m { color: var(--color-risk-med);  font-weight: 700; }
+    .risk-l { color: var(--color-risk-low);  font-weight: 700; }
+    .placeholder { color: var(--color-muted); font-style: italic; }
+    @media (max-width: 600px) { .meta { flex-direction: column; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Plan: [TASK_TITLE]</h1>
+    <dl class="meta">
+      <div><dt>Task ID</dt><dd><!-- e.g. BILTIQ-123 --></dd></div>
+      <div><dt>Branch</dt><dd><!-- feature/xxx --></dd></div>
+      <div><dt>Base</dt><dd><!-- main --></dd></div>
+      <div><dt>Created</dt><dd><!-- YYYY-MM-DD --></dd></div>
+    </dl>
+  </header>
+
+  <section id="steps">
+    <h2>Build Sequence</h2>
+    <p style="margin-bottom:1rem; font-size:0.85rem; color:var(--color-muted);">
+      Each step = one logical commit. TDD: RED → GREEN in the same step. Run <code>pytest</code> before proceeding.
+    </p>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 1 — [Step title]</span>
+        <span class="band">M</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> <span class="placeholder">Why this step comes first.</span></p>
+      <p class="step-meta"><strong>Files:</strong> <span class="placeholder">list files created / modified</span></p>
+      <div class="step-tests">
+        <strong>Tests:</strong>
+        <ul>
+          <li class="placeholder">test_function_name — asserts X (AC1)</li>
+        </ul>
+      </div>
+      <p class="step-meta" style="margin-top:0.5rem"><strong>Gate:</strong> <code class="placeholder">pytest tests/path/to/test.py</code> — GREEN</p>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 2 — [Step title]</span>
+        <span class="band">S</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> <span class="placeholder">Why this step follows step 1.</span></p>
+      <p class="step-meta"><strong>Files:</strong> <span class="placeholder">list files</span></p>
+      <div class="step-tests">
+        <strong>Tests:</strong> <span class="placeholder">none (static files — structural correctness verified by step N)</span>
+      </div>
+    </div>
+    <!-- Add more steps by copying a .step block -->
+  </section>
+
+  <section id="test-strategy">
+    <h2>Test Strategy</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>What</th><th>Files</th></tr></thead>
+      <tbody>
+        <tr><td>Unit</td><td class="placeholder">function behavior</td><td class="placeholder">tests/path/test_foo.py</td></tr>
+        <tr><td>Integration</td><td class="placeholder">end-to-end round-trip</td><td class="placeholder">tests/path/test_integration.py</td></tr>
+        <tr><td>Manual</td><td class="placeholder">open in browser, verify rendered output</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="rollback-plan">
+    <h2>Rollback Plan</h2>
+    <p class="placeholder">How to undo if something goes wrong. For additive-only changes: "Remove new files, revert text insertions. No data loss."</p>
+  </section>
+
+  <section id="risks">
+    <h2>Risks</h2>
+    <table>
+      <thead><tr><th>Risk</th><th>Step</th><th>Severity</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="placeholder">Risk description</td>
+          <td class="placeholder">1</td>
+          <td><span class="risk-m">MED</span></td>
+          <td class="placeholder">How it is mitigated.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="change-history">
+    <h2>Change History</h2>
+    <table>
+      <thead><tr><th>Date</th><th>Section</th><th>What Changed</th><th>Trigger</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><!-- YYYY-MM-DD --></td>
+          <td>all</td>
+          <td>Initial draft</td>
+          <td><!-- task-id --></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

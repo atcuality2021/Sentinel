@@ -1,0 +1,49 @@
+# biltiq-engineering — paths managed by the plugin.
+# Copied into the repo by scripts/biltiq-init.sh on first adoption.
+# Do not commit anything below; if a path here needs to land in git,
+# promote it via the explicit flow (e.g. /biltiq-engineering:archive-commit).
+
+# Auto-tracking + auto-log artifacts (M16)
+.biltiq/
+
+# Memory tier (M17 / BILTIQ-017a) — explicit paths below for documentation.
+# The .biltiq/ wildcard above already covers them; the explicit lines make
+# the contract visible to anyone reading this file.
+.biltiq/memory-stream.jsonl
+.biltiq/memory-archive/
+.biltiq/session-memory/
+
+# biltiq-graph local SQLite index (M14)
+.biltiq-graph/
+
+# Per-machine state (also gitignored at the home-dir layer, but listed
+# here so a misconfigured CLAUDE_PROJECT_DIR pointing at the repo root
+# doesn't accidentally seed committable state).
+.biltiq-engineering/
+
+# ── Sentinel (added during build) ──
+.venv/
+.env
+artifacts_out/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+
+# Plugin-dropped reference libraries (not Sentinel code)
+docstrings/
+test-scaffolds/
+.remember/
+.playwright-mcp/
+
+# Local runtime config (self-seeded; holds no secrets but is environment-local)
+sentinel.config.yaml
+
+# SENTINEL-002 memory harness (local SQLite, never committed)
+data/
+
+# Sweep / biltiq tooling runtime data (SQLite + artifacts, never committed)
+.biltiq_sweep_data/
+
+# Python bytecode (belt-and-suspenders alongside __pycache__/)
+*.pyc
+*.pyo

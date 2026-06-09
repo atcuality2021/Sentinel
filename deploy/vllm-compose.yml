@@ -1,0 +1,43 @@
+# Serve Gemma locally with vLLM (OpenAI-compatible API on :8000) — the on-prem backend.
+#
+#   HF_TOKEN=hf_xxx docker compose -f deploy/vllm-compose.yml up
+#
+# Notes:
+#   - Gemma is a gated model: accept the licence on Hugging Face and pass HF_TOKEN.
+#   - Requires an NVIDIA GPU + nvidia-container-toolkit. gemma-3-4b-it fits comfortably
+#     on a single ~16GB GPU; bump VLLM_MODEL for larger variants if you have the VRAM.
+#   - Once it's up, set SENTINEL_LLM_BACKEND=vllm (or flip the UI toggle) and Sentinel's
+#     reasoning runs entirely against this container.
+services:
+  vllm-gemma:
+    image: vllm/vllm-openai:latest
+    container_name: sentinel-vllm-gemma
+    command:
+      - --model
+      - ${VLLM_MODEL:-google/gemma-3-4b-it}
+      - --max-model-len
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.90"
+    ports:
+      - "8000:8000"
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 20s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  hf-cache:

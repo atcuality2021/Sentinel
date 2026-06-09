@@ -1,0 +1,13 @@
+# Windsurf Project Rules — BiltIQ Engineering
+
+The canonical agent rules for this repo are in `AGENT_RULES.md` at repo root.
+
+Read `AGENT_RULES.md` first. The rules below mirror that file — do not deviate.
+
+1. Read `/docs/specs/<task-id>/{spec,design,plan}.md` before generating code.
+2. Read `/docs/architecture/{stack,approved-versions}.md` for utilities and current APIs.
+3. Honor the compliance mode declared in `AGENT_RULES.md` § Compliance.
+4. Use the BiltIQ skills (plan-reviewer, code-reviewer, test-generator, doc-generator).
+5. Avoid the 10 anti-patterns.
+
+If `AGENT_RULES.md` is missing, stop — the repo is not initialized.

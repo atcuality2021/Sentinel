@@ -1,0 +1,55 @@
+# Sentinel — Production Build Backlog
+
+Direction (owner, 2026-06-07): **build a real, production-level agent for a pilot user.**
+Do not optimize for the competition demo — quality wins on its own.
+
+Specs follow the BiltIQ Attack Loop: each task has `spec.md` (what/why), `design.md` (how),
+`plan.md` (atomic steps + tests). We spec one task at a time and build it before speccing the
+next, so the design stays honest to what we learned building the previous one.
+
+Source PRD: [`docs/product-spec.md`](../product-spec.md). Requirements: [`docs/srs.md`](../srs.md).
+
+## Increments
+
+| ID | Title | Scope (one line) | Depends on | Status |
+|---|---|---|---|---|
+| **SENTINEL-001** | Configurable Agent Runtime | Externalize models, agents, prompts, generation into a persisted `SentinelConfig` | — | **✅ Built — 39 tests green** |
+| **SENTINEL-002** | Memory Harness & Persistence | Borrowed 4-system memory: `MemoryEntry` + deterministic extractor + SM-2 reinforcement + **boundary-filtered recall** (`DataBoundary` PUBLIC/PRIVATE, fail-closed); persist runs; "since last run" delta | 001 | **✅ Built — 59 tests green** |
+| **SENTINEL-003** | Settings UI | Edit Backends/Models/Agents/prompts/Generation/Memory in the dashboard; validate-before-commit, no-restart pickup, no secrets | 001, 002 | **✅ Built — 92 tests green** |
+| **SENTINEL-004** | Reports & Accounts | History list + entity pages with run timeline and accumulated memory | 002 | **✅ Built — 109 tests green** |
+| **SENTINEL-005** | Governance & Pluggable Search | Wire `compliance_mode` into orchestrator routing (on_prem_required ⇒ zero Gemini); pluggable public-search provider (gemini/duckduckgo/brave/serpapi) on Gemma function-calling; Settings Governance+Search sections | 001, 002 | **✅ Built — 143 tests green** |
+| **SENTINEL-006** | Connectors | Workspace/CRM OAuth UI + scope management; real Google Doc / CRM writers | 001 | Planned |
+| **SENTINEL-007** | Automatic Skills | **Folded into 009** (playbooks = skills) — placeholder retired (decided 2026-06-07) | 001 | Folded → 009 |
+| **SENTINEL-008** | Research Depth | Config-driven pipeline + two-tier extract→synthesize + run versioning/provenance (LeadFlow-borrowed) | 002,004,005 | **✅ Built 2026-06-07 — 8 steps, 266 tests green (+23); ships dark (`research.two_tier=False`).** Declarative `ResearchModeSpec` + single `build_step_agents` constructor (a new mode is config, not engine code — AC-7); cheap extractor distils sources before synthesis; run `sources`+`run_seq` persisted & rendered. |
+| **SENTINEL-009** | Strategy & Action Plan | Structured `recommended_actions`+`assessment`+`objection_handling`; **strategy playbooks** (Markdown overlay) | 005 | **✅ Built 2026-06-07 — 9 steps, 212 tests green (+30); ships dark (`strategy.enabled=False`).** Tool-free strategist → `StrategyOverlay`, deterministic merge, admin-editable playbooks, on_prem-safe. |
+| **SENTINEL-010** | Account Prioritization | Deterministic weighted-signal registry over entity memory + reason-ranked **focus list** dashboard | 002,004,005 | **✅ Built 2026-06-07 — 7 steps, 235 tests green (+23); no LLM in the arithmetic.** One signal registry, 5 seed signals, boundary-safe cited reasons, persisted snapshots, `/focus` route + dashboard card. |
+| **SENTINEL-011** | A2A Coordinator & Gemma-4 Tiering | Coordinator/specialist topology (ADK `AgentTool`); role→model map (12B tools / 26B reason); remote-A2A on-prem private agent (Phase 2) | 005,009,010 | **011a+011b Built — tiering + coordinator (243 green); ships dark.** 011b: coordinator wraps the 009 strategist specialist (both modes); 010 priority wired as a deterministic post-run hook (NOT an AgentTool — it's LLM-free). Remote-A2A = Phase 2 ([ADR-0002](../adr/0002-remote-a2a-private-node.md)). · [ADR-0001](../adr/0001-a2a-coordinator-and-gemma4-tiering.md) |
+
+> **Architecture (2026-06-07):** A2A coordinator + Gemma-4 model tiering — see
+> [ADR-0001](../adr/0001-a2a-coordinator-and-gemma4-tiering.md) and the updated
+> [`architecture/overview.md`](../architecture/overview.md) · [`stack.md`](../architecture/stack.md).
+> 009/010/008 become **specialists** under the SENTINEL-011 coordinator. Models verified live:
+> gemma-4-12B (tools ✅) / gemma-4-26B (reason ✅, tools ❌).
+
+Build order: **001 → 002 → 003 → 004 → 005 ✅ → 011a (model tiering + in-process coordinator) ✅ → 009 ✅ → 010 ✅ → 011b (coordinator wraps the 009/010 specialists) ✅ → 008 ✅** — Intelligence-to-Action program complete.
+*(011 splits: the role→model tiering + in-process coordinator landed first as the backbone — both ship dark; the coordinator already delegates to the public/private/synthesis specialists and will gain the 009/010 specialists once those exist. 008 research-depth last.)* *(decided 2026-06-07: value-first)*. 006 Connectors parallel. Triads written 2026-06-07 at `docs/specs/SENTINEL-00{9,10,8}/{spec,design,plan}.md` — grounded in the real code seams (`make_agent(instruction_suffix=, cloud_allowed=)`, `SequentialAgent` sub-agents, `resolve_model`, `MemoryStore.recall` boundary choke-point).
+
+**SENTINEL-011a built 2026-06-07** (8 steps, 182 tests green, +37): gateway auth-by-host (`ATCUALITY_API_KEY` for `*.atcuality.com`), `Role` tiering (12B tool-callers / 26B reasoners) with a reasoner-tool-free build guard, `CoordinatorConfig` + `agent/coordinator.py` (`build_coordinator` → `LlmAgent` over `AgentTool`-wrapped specialists, MCP isolated to the private specialist), orchestrator switch (`coordinator.enabled`, fail-soft to Sequential), and Settings **Models** + **Coordinator** sections. Defaults are byte-identical to today (`backend.roles=None`, `coordinator.enabled=False`).
+
+**SENTINEL-009 built 2026-06-07** (9 steps, 212 tests green, +30): `StrategyOverlay`/`RecommendedAction`/`Objection` schemas + default-empty `assessment`/`action_plan`(/`objection_handling`) on the artifacts; `strategy/playbooks.py` (fail-soft Markdown loader) + 2 shipped playbooks; `StrategyConfig` (off) + `*.strategist` agents (reasoner, no pin_gemini) + prompts reading `{battlecard}`/`{account_brief}`; `maybe_strategist` appends a tool-free strategist to each pipeline; orchestrator `_merge_strategy` (deterministic, fail-soft); markdown + dashboard render (sorted action table, escaped); Settings **Strategy** section + `apply_strategy` (validates playbook stems). Ships dark (`strategy.enabled=False`).
+
+**SENTINEL-010 built 2026-06-07** (7 steps, 235 tests green, +23): a pure-Python `priority/` package — **one** signal `REGISTRY` + `register_signal` (AC-6, no parallel scorers), `normalize`/`half_life_decay` primitives, and `compute_account_priority(entity, *, allowed_boundaries, now, config)` doing weight-normalization → per-signal isolation → clamp → tiering with **no LLM/network** in the path. 5 seed signals over existing data (`recency`, `new_material`, `volume`, `private_engagement` [boundary-gated], `competitor_move`); reasons are templated from cited findings, never generated. Boundary invariant **inherited** from the `MemoryStore.recall` choke-point — a `{PUBLIC}` score surfaces zero private reasons (AC-10). `PriorityConfig` (admin-tunable weights/thresholds, no redeploy); `PriorityStore` persists auditable snapshots in the same SENTINEL-002 SQLite file; `/focus` route (ranked, cited, breakdown drill-down) + dashboard "Top to focus on" card. Additive — existing pages unchanged.
+
+**SENTINEL-011b built 2026-06-07** (243 tests green, +8): the coordinator now reaches feature-parity with the SequentialAgent path. (1) The **009 strategist** is wrapped as an `AgentTool` specialist in both `_competitor_specialists`/`_client_specialists` (a shared `_maybe_strategist_specialist` helper, described "call LAST after synthesis"); its `output_key="strategy"` propagates to the orchestrator via AgentTool state-delta forwarding, so `_merge_strategy` runs unchanged for both topologies. (2) **010 priority** is wired as a deterministic **post-run hook** (`orchestrator._recompute_priority`), NOT an AgentTool — it's LLM-free, so it recomputes + persists the entity's `PriorityScore` after every run (both paths), guarded by `priority.enabled`, fail-soft, boundary inherited (`allowed_boundaries(mode)`). The 011 design doc (§1/§5/§8) was corrected to reflect this built shape (the original draft drew 010 as a specialist, written before 010 shipped). Ships dark via `coordinator.enabled` (strategist only attaches when `strategy.enabled` too). Next: **008** (research depth). Challenge deliverables still open: live Cloud Run deploy + demo video.
+
+**SENTINEL-008 built 2026-06-07** (266 tests green, +23): research depth landed as a *declarative-mode* refactor + two-tier research, both behind `research.two_tier` (off). A research mode is now **data** — an ordered `list[StepSpec]` + output schema (`COMPETITOR_SPEC`/`CLIENT_SPEC` in `agent/modes/spec.py`); the single generic constructor `build_step_agents(spec, …, two_tier=)` turns any spec into ADK agents, so **a new mode is a config, not an engine edit** (AC-7, proven by `test_new_mode_builds_with_no_engine_edit` using keys absent from defaults). **Reconciliation with 009/011b** (the 008 triad predated both): one construction path, two groupings — `build_competitor_subagents`/`build_client_subagents` (the 011b coordinator's source) now *delegate* to `build_step_agents(two_tier=False)` and map the flat list into their dataclass by `output_key`, so the coordinator code is **untouched** (zero 011b regression); the 009 strategist stays appended at the mode-builder level (an overlay, not a research step) ⇒ default graph byte-identical (AC-6). Two-tier: a cheap `<mode>.extractor` (12B tool-caller, `ExtractionSet`, no tools — NFR-1: +1 LLM call) distils `{public_findings}` → typed `{extractions}` before the synthesizer's `_2t` prompt; `orchestrator._merge_extraction_gaps` folds extractor gaps onto the artifact (deterministic, fail-soft). Provenance: `RunRecord` gained `sources: list[Source]` + 1-based `run_seq` (additive SQLite `ALTER` migration; pre-008 rows read back `[]`/`0`), surfaced on the account timeline (legacy rows show a neutral dash, never `#0`). Sovereignty inherited unchanged — the extractor builds via `resolve_model(cloud_allowed=)`, so `on_prem_required` constructs no Gemini object (AC-10). Two-tier *inside* the coordinator is an explicit fast-follow. Challenge deliverables still open: live Cloud Run deploy + demo video.
+
+> **"Intelligence-to-Action" program** (008/009/010): BA + SRS at
+> [`docs/intelligence-to-action/`](../intelligence-to-action/). Patterns borrowed (not code) from
+> BiltIQ LeadFlow CRM. Adds the research→action→prioritization loop on top of the shipped agent.
+
+Borrowed-pattern source & decisions: [`docs/borrowed-from-agent-os.md`](../borrowed-from-agent-os.md)
+(memory harness, agent behavior, automatic skills — adapted from BiltIQ Agent OS, not copied).
+
+> Note: specs are markdown (consistent with `srs.md`, `business-analysis.md`, `product-spec.md`),
+> not the `_template/*.html` form. Same triad, more readable.

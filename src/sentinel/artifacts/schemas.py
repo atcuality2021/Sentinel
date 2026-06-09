@@ -1,0 +1,437 @@
+"""Artifact schemas for Sentinel.
+
+Every fact an artifact carries is tagged with the *boundary* it came from
+(``public`` via grounded search, ``private`` via scoped MCP connectors). This makes
+the sovereignty guarantee (SRS NFR-04) visible in the output itself: a reader can see
+exactly which data crossed which boundary. Schemas are deliberately industry-agnostic
+(decision Q-4) — vertical context is an optional input, never a hardcoded field.
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class Boundary(str, Enum):
+    """Which tool boundary a piece of data was sourced from."""
+
+    PUBLIC = "public"   # Gemini grounded web search
+    PRIVATE = "private"  # scoped, user-authorized MCP connectors
+
+
+class Source(BaseModel):
+    """Provenance for a single fact."""
+
+    boundary: Boundary = Field(description="Which boundary this came from.")
+    label: str = Field(description="Human-readable source name, e.g. 'TechCrunch' or 'CRM: Acme deal'.")
+    url: str | None = Field(default=None, description="Public URL when boundary=public; null for private.")
+
+
+class Finding(BaseModel):
+    """A single researched claim with its provenance."""
+
+    text: str = Field(description="The finding, stated as one concrete sentence.")
+    source: Source
+
+
+class Gap(BaseModel):
+    """A source that was expected but unavailable — recorded, never silently dropped (FR-10)."""
+
+    boundary: Boundary
+    what_was_missing: str
+    impact: str = Field(description="What the artifact lacks because of this gap.")
+
+
+# --------------------------------------------------------------------------- #
+# Two-tier research (SENTINEL-008) — a cheap extractor distils each gathered
+# source into typed notes BEFORE synthesis, so one weak source can't poison the
+# brief. Artifact schemas below are unchanged: 008 changes how findings are
+# produced, not their shape.
+# --------------------------------------------------------------------------- #
+class Extraction(BaseModel):
+    """Typed notes distilled from ONE source, with that source's provenance preserved (AC-9)."""
+
+    source: Source
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Atomic, factual notes drawn only from THIS source — no cross-source inference.",
+    )
+
+
+class ExtractionSet(BaseModel):
+    """The extractor agent's output schema (AC-1): per-source extractions + a Gap per source it
+    could not parse (AC-4). Default-empty so a malformed/empty extractor result is still valid."""
+
+    extractions: list[Extraction] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Strategy overlay (SENTINEL-009) — the strategist's ONLY output, merged onto the
+# artifact by deterministic code so the researched findings stay immutable.
+# --------------------------------------------------------------------------- #
+class RecommendedAction(BaseModel):
+    """A single prioritized next move tied to the brief's findings."""
+
+    action: str = Field(description="The concrete next move, imperative voice.")
+    priority: Literal["high", "med", "low"]
+    timeline: str = Field(description="When, e.g. 'this week', 'next 30 days'.")
+    rationale: str = Field(description="Why — tied to a finding/insight in the brief.")
+
+
+class Objection(BaseModel):
+    """A likely buyer objection and an evidence-based reframe (client mode, FR-098)."""
+
+    objection: str = Field(description="A likely buyer objection.")
+    reframe: str = Field(description="Evidence-based reframe drawn from the brief.")
+
+
+class StrategyOverlay(BaseModel):
+    """The strategist sub-agent's sole output (SENTINEL-009 AC-5). Merged onto the artifact."""
+
+    assessment: str = Field(description="1-2 sentences: where the entity stands + best angle.")
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+    objection_handling: list[Objection] = Field(
+        default_factory=list, description="Empty in competitor mode."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Competitor mode → Battlecard (FR-07)
+# --------------------------------------------------------------------------- #
+class Battlecard(BaseModel):
+    """Structured competitor battlecard. Output schema for competitor mode."""
+
+    target: str = Field(description="The competitor this battlecard is about.")
+    vertical_context: str | None = Field(default=None, description="Optional industry lens supplied by the user.")
+    one_line_summary: str = Field(description="One-sentence positioning summary of the competitor.")
+    positioning: str = Field(description="How the competitor positions itself in the market.")
+    strengths: list[Finding] = Field(default_factory=list)
+    weaknesses: list[Finding] = Field(default_factory=list)
+    pricing_signals: list[Finding] = Field(default_factory=list)
+    recent_developments: list[Finding] = Field(default_factory=list)
+    how_to_win: list[str] = Field(
+        default_factory=list,
+        description="Counter-positioning angles a seller can use against this competitor. "
+        "Legacy (SENTINEL-009 OQ-1): superseded by the structured action_plan; kept for back-compat.",
+    )
+    sources: list[Source] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list)
+    # Strategy overlay (SENTINEL-009) — default-empty so a strategy-off Battlecard is byte-identical.
+    assessment: str | None = Field(default=None, description="Strategic standing + best angle.")
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Client/account mode → Account Brief (FR-08)
+# --------------------------------------------------------------------------- #
+class AccountBrief(BaseModel):
+    """Structured account brief merging public + private signal. Output schema for client mode."""
+
+    account: str = Field(description="The account/client this brief is about.")
+    vertical_context: str | None = Field(default=None)
+    one_line_summary: str = Field(description="One-sentence state-of-the-relationship summary.")
+    public_signal: list[Finding] = Field(
+        default_factory=list, description="Firmographics, news, filings, public profiles (boundary=public).",
+    )
+    private_signal: list[Finding] = Field(
+        default_factory=list, description="Deal stage, history, prior proposals, last contact (boundary=private).",
+    )
+    merged_insights: list[str] = Field(
+        default_factory=list,
+        description="Cross-boundary reasoning — what the public+private combination implies. The core value.",
+    )
+    recommended_actions: list[str] = Field(
+        default_factory=list,
+        description="Legacy (SENTINEL-009 OQ-1): superseded by the structured action_plan; "
+        "kept for back-compat.",
+    )
+    sources: list[Source] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list)
+    # Strategy overlay (SENTINEL-009) — default-empty so a strategy-off AccountBrief is byte-identical.
+    assessment: str | None = Field(default=None, description="Strategic standing + best angle.")
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+    objection_handling: list[Objection] = Field(default_factory=list)
+
+
+Mode = Literal["competitor", "client"]
+
+SCHEMA_FOR_MODE: dict[str, type[BaseModel]] = {
+    "competitor": Battlecard,
+    "client": AccountBrief,
+}
+
+
+# --------------------------------------------------------------------------- #
+# Competitor discovery (breadth step that feeds the depth Battlecard).
+# A discovery specialist turns one of OUR products into a list of rival names;
+# each name is then run through the existing competitor Battlecard (depth).
+# --------------------------------------------------------------------------- #
+class CompetitorCandidate(BaseModel):
+    """One discovered rival for a given product."""
+
+    name: str = Field(description="The competing company or product, named precisely (e.g. 'Glean').")
+    category: str = Field(description="The market category they compete in, e.g. 'Enterprise RAG search'.")
+    reason: str = Field(description="One sentence: why they compete with the given product.")
+
+
+class CompetitorList(BaseModel):
+    """The discovery specialist's output: rivals for one of our products."""
+
+    product: str = Field(description="Our product the rivals were found for.")
+    competitors: list[CompetitorCandidate] = Field(default_factory=list)
+
+
+# =========================================================================== #
+# SENTINEL-012 — Universal research agent: Project / Task / Plan / eval model.
+# These are the orchestration-layer row models that sit ABOVE the proven mode
+# engine. Enums (Autonomy/RiskTier/PersonaName) live in config/schema.py.
+# =========================================================================== #
+from sentinel.config.schema import (  # noqa: E402 — models below reference these enums
+    HIGH_STAKES_DOMAIN_MARKERS,
+    PersonaName,
+    ProjectSettings,
+    RiskTier,
+    Role,
+)
+
+
+class Domain(BaseModel):
+    """What is being researched → which source/tool set + output schema applies (SENTINEL-012).
+
+    ``risk_tier`` gates task creation: ``high_stakes`` (medicine/clinical, legal) is rejected this
+    program (AC-14). The tier is derived from the name via :func:`is_high_stakes`, but stored
+    explicitly so a persisted Task records the decision that was made at creation time.
+    """
+
+    name: str = Field(description="Domain key, e.g. 'market', 'food', 'software', 'academic'.")
+    risk_tier: RiskTier = "standard"
+
+
+class Persona(BaseModel):
+    """Who the output is for → rendering profile (data, not facts). Render-only (AC-17)."""
+
+    name: PersonaName = "enterprise"
+    reading_level: str = Field(default="professional", description="e.g. 'K-12', 'undergraduate', 'professional'.")
+    tone: str = Field(default="neutral", description="e.g. 'plain', 'clinical', 'technical', 'persuasive'.")
+    format: str = Field(default="brief", description="e.g. 'bullets', 'brief', 'report', 'one-pager'.")
+    source_policy: str | None = Field(
+        default=None, description="Credible-source policy for this audience, e.g. 'peer-reviewed only'."
+    )
+
+
+def is_high_stakes(domain_name: str) -> bool:
+    """Return True if ``domain_name`` names a high-stakes domain that must be blocked at task
+    creation (SENTINEL-012 AC-14).
+
+    SAFETY-CRITICAL. A false negative here lets a clinical/legal research task through the gate —
+    exactly what §9.3 scopes out until we have an enforced source allow-list + factuality eval.
+    Prefer over-blocking (false positive) to under-blocking. Matching is against
+    :data:`HIGH_STAKES_DOMAIN_MARKERS` (config/schema.py).
+
+    Strategy: normalise (lowercase + split on non-alphanumerics) into tokens, then block if ANY
+    token is a high-stakes marker. Token-level (not substring) avoids false positives like
+    "legalese-checker" while still catching "Clinical Research" and "med-device". Over-blocking is
+    preferred to under-blocking for this safety gate.
+    """
+    import re
+
+    tokens = {t for t in re.split(r"[^a-z0-9]+", domain_name.lower()) if t}
+    return bool(tokens & HIGH_STAKES_DOMAIN_MARKERS)
+
+
+class Project(BaseModel):
+    """A research project — the top-level organising construct (SENTINEL-012)."""
+
+    id: str
+    name: str
+    website: str | None = None
+    source_docs: list[str] = Field(default_factory=list, description="Paths/URLs of supplied context docs.")
+    settings: ProjectSettings = Field(default_factory=ProjectSettings)
+    created_at: str = Field(description="ISO-8601 UTC timestamp (caller-supplied; no wall-clock in models).")
+
+
+TaskStatus = Literal["created", "planned", "running", "done", "failed", "rejected"]
+
+
+class Task(BaseModel):
+    """A unit of research within a project: objective × domain × persona (SENTINEL-012)."""
+
+    id: str
+    project_id: str
+    objective: str = Field(description="What to research — free text or a resolved template.")
+    domain: Domain
+    persona: Persona = Field(default_factory=Persona)
+    status: TaskStatus = "created"
+    plan_id: str | None = None
+    created_at: str = Field(description="ISO-8601 UTC timestamp (caller-supplied).")
+    # The latest run output, persisted on the task so it lives at the task's own URL (PRG): Approve &
+    # Run redirects to /tasks/{id}, which re-renders this instead of the result being trapped in a POST
+    # response body. Forward-ref to ``Result`` (defined below) — resolved by ``Task.model_rebuild()`` at
+    # module end. Rides in the existing ``tasks.data`` JSON column ⇒ no store-schema change (no ADR).
+    result: "Result | None" = Field(default=None, description="Latest persisted run Result (render-only).")
+
+
+StepStatus = Literal["pending", "running", "done", "failed", "skipped"]
+
+
+class Step(BaseModel):
+    """One node in a Plan DAG (SENTINEL-012 §1). Distinct from ``modes.spec.StepSpec`` (a mode
+    definition) — this is a *runtime* step with dependencies and status."""
+
+    id: str
+    capability: str = Field(description="The capability this step needs, e.g. 'self_profile', 'compare'.")
+    depends_on: list[str] = Field(default_factory=list, description="Step ids that must finish first.")
+    agent_spec_id: str | None = Field(default=None, description="Resolved/created AgentSpec; None until staffed.")
+    inputs: dict[str, str] = Field(default_factory=dict, description="output_key → state-key wiring.")
+    output_key: str = Field(description="State key this step writes its result under.")
+    status: StepStatus = "pending"
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+PlanStatus = Literal["proposed", "approved", "running", "done", "failed"]
+
+
+class Plan(BaseModel):
+    """The orchestrator's output: an inspectable step-DAG (SENTINEL-012)."""
+
+    id: str
+    task_id: str
+    steps: list[Step] = Field(default_factory=list)
+    status: PlanStatus = "proposed"
+
+
+class AgentSpec(BaseModel):
+    """A reusable, versioned specialist definition (SENTINEL-012 §10.3). Keyed by
+    ``(capability, domain)`` + ``version``; the registry reuses the highest-scoring active spec
+    rather than rebuilding per task (AC-21). ``origin`` distinguishes seed skills from
+    planner-created ones; created specs are validated before they can run (AC-12)."""
+
+    id: str
+    name: str
+    capability: str = Field(description="What this agent does — the registry lookup key.")
+    domain: str = Field(description="The domain it was tuned for; pairs with capability as the key.")
+    role: Role = Field(description="tool-caller vs reasoner (drives the two-pass partition + tool guard).")
+    skill_prompt: str = Field(description="The agent's instruction/prompt.")
+    tools: list[str] = Field(default_factory=list, description="Tool names; MUST be empty for a reasoner.")
+    output_schema_ref: str = Field(description="Name of a known artifact schema (validated against a registry).")
+    boundaries: list[Boundary] = Field(
+        default_factory=lambda: [Boundary.PUBLIC],
+        description="Boundaries this agent may touch; FIXED on the spec (no runtime escalation, §9.2).",
+    )
+    origin: Literal["registry", "created"] = "registry"
+    version: int = 1
+    eval_score: float | None = Field(default=None, description="Latest aggregate eval score; None until graded.")
+    active: bool = Field(default=True, description="Whether this version is the active one for its key.")
+
+
+class GradeReport(BaseModel):
+    """Output of a grader (SENTINEL-012 §10.1). ``hard_failures`` block; other failing ``checks`` flag."""
+
+    passed: bool
+    grader: Literal["code", "model"] = "code"
+    hard_failures: list[str] = Field(default_factory=list)
+    checks: dict[str, bool] = Field(default_factory=dict, description="check name → passed.")
+    score: float | None = Field(default=None, description="Aggregate 0-1 (model grader); None for pure code grade.")
+    notes: str | None = None
+
+
+class RubricScore(BaseModel):
+    """LLM-as-judge rubric (SENTINEL-012 §10.1). Each axis 1-5; independent judge model."""
+
+    relevance: int = Field(ge=1, le=5)
+    faithfulness: int = Field(ge=1, le=5)
+    completeness: int = Field(ge=1, le=5)
+    actionability: int = Field(ge=1, le=5)
+    persona_fit: int = Field(ge=1, le=5)
+    justification: str = Field(description="One paragraph: why these scores, tied to the artifact.")
+
+
+# --------------------------------------------------------------------------- #
+# New domain-skill output schemas (the BiltIQ value chain, SENTINEL-012 §2.4).
+# --------------------------------------------------------------------------- #
+class ProductProfile(BaseModel):
+    """One of OUR products, as profiled by the self_profile skill."""
+
+    name: str
+    category: str
+    positioning: str = Field(description="How we position this product.")
+    strengths: list[str] = Field(default_factory=list)
+
+
+class SelfProfile(BaseModel):
+    """Output of the ``self_profile`` skill: our own org/products (the 'us' side of the compare)."""
+
+    org: str = Field(description="Our organisation/brand.")
+    products: list[ProductProfile] = Field(default_factory=list)
+    sources: list[Source] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list)
+
+
+class ComparisonAxis(BaseModel):
+    """A single us-vs-them comparison dimension."""
+
+    axis: str = Field(description="The dimension compared, e.g. 'pricing', 'integrations', 'SLA'.")
+    ours: str = Field(description="Our position on this axis.")
+    theirs: str = Field(description="The rival's position on this axis.")
+    verdict: Literal["win", "lose", "parity"]
+    note: str | None = None
+
+
+class ComparisonMatrix(BaseModel):
+    """Output of the ``compare`` skill: our product vs one rival across axes (SENTINEL-012 §2.4)."""
+
+    subject: str = Field(description="Our product.")
+    rival: str = Field(description="The competitor product/company.")
+    axes: list[ComparisonAxis] = Field(default_factory=list)
+    sources: list[Source] = Field(default_factory=list)
+
+
+class ProgramStrategy(BaseModel):
+    """Project-level, cross-product market-capture strategy (SENTINEL-012 §9.6). Consumes the SET of
+    ComparisonMatrix results — distinct from the per-artifact ``StrategyOverlay``."""
+
+    assessment: str = Field(description="Where we stand across the product line + the overall angle.")
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+    ran_on_partial_data: bool = Field(
+        default=False, description="True if some comparisons were missing when this was synthesised (§9.4)."
+    )
+
+
+class Result(BaseModel):
+    """The deliverable of an orchestrated Task (SENTINEL-012 §1). ``degraded``/``missing_inputs``
+    surface fail-soft state so a partial run is reported, never silently presented as complete (§9.4)."""
+
+    task_id: str
+    summary: str = Field(default="", description="Human-readable headline of what was produced.")
+    artifacts: list[str] = Field(default_factory=list, description="Refs (ids) to produced artifacts.")
+    citations: list[Source] = Field(default_factory=list)
+    dashboard_payload: dict = Field(default_factory=dict, description="UI render data (map/matrix/strategy).")
+    grade: GradeReport | None = None
+    persona_rendered: str | None = Field(
+        default=None,
+        description="Audience-adapted prose for the task's persona (render-only; facts unchanged, AC-8/17).",
+    )
+    degraded: bool = False
+    missing_inputs: list[str] = Field(default_factory=list)
+
+
+# A registry of artifact schemas that an AgentSpec.output_schema_ref may name (SENTINEL-012 §9.2).
+# Used by validate_agent_spec to reject specs that point at an unknown schema.
+KNOWN_OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
+    "Battlecard": Battlecard,
+    "AccountBrief": AccountBrief,
+    "CompetitorList": CompetitorList,
+    "SelfProfile": SelfProfile,
+    "ComparisonMatrix": ComparisonMatrix,
+    "ProgramStrategy": ProgramStrategy,
+}
+
+
+# ``Task.result`` is a forward reference to ``Result`` (defined above, after ``Task``). Rebuild the
+# model now that ``Result`` is in module scope so the annotation resolves.
+Task.model_rebuild()

@@ -1,0 +1,18 @@
+[
+  {
+    "case_id": "market-self-profile-biltiq",
+    "domain": "market",
+    "capability": "self_profile",
+    "objective": "Profile BiltIQ's product line (name, category, positioning, strengths) for use as the 'us' side of a competitive comparison. Public sources only; record any gap rather than guessing.",
+    "input": {
+      "target": "BiltIQ",
+      "allowed_boundaries": ["public"]
+    },
+    "allowed_boundaries": ["public"],
+    "expect": {
+      "org": "BiltIQ",
+      "min_products": 1,
+      "must_cite": true
+    }
+  }
+]

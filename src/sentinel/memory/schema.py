@@ -1,0 +1,165 @@
+"""Memory data models (SENTINEL-002).
+
+The boundary type is the *same* enum the tool layer and artifacts use — re-exported here as
+``DataBoundary`` — so a finding's ``source.boundary`` is, unchanged, the memory entry's boundary.
+That single shared type is what lets the sovereignty guarantee extend from the tools into storage
+without a translation layer that could mis-tag private data as public.
+
+Models are storage-shaped (flat, JSON/SQLite-friendly). SM-2 reinforcement state lives on the
+entry itself; the pure kernel that evolves it is in ``strength.py``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from datetime import datetime, timezone
+from enum import Enum
+from uuid import uuid4
+
+from pydantic import BaseModel, Field, model_validator
+
+# One boundary type across tool layer, artifacts, and memory (the whole point).
+from sentinel.artifacts.schemas import Boundary as DataBoundary
+from sentinel.artifacts.schemas import Source
+
+__all__ = [
+    "DataBoundary",
+    "MemoryType",
+    "MemoryEntry",
+    "RunRecord",
+    "MemoryDelta",
+    "EntitySummary",
+    "content_hash",
+    "normalize_entity",
+    "utcnow",
+]
+
+_WS = re.compile(r"\s+")
+
+
+def utcnow() -> datetime:
+    """Timezone-aware UTC now — the single clock for all memory timestamps."""
+    return datetime.now(timezone.utc)
+
+
+def normalize_entity(name: str) -> str:
+    """Case-insensitive, whitespace-collapsed entity key (OQ-2: exact-match identity for v1)."""
+    return _WS.sub(" ", name.strip().lower())
+
+
+def content_hash(text: str) -> str:
+    """Stable hash of normalized text — the dedup key (AC-7)."""
+    norm = _WS.sub(" ", text.strip().lower())
+    return hashlib.sha1(norm.encode("utf-8")).hexdigest()
+
+
+class MemoryType(str, Enum):
+    FINDING = "finding"
+    PREFERENCE = "preference"
+    DECISION = "decision"
+    OBSERVATION = "observation"
+
+
+class MemoryEntry(BaseModel):
+    """One boundary-tagged fact about an entity, with SM-2 reinforcement state (AC-2)."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    entity: str
+    boundary: DataBoundary
+    memory_type: MemoryType = MemoryType.FINDING
+    content: str
+    source_label: str = ""
+    source_url: str | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+    content_hash: str = ""
+    # SM-2 / Leitner state (see strength.py)
+    strength: float = 1.0
+    interval_days: float = 1.0
+    ease: float = 2.5
+    last_reinforced_at: datetime = Field(default_factory=utcnow)
+    access_count: int = 0
+    quarantined: bool = False
+    # Best-effort project provenance (SENTINEL-012 / ADR-0003). NOT a scoping key: memory is
+    # entity-keyed and deliberately cross-project, so `recall` never filters by it. Records the
+    # first writer of a deduped fact; None for legacy/unscoped entries.
+    project_id: str | None = None
+
+    @model_validator(mode="after")
+    def _derive(self) -> "MemoryEntry":
+        # Normalize the key and backfill the dedup hash. Idempotent on reload from the DB.
+        self.entity = normalize_entity(self.entity)
+        if not self.content_hash:
+            self.content_hash = content_hash(self.content)
+        return self
+
+
+class RunRecord(BaseModel):
+    """Episodic record of one completed run — feeds the dashboard and the delta (AC-1, AC-8)."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    entity: str
+    target: str
+    mode: str
+    backend: str
+    kind: str = ""
+    public: int = 0
+    private: int = 0
+    gaps: int = 0
+    reference: str = ""
+    finding_texts: list[str] = Field(default_factory=list)
+    # Run versioning / provenance (SENTINEL-008): the run's cited sources + a 1-based per-entity
+    # sequence. Default empty/0 so old rows (pre-008) read back cleanly (AC-8).
+    sources: list[Source] = Field(default_factory=list)
+    run_seq: int = 0
+    # Project scoping key (SENTINEL-012 / ADR-0003). Runs are episodic, so this is a real filter
+    # key (the dashboard reads scope by it). None for legacy/unscoped runs.
+    project_id: str | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+
+    @model_validator(mode="after")
+    def _norm(self) -> "RunRecord":
+        self.entity = normalize_entity(self.entity)
+        return self
+
+
+class MemoryDelta(BaseModel):
+    """"Since last run" diff between this run and the prior run for the same entity (AC-8)."""
+
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+    summary: str = ""
+    prior_run_at: datetime | None = None
+
+
+class EntitySummary(BaseModel):
+    """One row of the Accounts index (SENTINEL-004) — a RunStore-derived read-model.
+
+    Aggregates every run against one normalized ``entity`` key: how many, when last, and the
+    cumulative public/private provenance split. No memory dependency — the index answers "what
+    have we researched and how often", independent of what the agent currently remembers.
+    """
+
+    entity: str            # normalized key (whitespace-collapsed, lowercased)
+    display_name: str      # most-recent RunRecord.target (the original-cased string)
+    runs: int
+    last_run_at: datetime
+    public: int            # cumulative across runs (AC-6: equals the per-run sum)
+    private: int
+    modes: list[str] = Field(default_factory=list)   # distinct modes seen
+    kinds: list[str] = Field(default_factory=list)    # distinct artifact kinds
+
+    @classmethod
+    def from_runs(cls, entity: str, runs: list["RunRecord"]) -> "EntitySummary":
+        """Aggregate one entity's runs (newest-first, non-empty) into a summary. Shared by the
+        index (``RunStore.entities``) and the detail route so the counts can never drift."""
+        return cls(
+            entity=normalize_entity(entity),
+            display_name=runs[0].target,
+            runs=len(runs),
+            last_run_at=runs[0].created_at,
+            public=sum(r.public for r in runs),
+            private=sum(r.private for r in runs),
+            modes=sorted({r.mode for r in runs if r.mode}),
+            kinds=sorted({r.kind for r in runs if r.kind}),
+        )
