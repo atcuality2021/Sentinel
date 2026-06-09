@@ -67,33 +67,27 @@ def _capture_litellm(monkeypatch) -> dict:
 # --- AC-1: gateway auth by endpoint host ------------------------------------------------- #
 
 
-def test_atcuality_host_uses_atcuality_key(monkeypatch):
-    """A ``*.atcuality.com`` endpoint authenticates with ATCUALITY_API_KEY, not VLLM_API_KEY."""
+def test_all_vllm_hosts_use_vllm_key(monkeypatch):
+    """All vLLM endpoints — atcuality.com, omni, LAN — use the single VLLM_API_KEY."""
     captured = _capture_litellm(monkeypatch)
-    monkeypatch.setenv("ATCUALITY_API_KEY", "atc-secret")
-    monkeypatch.setenv("VLLM_API_KEY", "generic-secret")  # must be ignored for atcuality hosts
+    monkeypatch.setenv("VLLM_API_KEY", "mk-unified-secret")
 
     gateway.build_model("vllm", "gemma-4-12B", "https://gemma.atcuality.com/v1")
-    assert captured["api_key"] == "atc-secret"
-    # both tiering endpoints (12B gemma., 26B omni.) share the same host suffix → same key
+    assert captured["api_key"] == "mk-unified-secret"
+
     gateway.build_model("vllm", "gemma-4-26B", "https://omni.atcuality.com/v1")
-    assert captured["api_key"] == "atc-secret"
-
-
-def test_generic_vllm_host_uses_vllm_key(monkeypatch):
-    """A non-atcuality endpoint keeps the historical VLLM_API_KEY (backward-compatible)."""
-    captured = _capture_litellm(monkeypatch)
-    monkeypatch.setenv("ATCUALITY_API_KEY", "atc-secret")  # must be ignored for generic hosts
-    monkeypatch.setenv("VLLM_API_KEY", "generic-secret")
+    assert captured["api_key"] == "mk-unified-secret"
 
     gateway.build_model("vllm", "google/gemma-3-4b-it", "http://localhost:8000/v1")
-    assert captured["api_key"] == "generic-secret"
+    assert captured["api_key"] == "mk-unified-secret"
 
 
-def test_key_falls_back_to_not_needed_when_env_unset(monkeypatch):
+def test_key_falls_back_to_not_needed_when_all_keys_unset(monkeypatch):
+    # All three key env vars absent → "not-needed" (keyless dev server)
     captured = _capture_litellm(monkeypatch)
-    monkeypatch.delenv("ATCUALITY_API_KEY", raising=False)
     monkeypatch.delenv("VLLM_API_KEY", raising=False)
+    monkeypatch.delenv("ATCUALITY_API_KEY", raising=False)
+    monkeypatch.delenv("BILTIQ_LLM_KEY", raising=False)
 
     gateway.build_model("vllm", "gemma-4-12B", "https://gemma.atcuality.com/v1")
     assert captured["api_key"] == "not-needed"

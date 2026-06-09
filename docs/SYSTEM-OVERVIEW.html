@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sentinel — System Overview</title>
+<style>
+  :root {
+    --bg:#0b0e14; --panel:#151a23; --panel-2:#11151d;
+    --ink:#e8eaed; --muted:#9aa0a6; --line:#2a2f3a;
+    --public:#4ea1ff; --private:#ffb24d;
+    --accent:#4285f4; --accent-2:#8ab4f8;
+    --ok:#34a853; --bad:#ea4335; --warn:#f29900;
+    --chip:#1b212c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0; padding: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── layout ── */
+  .hero {
+    background: linear-gradient(135deg, #0f1622 0%, #142340 100%);
+    border-bottom: 1px solid var(--line);
+    padding: 56px 48px 48px;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content:''; position:absolute; top:-80px; right:-120px;
+    width:400px; height:400px; border-radius:50%;
+    background: radial-gradient(circle, rgba(66,133,244,.18) 0%, transparent 70%);
+    pointer-events:none;
+  }
+  .hero-badge {
+    display:inline-block; background:var(--chip); color:var(--accent-2);
+    font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+    padding:4px 12px; border-radius:20px; border:1px solid var(--line);
+    margin-bottom:20px;
+  }
+  .hero h1 {
+    font-size: clamp(28px,4vw,42px); font-weight:800;
+    margin: 0 0 12px; letter-spacing:-.5px;
+    background: linear-gradient(90deg, #e8eaed 0%, var(--accent-2) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero p { color:var(--muted); margin:0; font-size:16px; max-width:600px; }
+  .hero-stats {
+    display:flex; gap:32px; margin-top:28px; flex-wrap:wrap;
+  }
+  .stat { text-align:center; }
+  .stat-n { font-size:26px; font-weight:700; color:var(--accent-2); }
+  .stat-l { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; }
+
+  /* ── content ── */
+  .page { max-width:960px; margin:0 auto; padding:48px 32px 80px; }
+  h2 {
+    font-size:20px; font-weight:700; color:var(--ink);
+    margin: 48px 0 16px; padding-bottom:10px;
+    border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:10px;
+  }
+  h2 .icon { font-size:18px; }
+  h3 { font-size:15px; font-weight:600; color:var(--accent-2); margin:24px 0 8px; }
+  p { color:#c5c8ce; margin: 0 0 12px; }
+  code {
+    background:var(--chip); color:var(--accent-2); border-radius:4px;
+    padding:2px 6px; font-size:13px; font-family:"SF Mono",Menlo,Monaco,monospace;
+  }
+  pre {
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:20px 24px; overflow-x:auto; font-size:13px; line-height:1.5;
+    font-family:"SF Mono",Menlo,Monaco,monospace; color:#c5c8ce;
+    margin:16px 0;
+  }
+
+  /* ── tables ── */
+  table { width:100%; border-collapse:collapse; margin:16px 0; }
+  th {
+    background:var(--panel); color:var(--muted); font-size:11.5px;
+    font-weight:600; text-transform:uppercase; letter-spacing:.08em;
+    padding:10px 14px; text-align:left; border-bottom:1px solid var(--line);
+  }
+  td { padding:10px 14px; border-bottom:1px solid rgba(42,47,58,.5); color:#c5c8ce; font-size:13.5px; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  td code { font-size:12px; }
+
+  /* ── cards ── */
+  .card-grid {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+    gap:16px; margin:20px 0;
+  }
+  .card {
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:20px; transition:border-color .15s;
+  }
+  .card:hover { border-color:var(--accent); }
+  .card-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .card-icon {
+    width:36px; height:36px; border-radius:9px;
+    background:rgba(66,133,244,.15); border:1px solid rgba(66,133,244,.3);
+    display:flex; align-items:center; justify-content:center; font-size:18px;
+    flex:0 0 auto;
+  }
+  .card-title { font-size:14px; font-weight:600; }
+  .card-mode { font-size:11px; color:var(--muted); }
+  .card p { font-size:13px; color:var(--muted); margin:0; }
+  .tag {
+    display:inline-block; font-size:11px; padding:2px 8px;
+    border-radius:12px; background:var(--chip); color:var(--muted);
+    margin:4px 2px 0;
+  }
+  .tag-public { background:rgba(78,161,255,.12); color:var(--public); }
+  .tag-private { background:rgba(255,178,77,.12); color:var(--private); }
+  .tag-ok { background:rgba(52,168,83,.12); color:var(--ok); }
+
+  /* ── who benefits ── */
+  .benefit-grid {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+    gap:16px; margin:20px 0;
+  }
+  .benefit {
+    background:var(--panel-2); border:1px solid var(--line); border-radius:12px;
+    padding:20px;
+  }
+  .benefit h4 { font-size:14px; font-weight:600; margin:0 0 8px; color:var(--ink); }
+  .benefit p { font-size:13px; color:var(--muted); margin:0; }
+
+  /* ── architecture flow ── */
+  .flow {
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:24px; margin:16px 0;
+  }
+  .flow-row {
+    display:flex; align-items:center; gap:12px; margin:8px 0; flex-wrap:wrap;
+  }
+  .flow-box {
+    background:var(--chip); border:1px solid var(--line); border-radius:8px;
+    padding:8px 14px; font-size:13px; font-weight:500; white-space:nowrap;
+  }
+  .flow-arrow { color:var(--muted); font-size:18px; }
+
+  /* ── two-pass ── */
+  .pass-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0; }
+  .pass {
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:20px;
+  }
+  .pass-n { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin-bottom:6px; }
+  .pass-model { font-size:16px; font-weight:700; color:var(--accent-2); margin-bottom:8px; }
+  .pass p { font-size:13px; color:var(--muted); margin:0; }
+
+  /* ── footer ── */
+  footer {
+    border-top:1px solid var(--line);
+    color:var(--muted); font-size:12px;
+    text-align:center; padding:24px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════ HERO ═══════════════════════ -->
+<div class="hero">
+  <div class="hero-badge">Sentinel · Google AI Agents Challenge · 2026-06-11</div>
+  <h1>Sovereign Intelligence Agent</h1>
+  <p>Autonomous research-to-action pipeline for regulated organisations. Runs entirely on your own hardware — zero cloud egress, provably.</p>
+  <div class="hero-stats">
+    <div class="stat"><div class="stat-n">12,002</div><div class="stat-l">Python LOC</div></div>
+    <div class="stat"><div class="stat-n">66</div><div class="stat-l">Source Files</div></div>
+    <div class="stat"><div class="stat-n">539</div><div class="stat-l">Passing Tests</div></div>
+    <div class="stat"><div class="stat-n">9</div><div class="stat-l">Research Modes</div></div>
+    <div class="stat"><div class="stat-n">39</div><div class="stat-l">Agent Roles</div></div>
+  </div>
+</div>
+
+<div class="page">
+
+<!-- ═══════════════════════ WHAT IS SENTINEL ═══════════════════════ -->
+<h2><span class="icon">🛡</span>What Is Sentinel?</h2>
+<p>Sentinel is an <strong>autonomous research-to-action agent</strong>. You give it a target — a competitor, a client, a software product, a market, an academic topic, a destination — and it plans the work, runs a multi-agent research pipeline, synthesises a structured intelligence brief, and recommends prioritised next actions.</p>
+<p>The core moat: <strong>private data fusion without leakage</strong> + <strong>zero-cloud-egress mode</strong> for regulated deployments. Every finding carries a boundary tag (<code>PUBLIC</code> vs <code>PRIVATE</code>) enforced structurally at the memory layer — it cannot be bypassed by prompt.</p>
+
+<!-- ═══════════════════════ ARCHITECTURE ═══════════════════════ -->
+<h2><span class="icon">⚙️</span>Architecture</h2>
+
+<div class="flow">
+  <p style="color:var(--muted);font-size:13px;margin:0 0 16px">Research pipeline — every task follows this path</p>
+  <div class="flow-row">
+    <div class="flow-box">📝 Objective</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">🗺 DAG Planner</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">⚡ Parallel Steps</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">🔗 Synthesiser</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">📊 Artifact + Actions</div>
+  </div>
+  <div class="flow-row" style="margin-top:14px">
+    <div class="flow-box" style="border-color:var(--public)">🌐 Public Research</div>
+    <div class="flow-arrow">+</div>
+    <div class="flow-box" style="border-color:var(--private)">🔒 Private CRM/KB</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box" style="border-color:var(--ok)">Boundary-Enforced Merge</div>
+  </div>
+</div>
+
+<h3>Two-Pass Sovereign Engine</h3>
+<div class="pass-grid">
+  <div class="pass">
+    <div class="pass-n">Pass 1</div>
+    <div class="pass-model">Gemma-4 12B · Tool-Calling</div>
+    <p>Plans queries, calls web search, extracts per-source notes. Non-streamed to avoid 524 timeout. Handles all tool-use decisions.</p>
+  </div>
+  <div class="pass">
+    <div class="pass-n">Pass 2</div>
+    <div class="pass-model">Gemma-4 26B · Reasoning</div>
+    <p>Synthesises all extracted notes into the structured output schema. SSE-streamed to the browser. Handles all long-form reasoning.</p>
+  </div>
+</div>
+<p style="color:var(--muted);font-size:13px">The two models never run simultaneously — tool-calling and reasoning are architecturally separated. Under <code>on_prem_required</code>, no Gemini object is constructed.</p>
+
+<!-- ═══════════════════════ RESEARCH MODES ═══════════════════════ -->
+<h2><span class="icon">🔬</span>9 Research Modes</h2>
+<div class="card-grid">
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-icon">⚔️</div>
+      <div><div class="card-title">Competitor Intel</div><div class="card-mode">mode: competitor → Battlecard</div></div>
+    </div>
+    <p>Strengths, weaknesses, pricing signals, recent moves, counter-positioning. Used by sales teams before deals.</p>
+    <span class="tag tag-public">Public web</span>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-icon">🤝</div>
+      <div><div class="card-title">Account Brief</div><div class="card-mode">mode: client → AccountBrief</div></div>
+    </div>
+    <p>Public news + private CRM signals merged. Objection handling, strategy overlay, recommended next actions.</p>
+    <span class="tag tag-public">Public</span><span class="tag tag-private">Private CRM</span>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-icon">🏢</div>
+      <div><div class="card-title">Self Profile</div><div class="card-mode">mode: self_profile → SelfProfile</div></div>
+    </div>
+    <p>Your own org / product profile — auto-populated on every comparison run to anchor the "us" side.</p>
+    <span class="tag tag-public">Public</span>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-icon">📊</div>
+      <div><div class="card-title">Comparison Matrix</div><div class="card-mode">mode: compare → ComparisonMatrix</div></div>
+    </div>
+    <p>Axis-by-axis win/lose/parity table. Run per rival; program strategy synthesises across all results.</p>
+    <span class="tag tag-public">Public</span>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-icon">💻</div>
+      <div><div class="card-title">Software Evaluation</div><div class="card-mode">mode: software → SoftwareBrief</div></div>
+    </div>
+    <p>Tech stack, API quality, community health, maintenance, pricing, alternatives. Build/buy/adopt decisions.</p>
+    <span class="tag tag-public">Public</span>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-icon">📈</div>
+      <div><div class="card-title">Financial Profile</div><div class="card-mode">mode: finance → FinancialProfile</div></div>
+    </div>
+    <p>Key metrics, market position, risk signals, investment thesis. Cited sources only — no hallucinated numbers.</p>
+    <span class="tag tag-public">Public</span>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-icon">🎓</div>
+      <div><div class="card-title">Academic Survey</div><div class="card-mode">mode: academic → AcademicBrief</div></div>
+    </div>
+    <p>Literature survey on any topic. Cited findings, open research gaps, notable researchers, methodology notes.</p>
+    <span class="tag tag-public">Public</span>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-icon">🥗</div>
+      <div><div class="card-title">Nutrition Brief</div><div class="card-mode">mode: nutrition → NutritionBrief</div></div>
+    </div>
+    <p>Evidence-based claims from RCTs and systematic reviews. Dosage guidance, contraindications, evidence quality rating.</p>
+    <span class="tag tag-public">Public</span>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div class="card-icon">✈️</div>
+      <div><div class="card-title">Travel Brief</div><div class="card-mode">mode: travel → TravelBrief</div></div>
+    </div>
+    <p>Practical info, highlights, safety notes, budget guidance. For travel consultants and corporate travel ops.</p>
+    <span class="tag tag-public">Public</span>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════ MEMORY ═══════════════════════ -->
+<h2><span class="icon">🧠</span>Memory System — Three Tiers, SM-2</h2>
+<table>
+  <tr><th>Layer</th><th>What It Stores</th><th>Behaviour</th></tr>
+  <tr>
+    <td><strong>Semantic (entity)</strong></td>
+    <td>Facts extracted from past runs</td>
+    <td>SM-2 spaced-repetition: used facts strengthen; stale facts decay and drop</td>
+  </tr>
+  <tr>
+    <td><strong>Episodic</strong></td>
+    <td>Run records — what was researched, when, findings summary</td>
+    <td>Injected into new runs about the same entity; builds on prior context</td>
+  </tr>
+  <tr>
+    <td><strong>Procedural</strong></td>
+    <td>Strategy playbooks (Markdown, editable)</td>
+    <td>Loaded at runtime by the strategy agent step</td>
+  </tr>
+</table>
+
+<h3>User Feedback Loop (new)</h3>
+<p>Thumbs up (<code>+1</code>) reinforces SM-2 strength on entity facts — high-quality research stays in recall longer. Thumbs down (<code>-1</code>) weakens ease and strength — poor results decay faster. Feedback is persisted in SQLite and applied immediately via the <code>FeedbackStore._apply_to_memory</code> hook.</p>
+
+<!-- ═══════════════════════ GOVERNANCE ═══════════════════════ -->
+<h2><span class="icon">🔐</span>Governance / Sovereignty</h2>
+<table>
+  <tr><th>Mode</th><th>Meaning</th><th>Who Uses It</th></tr>
+  <tr>
+    <td><code>cloud_ok</code></td>
+    <td>Gemini allowed everywhere</td>
+    <td>Internal tools, prototypes, client-approved cloud</td>
+  </tr>
+  <tr>
+    <td><code>on_prem_preferred</code></td>
+    <td>Default on-prem; Gemini only with an ADR</td>
+    <td>Most BiltIQ / Sentinel deployments</td>
+  </tr>
+  <tr>
+    <td><code>on_prem_required</code></td>
+    <td>Hard block — no Gemini object constructed, provably</td>
+    <td>Healthcare, BFSI, Government, Defence, air-gapped</td>
+  </tr>
+</table>
+<p>Search providers: Gemini grounding · DuckDuckGo · Brave · SerpAPI · Google CSE · SearXNG. <code>block_cloud_on_private=True</code> forces on-prem for any run touching private data, even in <code>cloud_ok</code> mode.</p>
+
+<!-- ═══════════════════════ WHO BENEFITS ═══════════════════════ -->
+<h2><span class="icon">👥</span>Who Benefits</h2>
+<div class="benefit-grid">
+
+  <div class="benefit">
+    <h4>💼 Sales Teams</h4>
+    <p>Competitor name + product website → battlecard in ≤ 60 seconds. Pricing signals, recent moves, counter-positioning angles, next actions. CRM data never leaves your server.</p>
+  </div>
+
+  <div class="benefit">
+    <h4>📡 Competitive Intelligence Analysts</h4>
+    <p>Run N battlecards in parallel via the DAG. Program strategy synthesises across all rivals. No manual aggregation.</p>
+  </div>
+
+  <div class="benefit">
+    <h4>🛠 Engineering Teams</h4>
+    <p>Evaluate any tool, library, or API — tech stack, community health, API quality, pricing, alternatives. Structured, cited output for build/buy/adopt decisions.</p>
+  </div>
+
+  <div class="benefit">
+    <h4>📊 Financial Analysts / Investors</h4>
+    <p>Company profile, key metrics, risk signals, investment thesis. Evidence-only — every claim has a source URL. No hallucinated numbers.</p>
+  </div>
+
+  <div class="benefit">
+    <h4>🎓 Researchers / Students</h4>
+    <p>Literature survey on any topic. Cited findings, open research gaps, notable researchers, methodology notes. Academic mode with evidence quality ratings.</p>
+  </div>
+
+  <div class="benefit">
+    <h4>🏥 Regulated Organisations</h4>
+    <p><strong>The only intelligence system with a provable zero-egress mode.</strong> Research, reasoning, and memory all run on your GPUs. Boundary-tagged output proves what came from where. ISO/SOC/HIPAA-ready architecture.</p>
+  </div>
+
+  <div class="benefit">
+    <h4>🤝 Account Executives</h4>
+    <p>Client mode merges public news with your CRM history (MCP connector). The merged insight — what public + private together implies — drives recommended next actions.</p>
+  </div>
+
+  <div class="benefit">
+    <h4>🌍 Regulated SMBs (BFSI, Mfg, Edu)</h4>
+    <p>Full intelligence stack at SMB cost. DPIIT-recognized startup (BiltIQ AI / Aarna Tech, Jamshedpur). On-prem deployment, no per-query cloud fees.</p>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════ STACK ═══════════════════════ -->
+<h2><span class="icon">📦</span>Technology Stack</h2>
+<table>
+  <tr><th>Layer</th><th>Technology</th></tr>
+  <tr><td>Agent framework</td><td>Google ADK 2.2.0 — LlmAgent, SequentialAgent, InMemoryRunner, AgentTool</td></tr>
+  <tr><td>LLM backend</td><td>Gemma-4 12B (tool-calling) / 26B (reasoning) via vLLM; Gemini cloud fallback</td></tr>
+  <tr><td>Embedding</td><td>Qwen3-VL-Embedding-2B</td></tr>
+  <tr><td>Vector store</td><td>ChromaDB</td></tr>
+  <tr><td>Keyword search</td><td>BM25 (rank_bm25)</td></tr>
+  <tr><td>Reranker</td><td>Cross-encoder (ms-marco variant)</td></tr>
+  <tr><td>Web framework</td><td>FastAPI + server-rendered HTML; no SPA framework</td></tr>
+  <tr><td>Database</td><td>SQLite — projects, tasks, specs, memory, feedback, KB chunks</td></tr>
+  <tr><td>Crawler</td><td>Playwright → httpx fallback; SSRF-safe redirect following</td></tr>
+  <tr><td>Testing</td><td>pytest · 539 tests · zero flaky</td></tr>
+</table>
+
+</div><!-- /page -->
+
+<footer>
+  Sentinel · BiltIQ AI / Aarna Tech Consultants Pvt. Ltd., Jamshedpur, India ·
+  DPIIT-Recognized Startup · Last updated 2026-06-09
+</footer>
+
+</body>
+</html>

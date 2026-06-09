@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SENTINEL-015 · Build Plan</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; background: #0f0f0f; color: #e8e8e8; line-height: 1.6; }
+  h1 { color: #00d4ff; border-bottom: 2px solid #00d4ff; padding-bottom: 12px; }
+  h2 { color: #7c8cf8; margin-top: 40px; }
+  code { background: #1e1e2e; color: #7dd3fc; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+  .step { background: #12121e; border: 1px solid #2a2a3a; border-radius: 8px; padding: 20px; margin: 20px 0; }
+  .step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .step-num { background: #7c8cf8; color: #000; font-weight: 700; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .step-title { font-size: 17px; font-weight: 600; color: #e2e8f0; }
+  .step-file { font-size: 12px; color: #64748b; }
+  .ac { margin: 8px 0; padding-left: 20px; }
+  .ac li { margin: 4px 0; }
+  .ac li::marker { color: #4ade80; }
+  .risk { background: #2a1a0a; border-left: 3px solid #f59e0b; padding: 8px 12px; margin: 10px 0; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  th { background: #1a1a2e; color: #a5b4fc; text-align: left; padding: 10px 12px; }
+  td { padding: 9px 12px; border-bottom: 1px solid #2a2a3a; }
+  .callout { background: #1a2a1a; border-left: 4px solid #22c55e; padding: 12px 16px; margin: 20px 0; border-radius: 0 6px 6px 0; }
+</style>
+</head>
+<body>
+
+<h1>SENTINEL-015 · Build Plan</h1>
+
+<p>
+  <strong>Deadline:</strong> 2026-06-11 17:00 PT · <strong>Estimated build time:</strong> 4–6 hours<br>
+  <strong>Test target:</strong> 513 existing + ≥8 new = ≥521 passing<br>
+  <strong>Risk level:</strong> LOW — all changes are additive; no existing behavior is altered when new flags are off.
+</p>
+
+<h2>Build Sequence</h2>
+
+<div class="step">
+  <div class="step-header">
+    <div class="step-num">1</div>
+    <div>
+      <div class="step-title">Schema: add MemoryConfig.episodic_recall + BackendConfig.max_turns/max_retries</div>
+      <div class="step-file">src/sentinel/config/schema.py</div>
+    </div>
+  </div>
+  <p>Add 3 fields to <code>MemoryConfig</code>: <code>episodic_recall: bool = True</code>, <code>episodic_recall_top_k: int = 3</code>.<br>
+  Add 3 fields to <code>BackendConfig</code>: <code>max_turns: int = 30</code>, <code>max_retries: int = 3</code>, <code>base_retry_delay_s: float = 1.0</code>.</p>
+  <ul class="ac">
+    <li>All 6 fields have safe defaults — existing configs that don't specify them get default behavior.</li>
+    <li>Pydantic validators ensure ge=1 bounds on int fields.</li>
+  </ul>
+  <div class="risk">Risk: None. Additive fields with defaults. All pre-015 SentinelConfig round-trips unchanged.</div>
+</div>
+
+<div class="step">
+  <div class="step-header">
+    <div class="step-num">2</div>
+    <div>
+      <div class="step-title">RunStore.recall_episodes() — episodic retrieval method</div>
+      <div class="step-file">src/sentinel/memory/store.py</div>
+    </div>
+  </div>
+  <p>Add <code>recall_episodes(target, *, top_k=3, mode=None) → list[RunRecord]</code> to <code>RunStore</code>.<br>
+  Two-phase: (1) exact entity match, (2) LIKE keyword search on <code>finding_texts</code>. Dedup by entity. Fail-soft.</p>
+  <ul class="ac">
+    <li>Returns [] when no records or on any exception.</li>
+    <li>Exact match takes precedence over keyword match.</li>
+    <li>Keywords shorter than 4 chars are excluded (stop-word proxy).</li>
+    <li>No new SQL tables or indexes required.</li>
+  </ul>
+  <div class="risk">Risk: None. Read-only. The query pattern (LIKE on TEXT) is already used in existing test code.</div>
+</div>
+
+<div class="step">
+  <div class="step-header">
+    <div class="step-num">3</div>
+    <div>
+      <div class="step-title">_render_episodic_context() + extend _recall_memory()</div>
+      <div class="step-file">src/sentinel/agent/orchestrator.py</div>
+    </div>
+  </div>
+  <p>Add <code>_render_episodic_context(episodes) → str</code>. Returns "" when episodes is empty (AC-10 parity).<br>
+  Extend <code>_recall_memory()</code> to also call <code>RunStore.recall_episodes()</code> and append episodic context.<br>
+  Store episode/entity counts on cfg (temp) for trace emission in <code>run_async()</code>.</p>
+  <ul class="ac">
+    <li>When <code>cfg.memory.episodic_recall = False</code>, episodes = [] and context is "".</li>
+    <li>Episodic block has its own heading and a "do not present as freshly found" instruction.</li>
+    <li>Top 5 finding snippets per episode (150 chars each).</li>
+  </ul>
+  <div class="risk">Risk: Low. The memory_context string appended to synthesizer already works; episodic block is an additional append.</div>
+</div>
+
+<div class="step">
+  <div class="step-header">
+    <div class="step-num">4</div>
+    <div>
+      <div class="step-title">run_step() — add max_turns + retry policy</div>
+      <div class="step-file">src/sentinel/agent/orchestrator.py</div>
+    </div>
+  </div>
+  <p>Add <code>max_turns: int | None = None</code>, <code>max_retries: int = 3</code>, <code>base_retry_delay_s: float = 1.0</code> params to <code>run_step()</code>.<br>
+  Pass <code>max_llm_calls=turns</code> to <code>RunConfig</code>. Wrap the body in a retry loop with exponential backoff.<br>
+  Add <code>_configured_max_turns()</code> helper (reads from global config, mirrors <code>_configured_max_concurrency</code>).</p>
+  <ul class="ac">
+    <li>On success, returns on first attempt (zero overhead).</li>
+    <li>Retry delay is skipped in tests (pass <code>base_retry_delay_s=0.0</code> in test fixtures).</li>
+    <li>Trace logs each failed attempt with delay before re-raise.</li>
+    <li>All callers of run_step() continue to work — new params have defaults.</li>
+  </ul>
+  <div class="risk">
+    Risk: Medium. <code>RunConfig.max_llm_calls</code> must exist on the installed ADK version.
+    If it doesn't, the field is passed as an unknown kwarg. Mitigation: wrap in
+    <code>try/except TypeError</code> and fall back to <code>RunConfig(streaming_mode=streaming)</code>.
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-header">
+    <div class="step-num">5</div>
+    <div>
+      <div class="step-title">run_async() — wire trace entry + pass max_turns/max_retries to run_step</div>
+      <div class="step-file">src/sentinel/agent/orchestrator.py</div>
+    </div>
+  </div>
+  <p>After <code>_recall_memory()</code>, emit the trace line <code>"memory: N entity facts + M episodes recalled"</code>.<br>
+  Pass <code>max_turns=cfg.backend.max_turns</code>, <code>max_retries=cfg.backend.max_retries</code> through <code>_execute_pipeline</code> to <code>run_step</code>.</p>
+  <ul class="ac">
+    <li>Trace format consistent with existing trace entries.</li>
+    <li>No change to RunResult shape.</li>
+  </ul>
+  <div class="risk">Risk: None. The trace is additive.</div>
+</div>
+
+<div class="step">
+  <div class="step-header">
+    <div class="step-num">6</div>
+    <div>
+      <div class="step-title">governance.py — search provider auto-upgrade DDG→Brave</div>
+      <div class="step-file">src/sentinel/agent/governance.py</div>
+    </div>
+  </div>
+  <p>In <code>effective_search_provider()</code>, after resolving the provider: if provider is <code>duckduckgo</code>
+  and <code>BRAVE_API_KEY</code> env var is non-empty, return <code>brave</code> instead.</p>
+  <ul class="ac">
+    <li>Only upgrades DDG → Brave. Any other provider is untouched.</li>
+    <li>Disabled by setting <code>search.provider: searxng</code> (or any non-duckduckgo value).</li>
+    <li>No key validation in governance — <code>web_search._brave()</code> handles missing-key gracefully.</li>
+  </ul>
+  <div class="risk">Risk: None. The Brave backend already exists in web_search.py and is tested.</div>
+</div>
+
+<div class="step">
+  <div class="step-header">
+    <div class="step-num">7</div>
+    <div>
+      <div class="step-title">dag.py — inject episodic context into run_dag base_seed</div>
+      <div class="step-file">src/sentinel/agent/dag.py</div>
+    </div>
+  </div>
+  <p>At the top of <code>run_dag()</code>: if <code>cfg.memory.episodic_recall</code>, call <code>RunStore.recall_episodes(target)</code>
+  and append the rendered context to <code>memory_context</code> before passing to <code>_execute_plan</code>.</p>
+  <ul class="ac">
+    <li>Fail-soft: any exception in the recall is swallowed, memory_context stays unchanged.</li>
+    <li>Works for all domain specialist runs (software/finance/academic/nutrition/travel).</li>
+  </ul>
+  <div class="risk">Risk: None. The base_seed merge is additive.</div>
+</div>
+
+<div class="step">
+  <div class="step-header">
+    <div class="step-num">8</div>
+    <div>
+      <div class="step-title">sentinel.config.yaml — add new config fields</div>
+      <div class="step-file">sentinel.config.yaml (local, gitignored)</div>
+    </div>
+  </div>
+  <p>Add under <code>memory:</code>: <code>episodic_recall: true</code>, <code>episodic_recall_top_k: 3</code>.<br>
+  Add under <code>backend:</code>: <code>max_turns: 30</code>, <code>max_retries: 3</code>, <code>base_retry_delay_s: 1.0</code>.</p>
+  <div class="risk">Risk: None. Config file is local/gitignored.</div>
+</div>
+
+<div class="step">
+  <div class="step-header">
+    <div class="step-num">9</div>
+    <div>
+      <div class="step-title">Tests — tests/test_sentinel_015_memory.py</div>
+      <div class="step-file">tests/test_sentinel_015_memory.py (new)</div>
+    </div>
+  </div>
+  <p>New test file covering:</p>
+  <ul class="ac">
+    <li><code>test_recall_episodes_exact_match</code> — insert run records, verify exact entity match is returned</li>
+    <li><code>test_recall_episodes_keyword_match</code> — verify finding_texts LIKE search works</li>
+    <li><code>test_recall_episodes_empty_on_no_records</code> — empty DB returns []</li>
+    <li><code>test_recall_episodes_deduped_by_entity</code> — two runs for same entity → only most recent returned</li>
+    <li><code>test_render_episodic_context_empty</code> — returns "" for empty list</li>
+    <li><code>test_render_episodic_context_format</code> — expected heading and snippet in output</li>
+    <li><code>test_episodic_recall_gated_by_flag</code> — setting episodic_recall=False yields "" context</li>
+    <li><code>test_run_step_retry_on_failure</code> — mock runner that fails N times → retries → success</li>
+    <li><code>test_run_step_propagates_after_max_retries</code> — fails after max_retries exhausted</li>
+    <li><code>test_memory_config_episodic_defaults</code> — new fields have correct defaults</li>
+    <li><code>test_backend_config_turn_defaults</code> — max_turns/max_retries defaults</li>
+  </ul>
+  <div class="risk">Risk: None. Pure unit tests with in-memory SQLite and mock runners.</div>
+</div>
+
+<div class="step">
+  <div class="step-header">
+    <div class="step-num">10</div>
+    <div>
+      <div class="step-title">Verify: run full test suite, check trace output on a live run</div>
+      <div class="step-file">—</div>
+    </div>
+  </div>
+  <ul class="ac">
+    <li>Run <code>python -m pytest tests/ -q</code> — target ≥521 passing, 0 failures.</li>
+    <li>Optionally: curl the live server to run a software domain task and check the trace for "episodes recalled".</li>
+  </ul>
+</div>
+
+<h2>Timeline</h2>
+<table>
+  <tr><th>Step</th><th>Estimated time</th><th>Notes</th></tr>
+  <tr><td>1 (schema)</td><td>15 min</td><td>Straightforward field additions</td></tr>
+  <tr><td>2 (recall_episodes)</td><td>30 min</td><td>Includes testing the SQL queries work</td></tr>
+  <tr><td>3 (render + _recall_memory)</td><td>30 min</td><td>String formatting, careful integration</td></tr>
+  <tr><td>4 (run_step retry + max_turns)</td><td>45 min</td><td>Careful with ADK RunConfig compatibility</td></tr>
+  <tr><td>5 (run_async wiring)</td><td>20 min</td><td>Threading params through the call chain</td></tr>
+  <tr><td>6 (governance)</td><td>10 min</td><td>1-line change + test</td></tr>
+  <tr><td>7 (dag.py)</td><td>20 min</td><td>Fail-soft injection</td></tr>
+  <tr><td>8 (config.yaml)</td><td>5 min</td><td>Add fields</td></tr>
+  <tr><td>9 (tests)</td><td>60 min</td><td>11 test cases</td></tr>
+  <tr><td>10 (verify)</td><td>15 min</td><td>Full test run</td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>~4 hours</strong></td><td>Well within deadline</td></tr>
+</table>
+
+<div class="callout">
+  <strong>Approval required before Step 1.</strong> This plan is ready for dev review.
+  Approve to start build. Any step can be scoped out without breaking the others — they are
+  independent. Recommended minimum for the demo: Steps 1–5 (episodic memory + retry + turn guard).
+</div>
+
+</body>
+</html>

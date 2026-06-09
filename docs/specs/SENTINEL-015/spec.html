@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SENTINEL-015 · Agent Memory &amp; Harness Upgrade Spec</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; background: #0f0f0f; color: #e8e8e8; line-height: 1.6; }
+  h1 { color: #00d4ff; border-bottom: 2px solid #00d4ff; padding-bottom: 12px; }
+  h2 { color: #7c8cf8; margin-top: 40px; }
+  h3 { color: #a5b4fc; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; margin-right: 8px; }
+  .must { background: #7f1d1d; color: #fca5a5; }
+  .should { background: #78350f; color: #fcd34d; }
+  .may { background: #1e3a5f; color: #93c5fd; }
+  .blocked { background: #1f1f1f; color: #6b7280; }
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  th { background: #1a1a2e; color: #a5b4fc; text-align: left; padding: 10px 12px; }
+  td { padding: 9px 12px; border-bottom: 1px solid #2a2a3a; vertical-align: top; }
+  tr:nth-child(even) td { background: #12121e; }
+  code { background: #1e1e2e; color: #7dd3fc; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+  .callout { background: #1a2a1a; border-left: 4px solid #22c55e; padding: 12px 16px; margin: 20px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { background: #2a1a0a; border-left-color: #f59e0b; }
+  .callout-err { background: #2a0a0a; border-left-color: #ef4444; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
+  .meta-box { background: #1a1a2e; padding: 16px; border-radius: 8px; }
+  .meta-box dt { color: #7c8cf8; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+  .meta-box dd { margin: 4px 0 12px 0; }
+  .gap-row { display: flex; gap: 12px; margin: 8px 0; align-items: flex-start; }
+  .gap-tag { min-width: 100px; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 3px; text-align: center; }
+  .gap-critical { background: #7f1d1d; color: #fca5a5; }
+  .gap-high { background: #78350f; color: #fcd34d; }
+  .gap-medium { background: #1e3a5f; color: #93c5fd; }
+  .gap-post { background: #1f1f1f; color: #6b7280; }
+</style>
+</head>
+<body>
+
+<h1>SENTINEL-015 · Agent Memory &amp; Harness Upgrade</h1>
+
+<div class="meta-grid">
+  <div class="meta-box">
+    <dl>
+      <dt>Task ID</dt><dd>SENTINEL-015</dd>
+      <dt>Author</dt><dd>Harish / Claude (Sonnet 4.6)</dd>
+      <dt>Created</dt><dd>2026-06-09</dd>
+      <dt>Deadline</dt><dd>2026-06-11 17:00 PT (Google AI Challenge)</dd>
+    </dl>
+  </div>
+  <div class="meta-box">
+    <dl>
+      <dt>Phase</dt><dd>Think ✓ → Spec (this) → Design → Plan → Build</dd>
+      <dt>Input materials</dt><dd>ATC Manthan v2.0 spec (21pp), 8 architecture images</dd>
+      <dt>Compliance</dt><dd>cloud_ok (Sentinel default)</dd>
+      <dt>Test baseline</dt><dd>513 tests passing pre-task</dd>
+    </dl>
+  </div>
+</div>
+
+<h2>1. Business Problem</h2>
+
+<p>
+  Sentinel is a sovereign research agent that runs excellent single-session tasks — but it
+  forgets everything after each session. Every research run starts cold, even if Sentinel
+  has already deeply researched the same target, a related topic, or the same domain last week.
+  The agent is also fragile: DDG lite is anti-botted (0 search results), there is no retry
+  policy on 26B vLLM 502s, and no loop guard against runaway agents.
+</p>
+
+<p>
+  The user's pilot demo is in 48 hours. The Google AI Challenge judges will look for:
+  agents that learn over time, production-quality resilience, and substantive research output.
+  Sentinel currently lacks all three.
+</p>
+
+<div class="callout-warn callout">
+  <strong>Root diagnosis:</strong> The data is already there. <code>run_records</code>
+  (episodic log) and <code>memory_entries</code> (entity facts) both exist in SQLite. They're
+  just never read back to prime new tasks. The biggest single upgrade is injecting existing
+  data — not building new infrastructure.
+</div>
+
+<h2>2. Reference Architecture (What We're Borrowing)</h2>
+
+<h3>From ATC Manthan v2.0</h3>
+<table>
+  <tr><th>Manthan Concept</th><th>What It Means</th><th>Sentinel Equivalent / Gap</th></tr>
+  <tr><td>5-layer memory (L1 working → L5 history)</td><td>Context window + short-term cache + long-term knowledge + entity graph + audit</td><td>SQLite has L4 (entity memory) + L5 (run log). Missing L2 (injection cache) + L3 (semantic lookup).</td></tr>
+  <tr><td>Hybrid BM25F + dense retrieval</td><td>Keyword + vector search fused via RRF, reranked</td><td>Not built. Too big for 48h. <em>Use FTS5 keyword as pragmatic v1.</em></td></tr>
+  <tr><td>Self-RAG gate</td><td>Refuse / re-retrieve when retrieval confidence is low</td><td>Partial (fail-soft gaps exist). Full self-RAG deferred.</td></tr>
+  <tr><td>Fielded chunking</td><td>Chunks carry title/section/page metadata for BM25F field weights</td><td>Not applicable to Sentinel's query-response model.</td></tr>
+  <tr><td>Adapter contracts (Auth/Identity/Knowledge/Action/Audit)</td><td>5 interfaces that make the runtime embeddable</td><td>Deferred. Sentinel is standalone-first.</td></tr>
+</table>
+
+<h3>From the 8 Architecture Images</h3>
+<table>
+  <tr><th>Image</th><th>Key Concept</th><th>SENTINEL-015 Borrow</th></tr>
+  <tr><td>AI Agent Memory Stack</td><td>7 memory types: Working, Episodic, Semantic, Procedural, Hierarchical, Prospective, Shared</td><td>Build Episodic + Semantic. Procedural (skill library) deferred.</td></tr>
+  <tr><td>Anatomy of an Agent Harness</td><td>10 components: System Prompt Loader, Tool Registry, Context Window Manager, Turn Controller, Error &amp; Retry Policy, Sandboxed Execution, Output Parser, State Manager, Telemetry Hooks, Approval Gates</td><td>Build: Turn Controller + Error &amp; Retry Policy. Others already exist or are deferred.</td></tr>
+  <tr><td>Hermes Learning Loop</td><td>3 compounding systems: Persistent Memory + Skill Creation + User Modeling</td><td>Build Persistent Memory injection. Skill Creation (procedural memory) post-deadline.</td></tr>
+  <tr><td>Claude Workflow Scripting</td><td>Parallel subagents, adversarial review, up to 16 concurrent</td><td>Already built (SENTINEL-013 parallel fan-out). No new work.</td></tr>
+  <tr><td>Evolution of Agentic AI Loops</td><td>ReAct → Self-Prompting → Ralph → Productized Ralph → Multi-Agent Orchestration</td><td>Sentinel is at ReAct/Productized Ralph. SENTINEL-015 adds learning (Hermes pattern).</td></tr>
+  <tr><td>AI Agent Stack</td><td>RAG + Function Calling + MCP + CLI Tool + AI Agent + A2A</td><td>Sentinel has all except RAG (retrieval from own store). SENTINEL-015 adds RAG lite.</td></tr>
+  <tr><td>Agent Development Kit</td><td>5 layers: CLAUDE.md + Skills + Hooks + Subagents + Plugins</td><td>Sentinel uses ADK for this. No new work.</td></tr>
+</table>
+
+<h2>3. Gap Analysis: Sentinel vs. Production Agent Standard</h2>
+
+<div class="gap-row"><span class="gap-tag gap-critical">CRITICAL</span><div><strong>Episodic memory is never injected.</strong> <code>run_records.finding_texts</code> stores every research output but nothing reads it back to prime the next run. Agent starts cold every time.</div></div>
+
+<div class="gap-row"><span class="gap-tag gap-critical">CRITICAL</span><div><strong>Live web search broken.</strong> DDG lite returns HTTP 202 anti-bot challenge (0 results). All research uses parametric model knowledge only — no citations from current web.</div></div>
+
+<div class="gap-row"><span class="gap-tag gap-high">HIGH</span><div><strong>No retry policy.</strong> A single 502 from the 26B vLLM endpoint fails the entire run. The 26B endpoint is known-unstable (SENTINEL streaming-524 notes).</div></div>
+
+<div class="gap-row"><span class="gap-tag gap-high">HIGH</span><div><strong>No turn controller.</strong> A misbehaving tool-call loop can run forever. No <code>max_llm_calls</code> guard on ADK RunConfig.</div></div>
+
+<div class="gap-row"><span class="gap-tag gap-medium">MEDIUM</span><div><strong>Semantic memory (entity facts) injected but not episodic context.</strong> Entity <code>MemoryEntry</code> objects are recalled and rendered into synthesizer context. But <em>prior full research sessions</em> (richer context) are not.</div></div>
+
+<div class="gap-row"><span class="gap-tag gap-medium">MEDIUM</span><div><strong>No procedural memory / skill library.</strong> Successful research patterns are not captured as reusable skills. Post-deadline.</div></div>
+
+<div class="gap-row"><span class="gap-tag gap-post">POST-DEADLINE</span><div><strong>No Qdrant / BM25F hybrid retrieval.</strong> Full Manthan retrieval stack (Qdrant + pg_search + BGE reranker) is months of work.</div></div>
+
+<div class="gap-row"><span class="gap-tag gap-post">POST-DEADLINE</span><div><strong>No MCP server.</strong> Sentinel research store not exposed to external tools. Adapter contracts not built.</div></div>
+
+<h2>4. Functional Requirements</h2>
+
+<table>
+  <tr><th>ID</th><th>Priority</th><th>Requirement</th></tr>
+  <tr>
+    <td>FR-01</td>
+    <td><span class="badge must">MUST</span></td>
+    <td>When a new task starts, Sentinel SHALL query <code>run_records</code> for past research sessions relevant to the same target or domain and inject a compact summary into the agent's context before the planner runs.</td>
+  </tr>
+  <tr>
+    <td>FR-02</td>
+    <td><span class="badge must">MUST</span></td>
+    <td>The recall method SHALL return up to 3 RunRecord objects. It SHALL match: (1) exact entity name, (2) keyword overlap in <code>finding_texts</code>. It SHALL never raise — degrade to empty list on any storage error.</td>
+  </tr>
+  <tr>
+    <td>FR-03</td>
+    <td><span class="badge must">MUST</span></td>
+    <td>The episodic context block SHALL be clearly labeled "Episodic Memory: Prior Research Sessions" and SHALL instruct the agent to treat recalled facts as background, not as freshly verified.</td>
+  </tr>
+  <tr>
+    <td>FR-04</td>
+    <td><span class="badge must">MUST</span></td>
+    <td>Episodic recall SHALL be gated by <code>cfg.memory.episodic_recall: bool = True</code>. When off, injection is skipped and the run is byte-identical to pre-015 (AC-10 parity).</td>
+  </tr>
+  <tr>
+    <td>FR-05</td>
+    <td><span class="badge must">MUST</span></td>
+    <td>The number of episodes recalled SHALL be recorded in the run trace as <code>memory: N entity facts + M episodes recalled</code>.</td>
+  </tr>
+  <tr>
+    <td>FR-06</td>
+    <td><span class="badge must">MUST</span></td>
+    <td>A <code>max_turns: int = 30</code> field SHALL be added to <code>BackendConfig</code> and passed to ADK <code>RunConfig.max_llm_calls</code> in <code>run_step</code>, enforcing a hard loop guard on every agent run.</td>
+  </tr>
+  <tr>
+    <td>FR-07</td>
+    <td><span class="badge must">MUST</span></td>
+    <td>A retry policy SHALL be added to <code>run_step</code>: on exception, retry up to 3 times with exponential backoff (1s, 2s, 4s). The number of retries SHALL be configurable via <code>BackendConfig.max_retries: int = 3</code>.</td>
+  </tr>
+  <tr>
+    <td>FR-08</td>
+    <td><span class="badge must">MUST</span></td>
+    <td>Episodic injection SHALL also apply to DAG-routed runs (<code>run_dag</code> / <code>_execute_plan</code>), not only to the legacy <code>competitor</code>/<code>client</code> sequential runs.</td>
+  </tr>
+  <tr>
+    <td>FR-09</td>
+    <td><span class="badge should">SHOULD</span></td>
+    <td>If <code>BRAVE_API_KEY</code> is set in the environment at startup AND <code>search.provider</code> is <code>duckduckgo</code>, Sentinel SHOULD auto-upgrade to <code>brave</code> with a startup log message. This is the web-search fix.</td>
+  </tr>
+  <tr>
+    <td>FR-10</td>
+    <td><span class="badge should">SHOULD</span></td>
+    <td>The run result card in the web UI SHOULD display a "📚 N sessions recalled" badge when episodic memory was injected, giving the user visibility into the memory system.</td>
+  </tr>
+  <tr>
+    <td>FR-11</td>
+    <td><span class="badge may">MAY</span></td>
+    <td>After each successful run, Sentinel MAY extract "what search queries produced citations" and store them as procedural memory entries for future skill reuse. Deferred if time-constrained.</td>
+  </tr>
+</table>
+
+<h2>5. Non-Functional Requirements</h2>
+<table>
+  <tr><th>ID</th><th>Requirement</th></tr>
+  <tr><td>NFR-01</td><td>Episodic recall adds &lt; 50ms to task start time (SQLite LIKE query on &lt; 10k rows).</td></tr>
+  <tr><td>NFR-02</td><td>Retry policy adds at most 7 seconds total delay (1+2+4) before propagating a hard failure. The run still fails cleanly if all retries are exhausted.</td></tr>
+  <tr><td>NFR-03</td><td>All new code is fail-soft: any exception in episodic recall, retry logic, or turn guard degrades gracefully — it never breaks a completed run.</td></tr>
+  <tr><td>NFR-04</td><td>No new external dependencies (no Qdrant, no Redis, no pg_search). SQLite FTS5 (already bundled in Python's sqlite3 3.46.1) is acceptable if needed.</td></tr>
+  <tr><td>NFR-05</td><td>Test coverage: every new method has ≥ 1 unit test. The 513 existing tests must still pass.</td></tr>
+  <tr><td>NFR-06</td><td>No PII in logs or traces (boundary invariant inherited unchanged).</td></tr>
+  <tr><td>NFR-07</td><td>Sovereignty maintained: episodic recall reads only from local SQLite (never cloud). On-prem deployments are not impacted.</td></tr>
+</table>
+
+<h2>6. Out of Scope</h2>
+<ul>
+  <li>Qdrant vector store / BM25F hybrid retrieval (post-deadline)</li>
+  <li>Full Manthan adapter contracts (Auth/Identity/Knowledge/Action/Audit)</li>
+  <li>MCP server surface exposing Sentinel research store</li>
+  <li>Procedural memory / skill library (FR-11 is MAY)</li>
+  <li>Context window manager / summarization (no clear need at current scale)</li>
+  <li>Sandboxed execution</li>
+  <li>Telemetry / Prometheus metrics</li>
+  <li>Cross-project shared memory (single-operator scope)</li>
+</ul>
+
+<h2>7. Acceptance Criteria</h2>
+<ol>
+  <li>Running a Razorpay finance research task for the SECOND time injects at least 1 prior episode into the agent context. Visible in the run trace as <code>memory: ... + M episodes recalled</code>.</li>
+  <li><code>RunStore.recall_episodes("Razorpay")</code> returns at least 1 record after the first run has completed.</li>
+  <li>A simulated ADK runner failure retries 3 times before propagating. Verifiable via unit test with a mock runner that fails N times.</li>
+  <li><code>BackendConfig.max_turns = 5</code> causes the runner to stop after 5 LLM calls (unit test with mock runner).</li>
+  <li>Setting <code>cfg.memory.episodic_recall = False</code> produces a run with no episodic context block (byte-identical to pre-015 for the memory_context string).</li>
+  <li>All 513 pre-existing tests continue to pass.</li>
+  <li>At least 8 new tests cover the new functionality.</li>
+</ol>
+
+</body>
+</html>

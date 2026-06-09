@@ -14,25 +14,37 @@ nothing else constructs a model object.
 from __future__ import annotations
 
 import os
-from urllib.parse import urlsplit
+from pathlib import Path
 
 # ADK accepts either a model-id string (Gemini) or a BaseLlm instance (e.g. LiteLlm).
 # We keep the return type loose on purpose so callers stay backend-agnostic.
 Model = object
 
+# Load .env once at import time so keys are always available regardless of how the process
+# was launched (uvicorn, python -m sentinel, pytest, direct script).  dotenv skips keys
+# already present in os.environ so this never overrides explicit environment settings.
+try:
+    from dotenv import load_dotenv as _ld
 
-def _vllm_api_key(api_base: str | None) -> str:
-    """Resolve the vLLM secret from the endpoint host — env only, never config/args (SENTINEL-011).
+    _ld(dotenv_path=Path(__file__).parents[3] / ".env", override=False)
+except Exception:  # pragma: no cover — dotenv absent or .env missing are both fine
+    pass
 
-    The sovereign Gemma-4 gateway (``*.atcuality.com``: 12B tool-caller + 26B reasoner) authenticates
-    with ``ATCUALITY_API_KEY``; any other vLLM endpoint keeps the historical ``VLLM_API_KEY``. The key
-    is a pure function of *where* the request goes, so ``build_model`` keeps its signature and no
-    caller has to pass a secret. Both fall back to ``"not-needed"`` for keyless local servers.
+
+def _vllm_api_key(api_base: str | None) -> str:  # noqa: ARG001 — api_base reserved for future per-host keys
+    """Resolve the vLLM secret — env only, never config/args (SENTINEL-011).
+
+    Priority: VLLM_API_KEY → ATCUALITY_API_KEY → BILTIQ_LLM_KEY → "not-needed".
+    ATCUALITY_API_KEY is the unified gateway key for all atcuality.com-hosted endpoints.
+    BILTIQ_LLM_KEY covers environments started from the BiltIQ platform launcher.
+    VLLM_API_KEY is kept for backwards-compat with deployments that set it explicitly.
     """
-    host = urlsplit(api_base or "").hostname or ""
-    if host == "atcuality.com" or host.endswith(".atcuality.com"):
-        return os.getenv("ATCUALITY_API_KEY", "not-needed")
-    return os.getenv("VLLM_API_KEY", "not-needed")
+    return (
+        os.getenv("VLLM_API_KEY")
+        or os.getenv("ATCUALITY_API_KEY")
+        or os.getenv("BILTIQ_LLM_KEY")
+        or "not-needed"
+    )
 
 
 def build_model(

@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SENTINEL-015 · Design</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; max-width: 960px; margin: 40px auto; padding: 0 24px; background: #0f0f0f; color: #e8e8e8; line-height: 1.6; }
+  h1 { color: #00d4ff; border-bottom: 2px solid #00d4ff; padding-bottom: 12px; }
+  h2 { color: #7c8cf8; margin-top: 40px; }
+  h3 { color: #a5b4fc; }
+  code { background: #1e1e2e; color: #7dd3fc; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+  pre { background: #1e1e2e; color: #e2e8f0; padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  .callout { background: #1a2a1a; border-left: 4px solid #22c55e; padding: 12px 16px; margin: 20px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { background: #2a1a0a; border-left-color: #f59e0b; }
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  th { background: #1a1a2e; color: #a5b4fc; text-align: left; padding: 10px 12px; }
+  td { padding: 9px 12px; border-bottom: 1px solid #2a2a3a; }
+  .arch { background: #12121e; border: 1px solid #2a2a3a; border-radius: 8px; padding: 20px; margin: 20px 0; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+  .new { color: #4ade80; }
+  .existing { color: #94a3b8; }
+  .changed { color: #fbbf24; }
+</style>
+</head>
+<body>
+
+<h1>SENTINEL-015 · Design</h1>
+
+<h2>1. Architecture Overview</h2>
+
+<div class="arch">
+<pre>
+Task start (run_async / run_dag)
+        │
+        ├─► <span class="existing">[EXISTING] Entity memory recall</span>
+        │     └─ MemoryStore.recall(target, boundaries) → MemoryEntry[]
+        │         └─ formatted as "## Prior memory..." block
+        │
+        ├─► <span class="new">[NEW] Episodic memory recall (FR-01..05)</span>
+        │     └─ RunStore.recall_episodes(target, top_k=3) → RunRecord[]
+        │         └─ keyword LIKE search on finding_texts JSON
+        │         └─ exact entity match
+        │         └─ formatted as "## Episodic Memory: Prior Research Sessions..."
+        │
+        └─► Combined memory_context injected into agent seed state
+              │
+              └─► ADK runner
+                    │
+                    ├─► <span class="new">[NEW] max_turns guard (FR-06)</span>
+                    │     └─ RunConfig.max_llm_calls = cfg.backend.max_turns
+                    │
+                    └─► <span class="new">[NEW] Retry policy (FR-07)</span>
+                          └─ 3 retries, exponential backoff (1s/2s/4s)
+</pre>
+</div>
+
+<h2>2. Component Designs</h2>
+
+<h3>2.1 RunStore.recall_episodes() — new method</h3>
+
+<p>Location: <code>src/sentinel/memory/store.py</code> in <code>class RunStore</code></p>
+
+<pre>
+def recall_episodes(
+    self,
+    target: str,
+    *,
+    top_k: int = 3,
+    mode: str | None = None,
+) -> list[RunRecord]:
+    """Top-K episodic recall via keyword search over finding_texts + exact entity match.
+
+    Strategy (priority order):
+    1. Exact entity match (same normalized target, any prior run) — most relevant
+    2. Keyword LIKE search on finding_texts JSON for non-trivial words from target
+       - words &lt; 4 chars are stripped (stop-word proxy)
+       - each keyword becomes a LIKE '%word%' condition (OR-joined)
+       - results deduped by entity (each entity appears at most once, newest first)
+
+    Never raises: any storage error → return []. Fail-soft as per NFR-03.
+    """
+    entity = normalize_entity(target)
+    # Simple stop-word filter: skip very short words
+    keywords = [w for w in entity.split() if len(w) >= 4]
+
+    seen: set[str] = set()
+    results: list[RunRecord] = []
+
+    try:
+        with _connect(self.path) as conn:
+            # 1. Exact entity match — always take ALL prior runs for this target
+            exact = conn.execute(
+                "SELECT * FROM run_records WHERE entity=? ORDER BY created_at DESC",
+                (entity,),
+            ).fetchall()
+            for r in exact:
+                rec = _row_to_run(r)
+                if rec.entity not in seen:
+                    seen.add(rec.entity)
+                    results.append(rec)
+                if len(results) >= top_k:
+                    return results
+
+            # 2. Keyword LIKE search for related prior runs
+            if keywords:
+                like_conds = " OR ".join("finding_texts LIKE ?" for _ in keywords)
+                params: list = [f"%{k}%" for k in keywords]
+                sql = f"SELECT * FROM run_records WHERE ({like_conds})"
+                if mode:
+                    sql += " AND mode=?"
+                    params.append(mode)
+                sql += " ORDER BY created_at DESC LIMIT ?"
+                params.append(top_k * 5)  # over-fetch to allow dedup
+
+                for r in conn.execute(sql, params).fetchall():
+                    rec = _row_to_run(r)
+                    if rec.entity not in seen:
+                        seen.add(rec.entity)
+                        results.append(rec)
+                    if len(results) >= top_k:
+                        break
+    except Exception:
+        return []
+
+    return results[:top_k]
+</pre>
+
+<div class="callout">
+  <strong>Why LIKE, not FTS5?</strong> SQLite 3.46.1 ships with FTS5, but a content-FTS5 table
+  requires triggers or explicit re-indexing to stay in sync with <code>run_records</code>. The
+  overhead isn't justified for &lt;10k rows. LIKE on a 10k-row table runs in &lt;5ms. If the
+  dataset grows past 100k rows, migrate to FTS5 at that point.
+</div>
+
+<h3>2.2 _render_episodic_context() — new function</h3>
+
+<p>Location: <code>src/sentinel/agent/orchestrator.py</code>, alongside <code>_render_memory_context</code></p>
+
+<pre>
+def _render_episodic_context(episodes: list[RunRecord]) -> str:
+    """Compact episodic block appended to memory_context (SENTINEL-015).
+
+    Returns "" for no episodes → byte-identical to pre-015 (AC-10 parity, FR-04).
+    Carries its own leading newlines so it appends cleanly after entity memory.
+    """
+    if not episodes:
+        return ""
+    lines = ["\n\n## Episodic Memory: Prior Research Sessions (recalled from history)"]
+    lines.append(
+        "The following are PAST research sessions. Use as background context. "
+        "Verify with fresh research; never present recalled facts as newly found."
+    )
+    for ep in episodes:
+        date = ep.created_at.strftime("%Y-%m-%d") if hasattr(ep.created_at, "strftime") else "?"
+        lines.append(
+            f"\n### [{date}] {ep.mode} / {ep.target} "
+            f"({ep.public} public findings, {ep.gaps} gaps)"
+        )
+        for txt in ep.finding_texts[:5]:
+            snippet = (txt or "")[:150].replace("\n", " ").strip()
+            if snippet:
+                lines.append(f"  · {snippet}")
+    return "\n".join(lines)
+</pre>
+
+<h3>2.3 _recall_memory() — extended</h3>
+
+<p>Location: <code>src/sentinel/agent/orchestrator.py</code> — extend the existing function.</p>
+
+<pre>
+def _recall_memory(target: str, mode: Mode, cfg) -> tuple[str, object | None]:
+    """Fetch prior run (delta) + entity memory + episodic memory (SENTINEL-015).
+
+    Returns (combined_memory_context, prior_run_or_None). Fail-soft: storage errors
+    degrade to ("", None) and never break a run. The returned string is empty when
+    both entity_memory and episodic_recall are disabled (AC-10 parity).
+    """
+    prior = None
+    try:
+        from sentinel.memory import MemoryStore, RunStore
+        from sentinel.memory.schema import RunRecord  # noqa: F401 (type import)
+
+        store = RunStore()
+        prior = store.latest_for(target)
+
+        # Entity memory (pre-015, unchanged)
+        entity_ctx = ""
+        if getattr(cfg.memory, "entity_memory", True):
+            recalled = MemoryStore().recall(target, allowed_boundaries(mode))
+            entity_ctx = _render_memory_context(recalled)
+            entity_count = len(recalled)
+        else:
+            entity_count = 0
+
+        # Episodic memory (SENTINEL-015, FR-01..05)
+        episodes: list = []
+        if getattr(cfg.memory, "episodic_recall", True):
+            episodes = store.recall_episodes(target, top_k=3)
+
+        episodic_ctx = _render_episodic_context(episodes)
+
+        # Single trace token (see FR-05) — logged in run_async below
+        cfg._episode_count = len(episodes)   # hack-free alternative: return as 3rd item
+        cfg._entity_count = entity_count
+
+        return entity_ctx + episodic_ctx, prior
+    except Exception:
+        return "", prior
+</pre>
+
+<div class="callout-warn callout">
+  <strong>Design note:</strong> We stash <code>_episode_count</code> / <code>_entity_count</code>
+  on <code>cfg</code> as a lightweight out-param rather than changing the return type (which would
+  require updating every caller). If this becomes a pattern, refactor to a <code>RecallResult</code>
+  dataclass. For now the stash is an acceptable 2-line trade-off.
+</div>
+
+<h3>2.4 Trace entry (FR-05)</h3>
+
+<p>In <code>run_async</code>, after calling <code>_recall_memory</code>:</p>
+<pre>
+memory_context, prior_run = _recall_memory(target, mode, cfg)
+ep_count = getattr(cfg, "_episode_count", 0)
+en_count = getattr(cfg, "_entity_count", 0)
+trace.append(f"memory: {en_count} entity facts + {ep_count} episodes recalled")
+</pre>
+
+<h3>2.5 BackendConfig additions (FR-06, FR-07)</h3>
+
+<p>Location: <code>src/sentinel/config/schema.py</code>, in <code>class BackendConfig</code></p>
+
+<pre>
+# Turn controller (SENTINEL-015 FR-06): max LLM calls per step run.
+# Passed to ADK RunConfig.max_llm_calls — an agent that loops endlessly
+# will be hard-stopped at this count. 30 is generous for a research agent;
+# tune down for fast retrieval-only runs.
+max_turns: int = Field(default=30, ge=1)
+
+# Retry policy (SENTINEL-015 FR-07): how many times to retry on transient failure.
+# Exponential backoff: delay = base_retry_delay_s * (2 ** attempt). Total max
+# wait = 1 + 2 + 4 = 7 seconds for max_retries=3. Set to 1 to disable retry.
+max_retries: int = Field(default=3, ge=1)
+base_retry_delay_s: float = Field(default=1.0, gt=0)
+</pre>
+
+<h3>2.6 run_step() — turn controller + retry (FR-06, FR-07)</h3>
+
+<p>Location: <code>src/sentinel/agent/orchestrator.py</code></p>
+
+<pre>
+async def run_step(
+    agent, *, message_text, seed_state, streaming, trace,
+    max_concurrency: int | None = None,
+    max_turns: int | None = None,
+    max_retries: int = 3,
+    base_retry_delay_s: float = 1.0,
+) -> dict:
+    """Run one built agent with turn guard + exponential-backoff retry (SENTINEL-015).
+
+    Turn guard: max_turns → RunConfig.max_llm_calls. None = use global config default.
+    Retry: on any exception, sleep (1s, 2s, 4s...) and retry up to max_retries times.
+    The last attempt re-raises if still failing (fail-loud after exhaustion).
+    """
+    limit = max_concurrency if max_concurrency is not None else _configured_max_concurrency()
+    turns = max_turns if max_turns is not None else _configured_max_turns()
+
+    last_exc: Exception | None = None
+    for attempt in range(max(1, max_retries)):
+        try:
+            async with _leaf_semaphore(limit):
+                runner = InMemoryRunner(agent=agent, app_name=APP_NAME)
+                session = await runner.session_service.create_session(
+                    app_name=APP_NAME, user_id=_USER_ID, state=dict(seed_state),
+                )
+                for sub in getattr(agent, "sub_agents", []) or []:
+                    trace.append(f"agent {sub.name} model={_model_label(sub)}")
+                message = types.Content(role="user", parts=[types.Part(text=message_text)])
+                run_config = RunConfig(streaming_mode=streaming, max_llm_calls=turns)
+                async for event in runner.run_async(
+                    user_id=_USER_ID, session_id=session.id,
+                    new_message=message, run_config=run_config,
+                ):
+                    if getattr(event, "partial", False):
+                        continue
+                    author = getattr(event, "author", "?")
+                    if getattr(event, "content", None) and event.content.parts:
+                        for p in event.content.parts:
+                            if getattr(p, "function_call", None):
+                                trace.append(f"{author} → tool:{p.function_call.name}")
+                            elif getattr(p, "text", None) and p.text.strip():
+                                trace.append(f"{author} · {p.text.strip()[:80]}")
+                final = await runner.session_service.get_session(
+                    app_name=APP_NAME, user_id=_USER_ID, session_id=session.id
+                )
+                return dict(final.state)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                delay = base_retry_delay_s * (2 ** attempt)
+                trace.append(
+                    f"run_step attempt {attempt+1}/{max_retries} failed "
+                    f"({type(exc).__name__}); retrying in {delay:.1f}s"
+                )
+                await asyncio.sleep(delay)
+            else:
+                trace.append(f"run_step: all {max_retries} attempts failed; propagating")
+    raise last_exc  # type: ignore[misc]
+</pre>
+
+<h3>2.7 DAG episodic injection (FR-08)</h3>
+
+<p>
+  Location: <code>src/sentinel/agent/dag.py</code>, in <code>run_dag</code>. The base_seed
+  passed to <code>_execute_plan</code> needs to include the episodic context.
+</p>
+
+<pre>
+# In run_dag():
+episodic_ctx = ""
+if getattr(cfg.memory, "episodic_recall", True):
+    from sentinel.memory.store import RunStore
+    episodes = RunStore().recall_episodes(target or "", top_k=3)
+    from sentinel.agent.orchestrator import _render_episodic_context
+    episodic_ctx = _render_episodic_context(episodes)
+
+base_seed = {
+    "target": target,
+    "vertical_context": vertical_context or "",
+    "memory_context": memory_context + episodic_ctx,   # merged
+    ...
+}
+</pre>
+
+<h3>2.8 Search provider auto-upgrade (FR-09)</h3>
+
+<p>Location: <code>src/sentinel/agent/governance.py</code></p>
+
+<pre>
+def effective_search_provider(cfg, *, allow_cloud: bool) -> str:
+    """Return the effective search provider.
+
+    SENTINEL-015: if provider is 'duckduckgo' and BRAVE_API_KEY is set,
+    auto-upgrade to 'brave' (DDG lite is currently anti-bot blocked).
+    """
+    provider = cfg.search.provider if not allow_cloud or cfg.search.provider != "gemini" \
+               else cfg.search.onprem_fallback
+    # auto-upgrade DDG → Brave when key is available (FR-09)
+    if provider == "duckduckgo" and os.getenv("BRAVE_API_KEY", "").strip():
+        return "brave"
+    return provider
+</pre>
+
+<h3>2.9 MemoryConfig additions (FR-04)</h3>
+
+<p>Location: <code>src/sentinel/config/schema.py</code>, in <code>class MemoryConfig</code></p>
+
+<pre>
+class MemoryConfig(BaseModel):
+    entity_memory: bool = True
+    retention_days: int = 365
+    inject_org_prefs: bool = True
+    episodic_recall: bool = True          # NEW (SENTINEL-015 FR-04)
+    episodic_recall_top_k: int = Field(default=3, ge=1, le=10)  # NEW
+</pre>
+
+<h2>3. File Impact Table</h2>
+<table>
+  <tr><th>File</th><th>Change type</th><th>What changes</th></tr>
+  <tr><td><code>src/sentinel/memory/store.py</code></td><td>Extend</td><td>Add <code>RunStore.recall_episodes()</code> method</td></tr>
+  <tr><td><code>src/sentinel/agent/orchestrator.py</code></td><td>Extend</td><td>Add <code>_render_episodic_context()</code>, extend <code>_recall_memory()</code>, extend <code>run_step()</code> with retry + max_turns, add trace entry in <code>run_async()</code></td></tr>
+  <tr><td><code>src/sentinel/config/schema.py</code></td><td>Extend</td><td>Add <code>episodic_recall</code>, <code>episodic_recall_top_k</code> to <code>MemoryConfig</code>; add <code>max_turns</code>, <code>max_retries</code>, <code>base_retry_delay_s</code> to <code>BackendConfig</code></td></tr>
+  <tr><td><code>src/sentinel/agent/governance.py</code></td><td>Extend</td><td>Add auto-upgrade DDG→Brave when key available</td></tr>
+  <tr><td><code>src/sentinel/agent/dag.py</code></td><td>Extend</td><td>Inject episodic context into <code>run_dag</code> base_seed</td></tr>
+  <tr><td><code>sentinel.config.yaml</code></td><td>Extend</td><td>Add <code>memory.episodic_recall: true</code>, <code>backend.max_turns: 30</code>, <code>backend.max_retries: 3</code></td></tr>
+  <tr><td><code>tests/test_sentinel_015_memory.py</code></td><td>New</td><td>Unit tests for <code>recall_episodes</code>, <code>_render_episodic_context</code>, retry policy, max_turns</td></tr>
+</table>
+
+<h2>4. Data Flow Diagram</h2>
+<div class="arch">
+<pre>
+User: "Research Razorpay financial profile"
+  │
+  └─► run_dag(target="Razorpay", domain="finance")
+        │
+        ├─► <span class="new">RunStore.recall_episodes("razorpay", top_k=3)</span>
+        │     ├─ Query 1: SELECT * FROM run_records WHERE entity='razorpay' → [run_20260609_razorpay]
+        │     └─ Query 2: finding_texts LIKE '%razorpay%' OR '%finance%' → [run_20260608_payu]
+        │
+        ├─► <span class="new">_render_episodic_context([run_razorpay, run_payu])</span>
+        │     └─ "## Episodic Memory: Prior Research Sessions\n
+        │           [2026-06-08] finance/Razorpay — 12 public findings..."
+        │
+        └─► _execute_plan(base_seed={
+              "target": "Razorpay",
+              "memory_context": "[entity facts...]\n\n## Episodic Memory..."
+            })
+              │
+              └─► Planner reads memory_context → avoids re-researching known facts
+              │
+              └─► Synthesizer reads memory_context → cites prior findings + new ones
+</pre>
+</div>
+
+<h2>5. Key Design Decisions</h2>
+
+<table>
+  <tr><th>Decision</th><th>Chosen</th><th>Rejected</th><th>Reason</th></tr>
+  <tr>
+    <td>Episodic retrieval mechanism</td>
+    <td>SQLite LIKE on <code>finding_texts</code></td>
+    <td>FTS5 virtual table, Qdrant</td>
+    <td>Zero new dependencies; 10k rows = &lt;5ms LIKE query. FTS5 needs sync triggers. Qdrant needs a service.</td>
+  </tr>
+  <tr>
+    <td>Where to inject episodic context</td>
+    <td>Appended to <code>memory_context</code> string</td>
+    <td>New <code>episodic_context</code> seed key</td>
+    <td>Reuses the existing synthesizer instruction path. No changes to agent prompts needed.</td>
+  </tr>
+  <tr>
+    <td>Retry placement</td>
+    <td><code>run_step</code> (leaf executor)</td>
+    <td><code>_execute_pipeline</code> (outer loop)</td>
+    <td><code>run_step</code> is the single leaf every step uses. Retrying there covers DAG steps, coordinator, and legacy pipeline. Outer retry would re-run Pass-1 on a Pass-2 failure.</td>
+  </tr>
+  <tr>
+    <td>max_turns parameter</td>
+    <td><code>RunConfig.max_llm_calls</code> (ADK native)</td>
+    <td>Manual turn counter in event loop</td>
+    <td>ADK's <code>RunConfig.max_llm_calls</code> is the proper hook — it enforces at the framework level and is already in the data path.</td>
+  </tr>
+  <tr>
+    <td>Search auto-upgrade</td>
+    <td>In <code>effective_search_provider()</code></td>
+    <td>At startup / settings UI</td>
+    <td>Governance.py is the single choke-point for provider resolution. The upgrade is invisible to callers and can be disabled by setting provider explicitly to anything other than duckduckgo.</td>
+  </tr>
+</table>
+
+</body>
+</html>

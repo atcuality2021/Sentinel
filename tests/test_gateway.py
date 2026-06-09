@@ -89,3 +89,34 @@ def test_active_backend_is_resolve_alias(monkeypatch):
     monkeypatch.setenv("SENTINEL_LLM_BACKEND", "gemini")
     assert gateway.active_backend() == "gemini"
     assert gateway.active_backend("vllm") == "vllm"
+
+
+# --------------------------------------------------------------------------- #
+# Key resolution priority (VLLM_API_KEY → ATCUALITY_API_KEY → BILTIQ_LLM_KEY)
+# --------------------------------------------------------------------------- #
+def test_vllm_key_primary(monkeypatch):
+    monkeypatch.setenv("VLLM_API_KEY", "vllm-key")
+    monkeypatch.setenv("ATCUALITY_API_KEY", "atcuality-key")
+    monkeypatch.setenv("BILTIQ_LLM_KEY", "biltiq-key")
+    assert gateway._vllm_api_key(None) == "vllm-key"
+
+
+def test_atcuality_key_fallback(monkeypatch):
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
+    monkeypatch.setenv("ATCUALITY_API_KEY", "atcuality-key")
+    monkeypatch.setenv("BILTIQ_LLM_KEY", "biltiq-key")
+    assert gateway._vllm_api_key(None) == "atcuality-key"
+
+
+def test_biltiq_llm_key_fallback(monkeypatch):
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
+    monkeypatch.delenv("ATCUALITY_API_KEY", raising=False)
+    monkeypatch.setenv("BILTIQ_LLM_KEY", "biltiq-key")
+    assert gateway._vllm_api_key(None) == "biltiq-key"
+
+
+def test_no_key_falls_back_to_not_needed(monkeypatch):
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
+    monkeypatch.delenv("ATCUALITY_API_KEY", raising=False)
+    monkeypatch.delenv("BILTIQ_LLM_KEY", raising=False)
+    assert gateway._vllm_api_key(None) == "not-needed"
