@@ -220,3 +220,94 @@ def test_assemble_generic_carries_degraded_flag():
     assert res.degraded is True
     assert res.missing_inputs == ["s_x"]
     assert res.summary.endswith("(partial)")
+
+
+# --- G-04: persona cognitive framing --------------------------------------------------------- #
+
+
+def test_persona_framing_injected_into_base_seed(monkeypatch):
+    """Non-default persona → persona_framing written into base_seed before run_plan fires."""
+    import asyncio
+    from sentinel.artifacts.schemas import Persona
+    from sentinel.agent import dag as dag_mod
+
+    captured: dict = {}
+
+    async def fake_run_plan(plan, *, assemble, **kw):
+        captured.update(kw)
+        from sentinel.agent.dag import assemble_generic
+        from sentinel.artifacts.schemas import Result
+        return Result(task_id=plan.task_id, summary="ok", artifacts=[], citations=[],
+                      dashboard_payload={"artifacts": {}})
+
+    monkeypatch.setattr(dag_mod, "run_plan", fake_run_plan)
+
+    plan = Plan(id="p-pf", task_id="t-pf", steps=[_profile_step("x")])
+    persona = Persona(name="doctor", reading_level="graduate", tone="clinical", format="report")
+    asyncio.run(run_dag(plan, seeds=_seeds("x"), cfg=_tiered_cfg(), backend="vllm",
+                        cloud_allowed=False, use_cache=False, persona=persona))
+
+    base = (captured.get("base_seed") or {})
+    pf = base.get("persona_framing", "")
+    assert "doctor" in pf
+    assert "clinical" in pf
+    assert "graduate" in pf
+
+
+def test_default_persona_no_framing(monkeypatch):
+    """Default Persona() → persona_framing NOT written (no noise on standard runs)."""
+    import asyncio
+    from sentinel.artifacts.schemas import Persona
+    from sentinel.agent import dag as dag_mod
+
+    captured: dict = {}
+
+    async def fake_run_plan(plan, *, assemble, **kw):
+        captured.update(kw)
+        from sentinel.artifacts.schemas import Result
+        return Result(task_id=plan.task_id, summary="ok", artifacts=[], citations=[],
+                      dashboard_payload={"artifacts": {}})
+
+    monkeypatch.setattr(dag_mod, "run_plan", fake_run_plan)
+
+    plan = Plan(id="p-dp", task_id="t-dp", steps=[_profile_step("y")])
+    asyncio.run(run_dag(plan, seeds=_seeds("y"), cfg=_tiered_cfg(), backend="vllm",
+                        cloud_allowed=False, use_cache=False, persona=Persona()))
+
+    base = (captured.get("base_seed") or {})
+    assert "persona_framing" not in base
+
+
+def test_run_skill_lifts_memory_and_persona_to_synthesizer(monkeypatch):
+    """_run_skill passes memory_context+persona_framing from seed to build_step_agents."""
+    import asyncio
+    from sentinel.agent import dag as dag_mod
+    from sentinel.agent.modes import spec as spec_mod
+
+    captured_memory: list[str] = []
+
+    def fake_build_step_agents(spec, cfg, backend, *, cloud_allowed, search_provider,
+                                two_tier, memory_context=""):
+        captured_memory.append(memory_context)
+        return []
+
+    monkeypatch.setattr(spec_mod, "build_step_agents", fake_build_step_agents)
+    monkeypatch.setattr(dag_mod, "build_step_agents", fake_build_step_agents)
+
+    from sentinel.agent.dag import _run_skill
+    from sentinel.agent.modes.spec import SKILL_SPECS
+    spec = SKILL_SPECS["self_profile"]
+    seed = {"target": "BiltIQ", "memory_context": "MEMCTX", "persona_framing": "PERSONA_FRAG"}
+
+    async def _go():
+        try:
+            return await _run_skill(spec, seed, cfg=_tiered_cfg(), backend="vllm",
+                                    cloud_allowed=False, search_provider="duckduckgo",
+                                    two_tier=False, trace=[])
+        except Exception:
+            return {}
+
+    asyncio.run(_go())
+    assert captured_memory, "build_step_agents was never called"
+    assert "MEMCTX" in captured_memory[0]
+    assert "PERSONA_FRAG" in captured_memory[0]

@@ -368,9 +368,13 @@ async def _run_skill(
     per source, bounded input, concurrent under the global semaphore. The synthesizer already carries the
     ``_2t`` prompt variant (set by :func:`build_step_agents` when ``two_tier=True``), so it still reads
     typed ``{extractions}``; only the production of that key changes."""
+    # Lift memory + persona framing from seed into the synthesizer's instruction_suffix
+    # (SENTINEL-016 G-04). build_step_agents appends this as text after the prompt, so it reaches
+    # the 26B reasoner regardless of whether prompt templates have {memory_context} placeholders.
+    _instruction_ctx = str(seed.get("memory_context") or "") + str(seed.get("persona_framing") or "")
     agents = build_step_agents(
         spec, cfg, backend, cloud_allowed=cloud_allowed, search_provider=search_provider,
-        two_tier=two_tier,
+        two_tier=two_tier, memory_context=_instruction_ctx,
     )
     reasoner_keys = {
         s.output_key for s in spec.steps if cfg.agents[s.agent_key].role in REASONER_ROLES
@@ -1008,6 +1012,25 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
                     kwargs = {**kwargs, "base_seed": base}
         except Exception:
             pass  # fail-soft: never let memory injection break a DAG run
+    # G-04: persona cognitive framing — inject audience framing into base_seed["persona_framing"]
+    # so _run_skill can pass it as instruction_suffix to the synthesizer agent. Fail-soft.
+    try:
+        from sentinel.artifacts.schemas import Persona as _Persona
+        _persona = kwargs.get("persona")
+        if _persona is not None and _persona != _Persona():
+            _base = dict(kwargs.get("base_seed") or {})
+            _pf = (
+                f"\n\nAudience: synthesize for a '{_persona.name}' persona "
+                f"(reading level: {_persona.reading_level}, tone: {_persona.tone}, "
+                f"format: {_persona.format}"
+            )
+            if _persona.source_policy:
+                _pf += f", source policy: {_persona.source_policy}"
+            _pf += ")."
+            _base["persona_framing"] = _pf
+            kwargs = {**kwargs, "base_seed": _base}
+    except Exception:
+        pass
     return await run_plan(plan, assemble=assemble_generic, **kwargs)
 
 
