@@ -8,113 +8,355 @@
   :root{
     --bg:#0b0f17; --panel:#121826; --panel2:#0e1420; --ink:#e7ecf3; --muted:#8b97a8;
     --line:#1e2940; --public:#4ea1ff; --public-bg:#11233d; --private:#ffb24d;
-    --private-bg:#2e2410; --accent:#7c5cff; --ok:#3ad29f;
+    --private-bg:#2e2410; --accent:#7c5cff; --ok:#3ad29f; --warn:#f59e0b;
+    --mem:#1a3028; --mem-line:#2a6048; --mem-ink:#3ad29f;
+    --tier1:#1a2035; --tier2:#1d1535;
   }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  .sheet{max-width:1040px;margin:0 auto;padding:30px 26px 46px}
-  .hd{display:flex;align-items:center;gap:11px}
-  .dot{width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px var(--accent)}
-  h1{font-size:21px;margin:0}
-  .sub{color:var(--muted);margin:4px 0 22px;font-size:13.5px}
-  .node{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;
-    text-align:center}
-  .node .t{font-weight:600}
-  .node .d{color:var(--muted);font-size:12px;margin-top:3px}
-  .core{border-color:#33285f;background:linear-gradient(180deg,#161427,#121826)}
-  .io{background:var(--panel2);color:var(--muted)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);
+    font:13.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .sheet{max-width:1100px;margin:0 auto;padding:32px 28px 56px}
+
+  /* Header */
+  .hd{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .dot{width:11px;height:11px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent)}
+  h1{font-size:20px;font-weight:700}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:26px;max-width:820px}
+
+  /* Generic node */
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:10px 14px;text-align:center}
+  .node .t{font-weight:600;font-size:13px}
+  .node .d{color:var(--muted);font-size:11.5px;margin-top:2px}
+  .node.core{border-color:#33285f;background:linear-gradient(180deg,#161427,#121826)}
+  .node.io{background:var(--panel2);color:var(--muted)}
+  .node.ok{border-color:#1e4a38;background:#0e1e18}
+
+  /* Arrow */
+  .arrow{color:var(--muted);text-align:center;font-size:17px;line-height:1;margin:6px 0}
+  .arrow small{display:block;font-size:10.5px;letter-spacing:.03em}
+
+  /* Centre helper */
   .center{display:flex;justify-content:center}
-  .op{min-width:200px}
-  .agent{border:1px dashed #33285f;border-radius:16px;padding:16px;margin:14px 0;background:rgba(124,92,255,.05)}
-  .agent .cap{color:var(--accent);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
-    text-align:center;margin-bottom:12px;font-weight:700}
-  .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:12px}
-  .lane{border-radius:14px;padding:14px}
+
+  /* ── Top entry ── */
+  .entry{min-width:260px}
+
+  /* ── ADK Agent shell ── */
+  .agent-shell{border:1px dashed #3d2f7a;border-radius:18px;padding:18px 16px;margin:0 0 16px;
+    background:rgba(124,92,255,.03);position:relative}
+  .agent-shell .cap{position:absolute;top:-11px;left:50%;transform:translateX(-50%);
+    background:var(--bg);padding:0 10px;color:var(--accent);font-size:11px;
+    letter-spacing:.14em;text-transform:uppercase;font-weight:700;white-space:nowrap}
+
+  /* Coordinator strip */
+  .coord{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .coord .node{flex:1}
+  .coord .gov{flex:0 0 auto;border:1px solid #2a3a5a;border-radius:10px;
+    padding:9px 12px;background:#0d1421;font-size:11.5px;color:var(--muted);min-width:170px}
+  .coord .gov .gt{font-weight:600;color:#6ea8d8;font-size:11.5px;margin-bottom:3px}
+
+  /* Domain ribbon */
+  .domains{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:0 0 14px}
+  .domain-pill{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;
+    letter-spacing:.05em;text-transform:uppercase;border:1px solid;white-space:nowrap}
+  .domain-pill.comp{color:#a78bfa;border-color:#4c3b8a;background:#1a1030}
+  .domain-pill.clt{color:#f59e0b;border-color:#6b4515;background:#1e1408}
+  .domain-pill.fin{color:#3ad29f;border-color:#1e4a38;background:#0e1e18}
+  .domain-pill.sw{color:#60a5fa;border-color:#1e3a5a;background:#0e1825}
+  .domain-pill.ac{color:#f472b6;border-color:#6b2560;background:#1e0e18}
+  .domain-pill.nu{color:#fb923c;border-color:#7a3610;background:#220f06}
+  .domain-pill.tr{color:#34d399;border-color:#0e5038;background:#061812}
+
+  /* Pipeline strip */
+  .pipeline-strip{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;
+    align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:12px;padding:12px 14px;margin-bottom:14px}
+  .pipeline-strip .pa{color:var(--accent);font-size:17px;text-align:center}
+  .pipeline-strip .tier{font-size:10px;color:var(--muted);margin-top:2px}
+
+  /* Extractor bubble */
+  .ext-row{display:flex;gap:7px;justify-content:center;margin:-4px 0 10px;flex-wrap:wrap}
+  .ext-pill{font-size:10.5px;color:var(--muted);border:1px solid var(--line);
+    border-radius:6px;padding:2px 8px;background:var(--panel2)}
+
+  /* Boundary lanes */
+  .bounds{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+  .lane{border-radius:12px;padding:12px}
   .lane.pub{background:var(--public-bg);border:1px solid #21456f}
   .lane.priv{background:var(--private-bg);border:1px solid #5a4413}
-  .lane .lh{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
-    text-align:center;margin-bottom:10px}
+  .lane .lh{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
+    text-align:center;margin-bottom:8px}
   .lane.pub .lh{color:var(--public)} .lane.priv .lh{color:var(--private)}
   .lane .node{background:rgba(0,0,0,.18)}
-  .arrow{color:var(--muted);text-align:center;font-size:18px;line-height:1;margin:7px 0}
-  .arrow small{display:block;font-size:11px;letter-spacing:.04em}
-  .gw{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;
-    border:1px solid var(--line);border-radius:14px;padding:14px;margin:14px 0;background:var(--panel2)}
-  .gw .swap{color:var(--accent);font-size:12px;text-align:center;white-space:nowrap}
-  .badge{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;
-    text-transform:uppercase;padding:1px 7px;border-radius:999px}
+  .lane .tool-list{font-size:10.5px;color:var(--muted);margin-top:4px;text-align:center}
+
+  /* Post-processing row */
+  .postproc{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:0}
+  .postproc .node{font-size:12px}
+
+  /* Bottom three-column grid */
+  .bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  .stack-box{border:1px solid var(--mem-line);border-radius:12px;padding:13px;
+    background:#0a1710}
+  .stack-box .sh{color:var(--mem-ink);font-size:10.5px;font-weight:700;
+    letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;text-align:center}
+  .stack-row{display:flex;align-items:baseline;gap:8px;font-size:12px;margin-bottom:5px}
+  .stack-row .sl{font-weight:600;min-width:80px;color:var(--mem-ink)}
+  .stack-row .sd{color:var(--muted);font-size:11px}
+
+  /* Gateway */
+  .gateway{border:1px solid var(--line);border-radius:12px;padding:13px 16px;margin:0 0 16px;
+    background:var(--panel2)}
+  .gateway .gh{font-size:10.5px;font-weight:700;letter-spacing:.12em;
+    text-transform:uppercase;color:#8b97a8;text-align:center;margin-bottom:10px}
+  .gw-tiers{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center}
+  .gw-tier{border-radius:10px;padding:9px 12px;text-align:center;font-size:12px}
+  .gw-tier.cloud{background:var(--tier1);border:1px solid #1e3a5a}
+  .gw-tier.onprem{background:var(--tier2);border:1px solid #33285f}
+  .gw-tier .tm{font-weight:700;font-size:12.5px}
+  .gw-tier .ts{font-size:10.5px;color:var(--muted);margin-top:1px}
+  .gw-swap{text-align:center;color:var(--accent);font-size:12px;white-space:nowrap}
+  .gw-swap small{display:block;color:var(--muted);font-size:10.5px}
+  .gw-proof{font-size:10.5px;color:var(--muted);text-align:center;margin-top:8px;
+    border-top:1px solid var(--line);padding-top:7px}
+  .gw-proof b{color:var(--ok)}
+
+  /* Badges */
+  .badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;padding:1px 6px;border-radius:999px}
   .badge.pub{color:var(--public);background:var(--public-bg);border:1px solid #21456f}
   .badge.priv{color:var(--private);background:var(--private-bg);border:1px solid #5a4413}
-  .legend{display:flex;gap:18px;justify-content:center;color:var(--muted);font-size:12px;margin-top:18px}
-  .key{display:flex;align-items:center;gap:7px}
+
+  /* Legend */
+  .legend{display:flex;gap:20px;justify-content:center;color:var(--muted);
+    font-size:11.5px;margin-top:16px;flex-wrap:wrap}
+  .key{display:flex;align-items:center;gap:6px}
 </style>
 </head>
 <body>
 <div class="sheet">
-  <div class="hd"><span class="dot"></span><h1>Sentinel — Sovereign Intelligence Agent</h1></div>
-  <p class="sub">One agent, two modes. Public and private signal stay behind <b>separate tool
-    boundaries</b>, enforced in code — so the same agent runs cloud-native for demo and
-    sovereign on-prem (vLLM) for production without a rewrite.</p>
 
-  <div class="center"><div class="node io op"><div class="t">Operator</div>
-    <div class="d">target + mode (competitor / client)</div></div></div>
+  <div class="hd"><span class="dot"></span><h1>Sentinel — Sovereign Intelligence Agent</h1></div>
+  <p class="sub">7 research domains · structural public/private boundary · dual-tier Gemma-4
+    sovereignty · ADK 2.2 coordinator + MCP · episodic + semantic + procedural memory ·
+    built for the Google for Startups AI Agents Challenge (Track 1: Build, APAC)</p>
+
+  <!-- Entry -->
+  <div class="center" style="margin-bottom:8px">
+    <div class="node io entry">
+      <div class="t">Operator</div>
+      <div class="d">target · domain · mode · backend</div>
+    </div>
+  </div>
   <div class="arrow">↓</div>
 
-  <div class="agent">
-    <div class="cap">Sentinel Agent · Google ADK</div>
-    <div class="center"><div class="node core" style="min-width:280px">
-      <div class="t">Orchestrator → Planner</div>
-      <div class="d">routes to the boundaries each mode needs</div></div></div>
+  <!-- ── ADK Agent Shell ── -->
+  <div class="agent-shell">
+    <span class="cap">Sentinel Agent · Google ADK 2.2</span>
 
-    <div class="cols">
+    <!-- Coordinator + Governance -->
+    <div class="coord">
+      <div class="node core">
+        <div class="t">Coordinator <span style="color:var(--accent);font-size:10px">(LlmAgent · 12B · AgentTool delegation)</span></div>
+        <div class="d">Goal → Plan → Delegate to specialists → Merge results · A2A-ready (Phase 2)</div>
+      </div>
+      <div class="gov">
+        <div class="gt">Governance Brain</div>
+        <div>compliance_mode<br>cloud_allowed?<br>effective_backend<br>search_provider</div>
+      </div>
+    </div>
+
+    <!-- Domain pills -->
+    <div class="domains">
+      <span class="domain-pill comp">competitor</span>
+      <span class="domain-pill clt">client</span>
+      <span class="domain-pill fin">finance</span>
+      <span class="domain-pill sw">software</span>
+      <span class="domain-pill ac">academic</span>
+      <span class="domain-pill nu">nutrition</span>
+      <span class="domain-pill tr">travel</span>
+    </div>
+
+    <!-- Pipeline strip -->
+    <div class="pipeline-strip">
+      <div class="node core">
+        <div class="t">Planner</div>
+        <div class="tier">12B · tool-caller</div>
+        <div class="d">decomposes target → research plan</div>
+      </div>
+      <div class="pa">→</div>
+      <div>
+        <div class="node core">
+          <div class="t">Extractor × N</div>
+          <div class="tier">12B · parallel DAG</div>
+          <div class="d">concurrent domain extractors</div>
+        </div>
+        <div class="ext-row" style="margin-top:6px">
+          <span class="ext-pill">extractor-A</span>
+          <span class="ext-pill">extractor-B</span>
+          <span class="ext-pill">extractor-C</span>
+          <span class="ext-pill">extractor-D</span>
+        </div>
+      </div>
+      <div class="pa">→</div>
+      <div class="node core">
+        <div class="t">Synthesizer</div>
+        <div class="tier">26B · reasoner</div>
+        <div class="d">schema-bound output<br>Battlecard / Brief / Profile</div>
+      </div>
+    </div>
+
+    <!-- Boundary lanes -->
+    <div class="bounds">
       <div class="lane pub">
         <div class="lh">Public boundary</div>
-        <div class="node"><div class="t">public_research</div>
-          <div class="d">tools = [ google_search ]</div></div>
-        <div class="arrow">↓<small>grounded search</small></div>
+        <div class="node">
+          <div class="t">public_research agent</div>
+          <div class="tool-list">tools = [ google_search | DuckDuckGo | Brave | SerpAPI ]<br>
+            ← provider selected by governance</div>
+        </div>
+        <div class="arrow" style="margin:7px 0">↓<small>grounded / DDG search</small></div>
         <div class="node io"><div class="t">Public web</div></div>
       </div>
       <div class="lane priv">
         <div class="lh">Private boundary</div>
-        <div class="node"><div class="t">private_research</div>
-          <div class="d">tools = [ Workspace MCP ] · read-only, scoped</div></div>
-        <div class="arrow">↓<small>authorized MCP</small></div>
+        <div class="node">
+          <div class="t">private_research agent</div>
+          <div class="tool-list">tools = [ Workspace MCP ] · read-only, user-authorized<br>
+            ← client mode only; no web tool ever added</div>
+        </div>
+        <div class="arrow" style="margin:7px 0">↓<small>authorized MCP connector</small></div>
         <div class="node io"><div class="t">Your Workspace</div>
           <div class="d">CRM · Docs · Calendar</div></div>
       </div>
     </div>
 
-    <div class="arrow" style="margin-top:14px">↓ &nbsp; both feed &nbsp; ↓</div>
-    <div class="center"><div class="node core" style="min-width:320px">
-      <div class="t">Synthesizer</div>
-      <div class="d">output_schema = Battlecard / AccountBrief</div></div></div>
+    <!-- Post-processing -->
+    <div class="postproc">
+      <div class="node core">
+        <div class="t">Strategy (26B)</div>
+        <div class="d">playbook overlay · assessment<br>action plan · objection handling</div>
+      </div>
+      <div class="node core">
+        <div class="t">Priority (deterministic)</div>
+        <div class="d">signal registry · weighted score<br>focus list — no LLM</div>
+      </div>
+      <div class="node ok">
+        <div class="t">Eval Grader</div>
+        <div class="d">citation quality · field coverage<br>score write-back · telemetry</div>
+      </div>
+    </div>
+
+  </div><!-- /agent-shell -->
+
+  <!-- Bottom: Memory + KB -->
+  <div class="bottom-grid">
+    <div class="stack-box">
+      <div class="sh">Memory Stack</div>
+      <div class="stack-row">
+        <span class="sl">Episodic</span>
+        <span class="sd">SQLite RunStore · boundary-tagged findings per run</span>
+      </div>
+      <div class="stack-row">
+        <span class="sl">Semantic</span>
+        <span class="sd">ChromaDB + BM25 + cross-encoder reranker · SM-2 reinforced</span>
+      </div>
+      <div class="stack-row">
+        <span class="sl">Procedural</span>
+        <span class="sd">YAML playbooks · runtime-loaded strategy overlays</span>
+      </div>
+      <div class="stack-row">
+        <span class="sl">Working</span>
+        <span class="sd">ADK session state · in-flight agent context</span>
+      </div>
+    </div>
+    <div class="stack-box" style="border-color:#21456f;background:#0a1220">
+      <div class="sh" style="color:var(--public)">Knowledge-Base Pipeline</div>
+      <div class="stack-row">
+        <span class="sl" style="color:var(--public)">Crawl</span>
+        <span class="sd">URL guard · BeautifulSoup · chunker</span>
+      </div>
+      <div class="stack-row">
+        <span class="sl" style="color:var(--public)">Embed</span>
+        <span class="sd">Qwen3-VL / OpenAI-compatible embedder</span>
+      </div>
+      <div class="stack-row">
+        <span class="sl" style="color:var(--public)">Index</span>
+        <span class="sd">ChromaDB vector store + BM25 keyword index</span>
+      </div>
+      <div class="stack-row">
+        <span class="sl" style="color:var(--public)">Search</span>
+        <span class="sd">hybrid retrieval → cross-encoder rerank → inject</span>
+      </div>
+    </div>
   </div>
 
-  <div class="gw">
-    <div class="node core"><div class="t">Gemini 2.x</div><div class="d">cloud demo</div></div>
-    <div class="swap">◀ config-only swap ▶<br><span class="d">LLM gateway</span></div>
-    <div class="node core"><div class="t">vLLM on-prem</div><div class="d">customer GPUs</div></div>
+  <!-- LLM Gateway -->
+  <div class="gateway">
+    <div class="gh">LLM Gateway — config-only sovereignty swap (zero orchestration change)</div>
+    <div class="gw-tiers">
+      <div>
+        <div class="gw-tier cloud" style="margin-bottom:8px">
+          <div class="tm">Gemini 2.5 Flash</div>
+          <div class="ts">tool-caller · cloud demo</div>
+        </div>
+        <div class="gw-tier cloud">
+          <div class="tm">Gemini 2.5 Pro / Flash</div>
+          <div class="ts">reasoner · cloud demo</div>
+        </div>
+      </div>
+      <div class="gw-swap">◀ config swap ▶<br><small>role → model resolution<br>llm/gateway.py</small></div>
+      <div>
+        <div class="gw-tier onprem" style="margin-bottom:8px">
+          <div class="tm">Gemma-4 12B</div>
+          <div class="ts">tool-caller · on-prem vLLM<br>gemma.atcuality.com</div>
+        </div>
+        <div class="gw-tier onprem">
+          <div class="tm">Gemma-4 26B</div>
+          <div class="ts">reasoner · on-prem vLLM<br>omni.atcuality.com</div>
+        </div>
+      </div>
+    </div>
+    <div class="gw-proof">
+      <b>on_prem_required</b> → zero Gemini objects constructed anywhere in the graph
+      (enforced by governance.py · proven by tests/test_governance.py)
+    </div>
   </div>
-  <p class="sub" style="text-align:center;margin:0 0 14px">
-    Public research is Gemini-native grounding (public data anyway). The <b>private</b>
-    synthesis runs through the gateway — so the reasoning that needs sovereignty is exactly
-    what runs on the customer's own hardware.</p>
 
+  <!-- Artifact + output -->
   <div class="arrow">↓</div>
-  <div class="center"><div class="node core" style="min-width:420px">
-    <div class="t">Provenance-tagged artifact</div>
-    <div class="d">every finding carries
-      <span class="badge pub">public</span> or <span class="badge priv">private</span></div></div></div>
-  <div class="arrow">↓</div>
-  <div class="center"><div class="node" style="min-width:420px">
-    <div class="t">Writers → durable output</div>
-    <div class="d">Markdown · Google Doc · CRM record (back to your workspace)</div></div></div>
-
-  <div class="legend">
-    <div class="key"><span class="badge pub">public</span> Gemini grounded web search</div>
-    <div class="key"><span class="badge priv">private</span> scoped, user-authorized MCP connectors</div>
+  <div class="center">
+    <div class="node core" style="min-width:460px">
+      <div class="t">Provenance-tagged artifact</div>
+      <div class="d">every finding carries
+        <span class="badge pub">public</span> or
+        <span class="badge priv">private</span> ·
+        Gaps recorded for missing sources — never silently dropped</div>
+    </div>
   </div>
+  <div class="arrow">↓</div>
+  <div class="center">
+    <div class="node" style="min-width:460px">
+      <div class="t">Writers → durable output</div>
+      <div class="d">Markdown · Google Doc · CRM record via MCP (back to your workspace)</div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+  <div class="center">
+    <div class="node io" style="min-width:260px">
+      <div class="t">Operator</div>
+      <div class="d">battlecard · account brief · domain profile · report</div>
+    </div>
+  </div>
+
+  <div class="legend" style="margin-top:22px">
+    <div class="key"><span class="badge pub">public</span> grounded web search — Gemini / DDG / Brave / SerpAPI</div>
+    <div class="key"><span class="badge priv">private</span> scoped user-authorized MCP connectors only</div>
+    <div class="key" style="color:#7c5cff">■ ADK 2.2 agent graph (LlmAgent + AgentTool)</div>
+    <div class="key" style="color:#3ad29f">■ memory boundary-choke: recall(allowed_boundaries=)</div>
+  </div>
+
 </div>
 </body>
 </html>

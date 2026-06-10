@@ -1,47 +1,82 @@
-%% Sentinel — Sovereign Intelligence Agent. Architecture (data-flow + trust boundaries).
+%% Sentinel — Sovereign Intelligence Agent. Full architecture (updated 2026-06-10).
 %% Render: https://mermaid.live  or any Mermaid-aware viewer (GitHub renders .mmd in PRs).
+%%
+%% For the human-readable styled version open docs/architecture/diagram.html in a browser.
 flowchart TB
-    OP([Operator])
+    OP([Operator<br/>target · domain · mode · backend])
 
-    subgraph AGENT["Sentinel Agent (Google ADK)"]
-        ORCH["Orchestrator<br/>one agent · two modes"]
-        PLAN["Planner"]
-        SYNTH["Synthesizer<br/>output_schema = Battlecard / AccountBrief"]
-        ORCH --> PLAN --> PUB
-        PLAN --> PRIV
-        PUB --> SYNTH
-        PRIV --> SYNTH
+    subgraph AGENT["Sentinel Agent — Google ADK 2.2"]
+        COORD["Coordinator<br/>(LlmAgent · 12B · AgentTool delegation)<br/>Goal → Plan → Delegate → Merge"]
+        GOV["Governance Brain<br/>compliance_mode · cloud_allowed<br/>effective_backend · search_provider"]
+        COORD --- GOV
+
+        subgraph PIPE["Research Pipeline — 7 Domains"]
+            PLAN["Planner (12B · tool-caller)<br/>competitor · client · finance<br/>software · academic · nutrition · travel"]
+            EXT["Extractor × N (12B · parallel DAG)"]
+            SYNTH["Synthesizer (26B · reasoner)<br/>schema-bound: Battlecard / Brief / Profile"]
+            PLAN --> EXT --> SYNTH
+        end
+
+        subgraph PUBLICB["PUBLIC boundary"]
+            PUB["public_research<br/>tools = [google_search | DuckDuckGo | Brave | SerpAPI]<br/>provider selected by governance"]
+        end
+        subgraph PRIVATEB["PRIVATE boundary"]
+            PRIV["private_research<br/>tools = [Workspace MCP] · read-only, user-authorized<br/>client mode only — structurally isolated"]
+        end
+
+        STRAT["Strategy (26B)<br/>playbook overlay · action plan · objections"]
+        PRIO["Priority (deterministic)<br/>signal registry · weighted score · focus list"]
+        EVAL["Eval Grader<br/>citation quality · field coverage · score write-back"]
     end
 
-    subgraph PUBLICB["PUBLIC boundary"]
-        PUB["public_research<br/>tools = [google_search]"]
-    end
-    subgraph PRIVATEB["PRIVATE boundary"]
-        PRIV["private_research<br/>tools = [Workspace MCP]<br/>read-only, scoped"]
+    subgraph MEMORY["Memory Stack"]
+        ME["Episodic · SQLite RunStore · boundary-tagged per run"]
+        MS["Semantic · ChromaDB + BM25 + cross-encoder reranker · SM-2"]
+        MP["Procedural · YAML playbooks (runtime-loaded)"]
+        MW["Working · ADK session state"]
     end
 
-    subgraph GATEWAY["LLM gateway (config-only swap)"]
-        GEM["Gemini 2.x<br/>(cloud demo)"]
-        VLLM["vLLM on-prem<br/>(customer GPUs)"]
+    subgraph KB["Knowledge-Base Pipeline"]
+        KC["Crawl (URL guard · BeautifulSoup · chunker)"]
+        KE["Embed (OpenAI-compat embedder)"]
+        KI["Index (ChromaDB + BM25)"]
+        KR["Search (hybrid retrieval → rerank → inject)"]
+        KC --> KE --> KI --> KR
+    end
+
+    subgraph GW["LLM Gateway — config-only sovereignty swap"]
+        GC1["Gemini 2.5 Flash (tool-caller · cloud)"]
+        GC2["Gemini 2.5 Pro (reasoner · cloud)"]
+        GV1["Gemma-4 12B (tool-caller · on-prem vLLM)"]
+        GV2["Gemma-4 26B (reasoner · on-prem vLLM)"]
+        GC1 -. config swap .- GV1
+        GC2 -. config swap .- GV2
     end
 
     WEB[("Public web")]
     WS[("Your Workspace<br/>CRM · Docs · Calendar")]
-    ART["Provenance-tagged artifact<br/>every finding = public | private"]
-    WRITERS["Writers<br/>Markdown · Google Doc · CRM"]
+    ART["Provenance-tagged artifact<br/>every finding: public | private<br/>Gaps recorded — never silently dropped"]
+    WRITERS["Writers · Markdown · Google Doc · CRM via MCP"]
 
-    OP -->|target + mode| ORCH
-    PUB -->|grounded search| WEB
+    OP --> COORD
+    COORD --> PIPE
+    PUB -->|grounded / DDG search| WEB
     PRIV -->|authorized MCP| WS
-    SYNTH -. reasons via .-> GATEWAY
-    GEM -. swap .- VLLM
-    SYNTH --> ART --> WRITERS --> OP
+    PIPE --> STRAT --> PRIO --> EVAL
+    EVAL --> ART --> WRITERS --> OP
+    SYNTH -. reasons via .-> GW
+    PIPE --- MEMORY
+    PIPE --- KB
 
     classDef pub fill:#11233d,stroke:#4ea1ff,color:#cfe4ff;
     classDef priv fill:#2e2410,stroke:#ffb24d,color:#ffe2b3;
     classDef core fill:#121826,stroke:#7c5cff,color:#e7ecf3;
     classDef io fill:#0e1420,stroke:#1e2940,color:#8b97a8;
+    classDef mem fill:#0a1710,stroke:#2a6048,color:#3ad29f;
+    classDef ok fill:#0e1e18,stroke:#1e4a38,color:#3ad29f;
     class PUB,PUBLICB,WEB pub;
     class PRIV,PRIVATEB,WS priv;
-    class ORCH,PLAN,SYNTH,AGENT,ART,WRITERS core;
-    class OP,GATEWAY,GEM,VLLM io;
+    class COORD,PLAN,EXT,SYNTH,STRAT,PRIO,AGENT,PIPE,GOV core;
+    class OP,GW,GC1,GC2,GV1,GV2,WRITERS io;
+    class MEMORY,ME,MS,MP,MW,KB,KC,KE,KI,KR mem;
+    class EVAL,ART ok;
