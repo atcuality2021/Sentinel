@@ -373,12 +373,16 @@ async def create_project(
     name = name.strip()
     if not name:
         return RedirectResponse(url="/projects", status_code=303)
+    store = ProjectStore()
+    existing = store.get_project_by_name(name)
+    if existing:
+        return RedirectResponse(url=f"/projects/{existing.id}", status_code=303)
     proj = Project(
         id=uuid4().hex, name=name, website=website.strip() or None,
         created_at=utcnow().isoformat(),
     )
     try:
-        ProjectStore().save_project(proj)
+        store.save_project(proj)
     except Exception:
         return RedirectResponse(url="/projects?ok=Could+not+save+project.", status_code=303)
 

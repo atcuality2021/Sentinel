@@ -757,6 +757,14 @@ class ProjectStore:
             row = conn.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
         return _row_to_project(row) if row is not None else None
 
+    def get_project_by_name(self, name: str) -> "Project | None":
+        with _connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT * FROM projects WHERE lower(name)=lower(?) ORDER BY created_at DESC LIMIT 1",
+                (name,),
+            ).fetchone()
+        return _row_to_project(row) if row is not None else None
+
     def list_projects(self) -> list[Project]:
         with _connect(self.path) as conn:
             rows = conn.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()

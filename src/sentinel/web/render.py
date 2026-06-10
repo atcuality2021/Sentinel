@@ -577,7 +577,7 @@ def dashboard_page(*, stats: dict, charts: dict, recent: list[dict], backend: st
     else:
         charts_html = (
             "<div class='card' style='margin-top:16px'><div class='empty'>"
-            "No runs yet. <a href='/new' style='color:var(--accent-2)'>Run your first "
+            "No runs yet. <a href='/projects' style='color:var(--accent-2)'>Run your first "
             "intelligence task</a> — the charts populate live, including the public vs "
             "private provenance split.</div></div>"
         )
@@ -1078,7 +1078,7 @@ def accounts_page(*, accounts: list, backend: str, ok: str = "", project: str = 
     banner = f"<div class='card banner ok' style='margin-bottom:18px'>{escape(ok)}</div>" if ok else ""
     if not accounts:
         content = (banner + "<div class='card'><div class='empty'>No accounts yet. "
-                   "<a href='/new' style='color:var(--accent-2)'>Run a task</a> against a "
+                   "<a href='/projects' style='color:var(--accent-2)'>Run a task</a> against a "
                    "competitor or client and it appears here, with its full history.</div></div>")
         return shell(active="accounts", title="Accounts", content=content, backend=backend,
                  project=project)
@@ -2385,7 +2385,7 @@ def focus_page(*, scores: list, backend: str, enabled: bool = True, project: str
                  project=project)
     if not scores:
         content = ("<div class='card'><div class='empty'>No accounts to prioritize yet. "
-                   "<a href='/new' style='color:var(--accent-2)'>Run a task</a> and the focus "
+                   "<a href='/projects' style='color:var(--accent-2)'>Run a task</a> and the focus "
                    "list ranks every researched account here, with cited reasons.</div></div>")
         return shell(active="focus", title="Focus", content=content, backend=backend,
                  project=project)
@@ -2441,7 +2441,7 @@ def backends_page(*, default_backend: str, gemini_model: str, vllm_model: str,
     API keys live in <span class='mono'>.env</span>; everything else — models, endpoints, the
     default backend — is edited in <a href='/settings' style='color:var(--accent-2)'>Settings</a>
     (saved to <span class='mono'>sentinel.config.yaml</span>). Every run can still override the
-    default with the toggle on <a href='/new' style='color:var(--accent-2)'>New Run</a>.</p>
+    default with the toggle on <a href='/projects' style='color:var(--accent-2)'>New Run</a>.</p>
     <div class='grid' style='grid-template-columns:1fr 1fr;margin-top:16px'>
       <div class='card' style='{g_active}'>
         <div style='display:flex;align-items:center;gap:10px'>{_icon('globe')}
@@ -2831,7 +2831,7 @@ def error_page(message: str, *, hint: str = "", backend: str = "gemini") -> str:
     hint_html = f"<p class='note'>{escape(hint)}</p>" if hint else ""
     content = (f"<div class='card err'><h2 class='sec' style='color:var(--bad)'>Run failed</h2>"
                f"<p>{escape(message)}</p>{hint_html}"
-               "<p class='note'><a href='/new' style='color:var(--accent-2)'>← Back to New Run</a></p></div>")
+               "<p class='note'><a href='/projects' style='color:var(--accent-2)'>← Back to New Run</a></p></div>")
     return shell(active="new", title="Error", content=content, backend=backend)
 
 
