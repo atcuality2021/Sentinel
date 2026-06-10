@@ -651,3 +651,48 @@ def test_render_user_profile_context_customised_includes_prefs():
     assert "verbosity: 5/5" in ctx
     assert "domain_level: expert" in ctx
     assert "preferred_format: table" in ctx
+
+
+# ---------------------------------------------------------------------------
+# G-15 — Skill Curation Loop
+# ---------------------------------------------------------------------------
+
+def test_skill_curation_record_and_top_skills(tmp_path):
+    """record_outcome() persists stats; top_skills() returns them ranked by avg_score."""
+    from sentinel.memory.store import SkillCurationStore
+    store = SkillCurationStore(tmp_path / "sentinel.db")
+    store.record_outcome("self_profile", 0.9)
+    store.record_outcome("self_profile", 0.7)
+    store.record_outcome("competitor", 0.5)
+    top = store.top_skills(limit=5)
+    assert len(top) == 2
+    # self_profile avg=0.8 > competitor avg=0.5
+    assert top[0]["capability"] == "self_profile"
+    assert top[0]["run_count"] == 2
+    assert abs(top[0]["avg_score"] - 0.8) < 0.01
+
+
+def test_skill_curation_none_score_increments_count(tmp_path):
+    """A None score still increments run_count so frequency is tracked even without eval."""
+    from sentinel.memory.store import SkillCurationStore
+    store = SkillCurationStore(tmp_path / "sentinel.db")
+    store.record_outcome("self_profile", None)
+    store.record_outcome("self_profile", None)
+    top = store.top_skills()
+    assert top[0]["run_count"] == 2
+
+
+def test_skill_curation_top_skills_empty_db_returns_empty(tmp_path):
+    """top_skills() on a fresh DB returns [] without raising."""
+    from sentinel.memory.store import SkillCurationStore
+    store = SkillCurationStore(tmp_path / "sentinel.db")
+    assert store.top_skills() == []
+
+
+def test_skill_curation_limit_respected(tmp_path):
+    """top_skills(limit=1) returns at most 1 row even when multiple capabilities exist."""
+    from sentinel.memory.store import SkillCurationStore
+    store = SkillCurationStore(tmp_path / "sentinel.db")
+    for cap in ("self_profile", "competitor", "compare"):
+        store.record_outcome(cap, 0.8)
+    assert len(store.top_skills(limit=1)) == 1

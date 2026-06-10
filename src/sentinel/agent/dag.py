@@ -1116,6 +1116,15 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
                 )
         except Exception:
             pass
+        # G-15: skill curation — update per-capability performance stats. Fail-soft.
+        try:
+            from sentinel.memory.store import SkillCurationStore
+            _score = result.grade.score if result.grade else None
+            _curation = SkillCurationStore()
+            for _cap in [s.capability for s in plan.steps if s.status == "done"]:
+                _curation.record_outcome(_cap, _score)
+        except Exception:
+            pass
     return result
 
 

@@ -230,6 +230,14 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     preferred_format TEXT NOT NULL DEFAULT 'bullets',
     updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS skill_ratings (
+    capability   TEXT PRIMARY KEY,
+    run_count    INTEGER NOT NULL DEFAULT 0,
+    total_score  REAL    NOT NULL DEFAULT 0.0,
+    avg_score    REAL    NOT NULL DEFAULT 0.0,
+    last_used_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -1623,3 +1631,89 @@ def render_user_profile_context(profile: "UserProfile | None") -> str:
         f"- preferred_format: {profile.preferred_format}",
     ]
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# G-15 — Skill Curation Loop
+# ---------------------------------------------------------------------------
+
+class SkillCurationStore:
+    """Per-capability aggregated performance stats — SENTINEL-016 G-15.
+
+    Each time a capability completes a run, record_outcome() upserts the
+    skill_ratings row with an incremented run_count and a rolling avg_score.
+    top_skills() returns the ranked list so the planner can prefer historically
+    effective capabilities when building new plans.
+
+    All operations are fail-soft: a rating write must never break a run.
+    """
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path else db_path()
+        _ensure_schema(self.path)
+
+    def record_outcome(self, capability: str, score: float | None) -> None:
+        """Upsert the skill_ratings row for ``capability`` with the new score.
+
+        If *score* is None (run completed but no eval), the run_count still
+        increments so frequency is tracked even without quality data.
+        """
+        try:
+            import datetime as _datetime
+            with _connect(self.path) as conn:
+                row = conn.execute(
+                    "SELECT run_count, total_score FROM skill_ratings WHERE capability=?",
+                    (capability,),
+                ).fetchone()
+                now = _datetime.datetime.now(_datetime.timezone.utc).isoformat()
+                if row is None:
+                    new_count = 1
+                    new_total = score if score is not None else 0.0
+                    new_avg = new_total
+                    conn.execute(
+                        "INSERT INTO skill_ratings "
+                        "(capability, run_count, total_score, avg_score, last_used_at) "
+                        "VALUES (?,?,?,?,?)",
+                        (capability, new_count, new_total, new_avg, now),
+                    )
+                else:
+                    new_count = row["run_count"] + 1
+                    new_total = row["total_score"] + (score if score is not None else 0.0)
+                    # avg_score only counts runs where score is available
+                    scored_count = new_count if score is not None else row["run_count"]
+                    new_avg = new_total / scored_count if scored_count > 0 else 0.0
+                    conn.execute(
+                        "UPDATE skill_ratings "
+                        "SET run_count=?, total_score=?, avg_score=?, last_used_at=? "
+                        "WHERE capability=?",
+                        (new_count, new_total, new_avg, now, capability),
+                    )
+                conn.commit()
+        except Exception:
+            pass  # fail-soft
+
+    def top_skills(self, limit: int = 10) -> list[dict]:
+        """Return the top-*limit* capabilities ranked by avg_score DESC, then run_count DESC.
+
+        Returns [] on any error (fail-soft).
+        """
+        try:
+            with _connect(self.path) as conn:
+                rows = conn.execute(
+                    "SELECT capability, run_count, avg_score, last_used_at "
+                    "FROM skill_ratings "
+                    "ORDER BY avg_score DESC, run_count DESC "
+                    "LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            return [
+                {
+                    "capability": r["capability"],
+                    "run_count": r["run_count"],
+                    "avg_score": r["avg_score"],
+                    "last_used_at": r["last_used_at"],
+                }
+                for r in rows
+            ]
+        except Exception:
+            return []
