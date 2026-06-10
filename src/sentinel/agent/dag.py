@@ -1037,10 +1037,13 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
                         kb_dir = str(data_dir() / "kb")
                         hits = hybrid_search(project_id, kb_dir, target, rerank_top_k=5)
                         if hits:
-                            kb_lines = [
-                                f"- [{h.url or 'kb'}] {h.text[:300]}"
-                                for h in hits[:5] if h.text
-                            ]
+                            from sentinel.security.sandbox import validate_tool_output as _vto
+                            kb_lines = []
+                            for _h in hits[:5]:
+                                if not _h.text:
+                                    continue
+                                _sr = _vto(_h.text[:300], entity=target, context="kb")
+                                kb_lines.append(f"- [{_h.url or 'kb'}] {_sr.sanitized}")
                             if kb_lines:
                                 ctx_parts.insert(0,
                                     "\n\n## Knowledge base context (indexed documents for this project)\n"
