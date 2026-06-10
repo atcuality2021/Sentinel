@@ -205,6 +205,21 @@ CREATE TABLE IF NOT EXISTS memory_conflicts (
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_conflict_entity ON memory_conflicts(entity, status);
+
+-- Per-turn telemetry events (SENTINEL-016 G-13)
+-- Records token counts and latency for each instrumented agent step.
+CREATE TABLE IF NOT EXISTS telemetry_events (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT NOT NULL,
+    step        TEXT NOT NULL,
+    model       TEXT NOT NULL DEFAULT '',
+    tokens_in   INTEGER NOT NULL DEFAULT 0,
+    tokens_out  INTEGER NOT NULL DEFAULT 0,
+    latency_ms  REAL NOT NULL DEFAULT 0,
+    project_id  TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_telemetry_run ON telemetry_events(run_id);
 """
 
 
@@ -1461,3 +1476,54 @@ class FeedbackStore:
                 mem._update_strength(entry)
         except Exception:
             pass  # feedback never breaks the request path
+
+
+# --------------------------------------------------------------------------- #
+# TelemetryStore — per-turn token + latency events (SENTINEL-016 G-13)
+# --------------------------------------------------------------------------- #
+
+class TelemetryStore:
+    """Lightweight observability store for per-step token counts and latency."""
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path else db_path()
+        _ensure_schema(self.path)
+
+    def record(self, event: "TelemetryEvent") -> None:
+        """Persist one telemetry event. Fail-soft — never raises."""
+        import uuid as _uuid
+        from sentinel.telemetry import TelemetryEvent as _TE
+        try:
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "INSERT INTO telemetry_events "
+                    "(id, run_id, step, model, tokens_in, tokens_out, latency_ms, project_id) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        _uuid.uuid4().hex, event.run_id, event.step, event.model,
+                        event.tokens_in, event.tokens_out, event.latency_ms, event.project_id,
+                    ),
+                )
+                conn.commit()
+        except Exception:
+            pass
+
+    def events_for_run(self, run_id: str) -> list[dict]:
+        """Return all telemetry events for ``run_id``, oldest first. Fail-soft → []."""
+        try:
+            with _connect(self.path) as conn:
+                rows = conn.execute(
+                    "SELECT step, model, tokens_in, tokens_out, latency_ms "
+                    "FROM telemetry_events WHERE run_id=? ORDER BY created_at ASC",
+                    (run_id,),
+                ).fetchall()
+            return [
+                {
+                    "step": r["step"], "model": r["model"],
+                    "tokens_in": r["tokens_in"], "tokens_out": r["tokens_out"],
+                    "latency_ms": r["latency_ms"],
+                }
+                for r in rows
+            ]
+        except Exception:
+            return []

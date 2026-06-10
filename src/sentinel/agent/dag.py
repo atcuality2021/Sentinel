@@ -251,11 +251,28 @@ async def _run_agents(
     ``max_concurrency`` (from ``cfg.backend``) is forwarded to the leaf gate in :func:`orch.run_step`
     (Step 7). ``max_retries`` defaults to 3 for the normal pipeline; callers that apply their own
     fail-soft logic (e.g. per-source extraction) pass 1 to skip retry."""
+    import time as _time
     runnable = agents[0] if len(agents) == 1 else SequentialAgent(name=name, sub_agents=agents)
-    return await orch.run_step(
+    _t0 = _time.monotonic()
+    result = await orch.run_step(
         runnable, message_text=message, seed_state=seed, streaming=streaming, trace=trace,
         max_concurrency=max_concurrency, max_retries=max_retries,
     )
+    # G-13: record latency telemetry (fail-soft — never affects the result).
+    try:
+        _latency_ms = (_time.monotonic() - _t0) * 1000.0
+        from sentinel.telemetry import TelemetryEvent
+        from sentinel.memory.store import TelemetryStore
+        _model = getattr(runnable, "model", "") or ""
+        _run_id = str(seed.get("task_id") or seed.get("run_id") or name)
+        TelemetryStore().record(TelemetryEvent(
+            step=name, model=_model, run_id=_run_id,
+            latency_ms=_latency_ms,
+            project_id=seed.get("project_id"),
+        ))
+    except Exception:
+        pass
+    return result
 
 
 def _max_concurrency(cfg) -> int | None:
