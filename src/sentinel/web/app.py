@@ -1003,14 +1003,62 @@ async def run(
     vertical: str = Form(""),
     backend: str = Form(""),
 ) -> str:
+    from sentinel.agent.orchestrator_planner import _template_plan, _SINGLE_STEP_DOMAINS
+
     target = target.strip()
     if not target:
         return render.error_page("Target is required.", backend=_active())
-    if mode not in ("competitor", "client"):
+    if mode not in ({"competitor", "client"} | _SINGLE_STEP_DOMAINS):
         return render.error_page(f"Unknown mode {mode!r}.", backend=_active())
     backend = backend.strip().lower()
     if backend not in ("", "gemini", "vllm"):
         return render.error_page(f"Unknown backend {backend!r}.", backend=_active())
+
+    if mode in _SINGLE_STEP_DOMAINS:
+        # Domain modes route through the orchestrated DAG path — _template_plan produces a
+        # deterministic 1-step plan (no LLM call), so this is fast and reliable.
+        task = Task(
+            id=f"run-{mode}-{uuid4().hex[:8]}",
+            project_id="legacy",
+            objective=target,
+            domain=Domain(name=mode),
+            created_at=utcnow().isoformat(),
+        )
+        plan = _template_plan(task)
+        if plan is None:
+            return render.error_page(f"No template plan for domain {mode!r}.", backend=_active())
+        proposal = PlanProposal(plan=plan, created_specs=[])
+        cloud_allowed = True
+        policy = _run_policy(cloud_allowed)
+        if backend:
+            policy["backend"] = backend
+        trace: list[str] = []
+        try:
+            outcome = await gate_proposal(
+                proposal,
+                autonomy="autonomous",
+                seeds={s.id: {"target": target, "vertical_context": vertical.strip() or target}
+                       for s in plan.steps},
+                cfg=get_config(),
+                cloud_allowed=cloud_allowed,
+                trace=trace,
+                **policy,
+            )
+        except Exception as exc:
+            return render.error_page(
+                f"{type(exc).__name__}: {exc}",
+                hint=_failure_hint(exc),
+                backend=policy.get("backend") or _active(),
+            )
+        return render.plan_review_page(
+            task=task,
+            proposal=proposal,
+            autonomy="autonomous",
+            backend=policy.get("backend") or _active(),
+            ran=outcome.ran,
+            result=outcome.result,
+            trace=trace,
+        )
 
     try:
         result = await run_async(

@@ -146,6 +146,81 @@ def test_run_rejects_unknown_backend(client):
     assert "Unknown backend" in r.text
 
 
+# --- HIGH-03: /run accepts domain modes (finance, academic, software, nutrition, travel) ---- #
+
+
+def test_run_rejects_unknown_mode(client):
+    r = client.post("/run", data={"target": "Acme", "mode": "unknown_xyz"})
+    assert r.status_code == 200
+    assert "Unknown mode" in r.text
+
+
+@pytest.mark.parametrize("domain", ["finance", "academic", "software", "nutrition", "travel"])
+def test_run_domain_mode_routes_through_dag(client, monkeypatch, domain):
+    """Domain modes must reach gate_proposal with autonomy=autonomous and render a result."""
+    from sentinel.agent.autonomy import GateOutcome
+    from sentinel.artifacts.schemas import Result
+
+    captured: dict = {}
+
+    async def _fake_gate(proposal, *, autonomy, seeds, **kw):
+        captured["autonomy"] = autonomy
+        captured["capability"] = proposal.plan.steps[0].capability
+        result = Result(
+            task_id=proposal.plan.task_id,
+            summary=f"{domain} research done",
+            artifacts=[],
+            citations=[],
+            dashboard_payload={"artifacts": {}},
+            degraded=False,
+        )
+        return GateOutcome(autonomy="autonomous", proposal=proposal, result=result, ran=True)
+
+    import sentinel.web.app as _app
+    monkeypatch.setattr(_app, "gate_proposal", _fake_gate)
+
+    r = client.post("/run", data={"target": "test-target", "mode": domain})
+    assert r.status_code == 200
+    assert "Unknown mode" not in r.text
+    assert captured.get("autonomy") == "autonomous"
+    assert captured.get("capability") == domain
+
+
+def test_run_domain_mode_seeds_target_and_vertical(client, monkeypatch):
+    """Seeds passed to gate_proposal carry the submitted target and vertical_context."""
+    from sentinel.agent.autonomy import GateOutcome
+    from sentinel.artifacts.schemas import Result
+
+    captured: dict = {}
+
+    async def _fake_gate(proposal, *, autonomy, seeds, **kw):
+        captured["seeds"] = seeds
+        result = Result(task_id=proposal.plan.task_id, summary="ok", artifacts=[], citations=[],
+                        dashboard_payload={}, degraded=False)
+        return GateOutcome(autonomy="autonomous", proposal=proposal, result=result, ran=True)
+
+    import sentinel.web.app as _app
+    monkeypatch.setattr(_app, "gate_proposal", _fake_gate)
+
+    client.post("/run", data={"target": "HDFC Bank", "mode": "finance", "vertical": "BFSI"})
+    seeds = captured.get("seeds", {})
+    assert any(v.get("target") == "HDFC Bank" for v in seeds.values())
+    assert any("BFSI" in (v.get("vertical_context") or "") for v in seeds.values())
+
+
+def test_run_domain_mode_surfaces_gate_error(client, monkeypatch):
+    """If gate_proposal raises, the route must render an error page — not a 500."""
+    async def _explode(proposal, *, autonomy, seeds, **kw):
+        raise RuntimeError("vllm timeout")
+
+    import sentinel.web.app as _app
+    monkeypatch.setattr(_app, "gate_proposal", _explode)
+
+    r = client.post("/run", data={"target": "Acme Corp", "mode": "software"})
+    assert r.status_code == 200
+    assert "RuntimeError" in r.text or "vllm timeout" in r.text
+
+
 def test_renderers_tag_boundaries():
     # public findings get the public badge; private findings get the private badge
     bc = Battlecard(target="X", one_line_summary="s", positioning="p", strengths=[_pub("a")])
