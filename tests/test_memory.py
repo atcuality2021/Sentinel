@@ -696,3 +696,57 @@ def test_skill_curation_limit_respected(tmp_path):
     for cap in ("self_profile", "competitor", "compare"):
         store.record_outcome(cap, 0.8)
     assert len(store.top_skills(limit=1)) == 1
+
+
+# ---------------------------------------------------------------------------
+# G-17 — A2A Cross-Session Coordination
+# ---------------------------------------------------------------------------
+
+def test_handoff_post_and_pending_roundtrip(tmp_path):
+    """post() persists a handoff; pending() returns it with correct fields."""
+    from sentinel.memory.store import SessionHandoffStore
+    from sentinel.memory.schema import SessionHandoff
+    store = SessionHandoffStore(tmp_path / "sentinel.db")
+    h = SessionHandoff(entity="biltiq ai", intent="run full profile", priority=8)
+    store.post(h)
+    pending = store.pending()
+    assert len(pending) == 1
+    assert pending[0]["entity"] == "biltiq ai"
+    assert pending[0]["intent"] == "run full profile"
+    assert pending[0]["priority"] == 8
+
+
+def test_handoff_claim_removes_from_pending(tmp_path):
+    """claim() moves a handoff out of pending() so it is not picked up twice."""
+    from sentinel.memory.store import SessionHandoffStore
+    from sentinel.memory.schema import SessionHandoff
+    store = SessionHandoffStore(tmp_path / "sentinel.db")
+    h = SessionHandoff(entity="openai", intent="competitive analysis", priority=5)
+    store.post(h)
+    store.claim(h.id)
+    assert store.pending() == []
+
+
+def test_handoff_complete_marks_done(tmp_path):
+    """complete() sets status='done'; the handoff no longer appears in pending()."""
+    from sentinel.memory.store import SessionHandoffStore
+    from sentinel.memory.schema import SessionHandoff
+    store = SessionHandoffStore(tmp_path / "sentinel.db")
+    h = SessionHandoff(entity="anthropic", intent="profile update", priority=3)
+    store.post(h)
+    store.claim(h.id)
+    store.complete(h.id)
+    assert store.pending() == []
+
+
+def test_handoff_priority_ordering(tmp_path):
+    """pending() returns handoffs highest-priority first."""
+    from sentinel.memory.store import SessionHandoffStore
+    from sentinel.memory.schema import SessionHandoff
+    store = SessionHandoffStore(tmp_path / "sentinel.db")
+    store.post(SessionHandoff(entity="a", intent="low", priority=2))
+    store.post(SessionHandoff(entity="b", intent="high", priority=9))
+    store.post(SessionHandoff(entity="c", intent="mid", priority=5))
+    pending = store.pending()
+    priorities = [p["priority"] for p in pending]
+    assert priorities == sorted(priorities, reverse=True)

@@ -1125,6 +1125,14 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
                 _curation.record_outcome(_cap, _score)
         except Exception:
             pass
+        # G-17: A2A cross-session coordination — mark the originating handoff done. Fail-soft.
+        try:
+            _hid = kwargs.get("handoff_id")
+            if _hid:
+                from sentinel.memory.store import SessionHandoffStore
+                SessionHandoffStore().complete(_hid)
+        except Exception:
+            pass
     return result
 
 

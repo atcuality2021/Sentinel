@@ -238,6 +238,22 @@ CREATE TABLE IF NOT EXISTS skill_ratings (
     avg_score    REAL    NOT NULL DEFAULT 0.0,
     last_used_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS session_handoffs (
+    id          TEXT PRIMARY KEY,
+    entity      TEXT NOT NULL,
+    intent      TEXT NOT NULL,
+    mode        TEXT NOT NULL DEFAULT 'full',
+    priority    INTEGER NOT NULL DEFAULT 5,
+    reason      TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'pending',
+    project_id  TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    claimed_at  TEXT,
+    done_at     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_handoff_status ON session_handoffs(status, priority DESC, created_at ASC);
 """
 
 
@@ -1717,3 +1733,92 @@ class SkillCurationStore:
             ]
         except Exception:
             return []
+
+
+# ---------------------------------------------------------------------------
+# G-17 — A2A Cross-Session Coordination
+# ---------------------------------------------------------------------------
+
+class SessionHandoffStore:
+    """Persistent A2A coordination envelopes — SENTINEL-016 G-17.
+
+    Agent A posts a SessionHandoff describing deferred work; Agent B in a
+    future session reads pending(), claims one, executes, and marks it done.
+    Status lifecycle: pending → claimed → done. All writes are fail-soft.
+    """
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path else db_path()
+        _ensure_schema(self.path)
+
+    def post(self, handoff: "SessionHandoff") -> None:
+        """Persist a new coordination request. Fail-soft."""
+        try:
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "INSERT INTO session_handoffs "
+                    "(id, entity, intent, mode, priority, reason, status, project_id, created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        handoff.id, handoff.entity, handoff.intent, handoff.mode,
+                        handoff.priority, handoff.reason, handoff.status,
+                        handoff.project_id, handoff.created_at.isoformat(),
+                    ),
+                )
+                conn.commit()
+        except Exception:
+            pass
+
+    def pending(self, limit: int = 20) -> list[dict]:
+        """Return up to *limit* unclaimed handoffs, highest priority first. Fail-soft → []."""
+        try:
+            with _connect(self.path) as conn:
+                rows = conn.execute(
+                    "SELECT id, entity, intent, mode, priority, reason, project_id, created_at "
+                    "FROM session_handoffs WHERE status='pending' "
+                    "ORDER BY priority DESC, created_at ASC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            return [
+                {
+                    "id": r["id"],
+                    "entity": r["entity"],
+                    "intent": r["intent"],
+                    "mode": r["mode"],
+                    "priority": r["priority"],
+                    "reason": r["reason"],
+                    "project_id": r["project_id"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]
+        except Exception:
+            return []
+
+    def claim(self, handoff_id: str) -> None:
+        """Mark a handoff as claimed (in-flight) by the current session. Fail-soft."""
+        try:
+            import datetime as _dt
+            now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "UPDATE session_handoffs SET status='claimed', claimed_at=? WHERE id=?",
+                    (now, handoff_id),
+                )
+                conn.commit()
+        except Exception:
+            pass
+
+    def complete(self, handoff_id: str) -> None:
+        """Mark a handoff as done. Fail-soft."""
+        try:
+            import datetime as _dt
+            now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "UPDATE session_handoffs SET status='done', done_at=? WHERE id=?",
+                    (now, handoff_id),
+                )
+                conn.commit()
+        except Exception:
+            pass

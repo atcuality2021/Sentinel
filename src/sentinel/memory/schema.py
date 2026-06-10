@@ -31,6 +31,7 @@ __all__ = [
     "MemoryDelta",
     "EntitySummary",
     "UserProfile",
+    "SessionHandoff",
     "content_hash",
     "normalize_entity",
     "utcnow",
@@ -175,6 +176,32 @@ class UserProfile(BaseModel):
     preferred_format: str = Field(default="bullets",
                                   description="bullets | prose | table")
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class SessionHandoff(BaseModel):
+    """A2A cross-session coordination envelope — SENTINEL-016 G-17.
+
+    Agent A posts a handoff describing work it cannot complete in the current
+    session. Agent B in a future session reads pending() → claims() the handoff
+    → executes → completes(). Status lifecycle: pending → claimed → done.
+    """
+
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    entity: str
+    intent: str = Field(description="What should be done (e.g. 'run full profile')")
+    mode: str = Field(default="full", description="Research mode to execute")
+    priority: int = Field(default=5, ge=1, le=10, description="1=low, 10=urgent")
+    reason: str = Field(default="", description="Why this handoff was created")
+    status: str = Field(default="pending", description="pending | claimed | done")
+    project_id: str | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+    claimed_at: datetime | None = None
+    done_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _norm(self) -> "SessionHandoff":
+        self.entity = normalize_entity(self.entity)
+        return self
 
 
 class EntitySummary(BaseModel):
