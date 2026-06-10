@@ -30,6 +30,7 @@ __all__ = [
     "RunRecord",
     "MemoryDelta",
     "EntitySummary",
+    "UserProfile",
     "content_hash",
     "normalize_entity",
     "utcnow",
@@ -154,6 +155,26 @@ class MemoryDelta(BaseModel):
     removed: list[str] = Field(default_factory=list)
     summary: str = ""
     prior_run_at: datetime | None = None
+
+
+class UserProfile(BaseModel):
+    """Operator preference profile (SENTINEL-016 G-14).
+
+    Evolves from explicit ratings and implicit corrections; injected into the
+    synthesizer instruction as a "## User preferences" block so output framing
+    adapts over time without prompt engineering.
+    """
+
+    user_id: str
+    verbosity: int = Field(default=3, ge=1, le=5,
+                           description="1=very concise, 5=very detailed")
+    citation_density: int = Field(default=3, ge=1, le=5,
+                                  description="1=minimal citations, 5=cite every claim")
+    domain_level: str = Field(default="analyst",
+                              description="executive | analyst | expert")
+    preferred_format: str = Field(default="bullets",
+                                  description="bullets | prose | table")
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class EntitySummary(BaseModel):

@@ -220,6 +220,16 @@ CREATE TABLE IF NOT EXISTS telemetry_events (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_telemetry_run ON telemetry_events(run_id);
+
+-- User preference profiles (SENTINEL-016 G-14)
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id          TEXT PRIMARY KEY,
+    verbosity        INTEGER NOT NULL DEFAULT 3,
+    citation_density INTEGER NOT NULL DEFAULT 3,
+    domain_level     TEXT NOT NULL DEFAULT 'analyst',
+    preferred_format TEXT NOT NULL DEFAULT 'bullets',
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -1527,3 +1537,89 @@ class TelemetryStore:
             ]
         except Exception:
             return []
+
+
+# ---------------------------------------------------------------------------
+# G-14 — User Modeling
+# ---------------------------------------------------------------------------
+
+class UserProfileStore:
+    """Operator preference model — SENTINEL-016 G-14.
+
+    upsert() and get() are fail-soft: a profile write never blocks a run.
+    """
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path else db_path()
+        _ensure_schema(self.path)
+
+    def upsert(self, profile: "UserProfile") -> None:
+        """Insert or replace the profile row for ``profile.user_id``."""
+        try:
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO user_profiles "
+                    "(user_id, verbosity, citation_density, domain_level, preferred_format, updated_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (
+                        profile.user_id, profile.verbosity, profile.citation_density,
+                        profile.domain_level, profile.preferred_format,
+                        profile.updated_at.isoformat(),
+                    ),
+                )
+                conn.commit()
+        except Exception:
+            pass
+
+    def get(self, user_id: str) -> "UserProfile | None":
+        """Return the stored profile for ``user_id``, or None if unknown. Fail-soft."""
+        try:
+            with _connect(self.path) as conn:
+                row = conn.execute(
+                    "SELECT user_id, verbosity, citation_density, domain_level, "
+                    "preferred_format, updated_at "
+                    "FROM user_profiles WHERE user_id=?",
+                    (user_id,),
+                ).fetchone()
+            if row is None:
+                return None
+            from sentinel.memory.schema import UserProfile as _UP
+            from datetime import datetime as _dt
+            return _UP(
+                user_id=row["user_id"],
+                verbosity=row["verbosity"],
+                citation_density=row["citation_density"],
+                domain_level=row["domain_level"],
+                preferred_format=row["preferred_format"],
+                updated_at=_dt.fromisoformat(row["updated_at"]),
+            )
+        except Exception:
+            return None
+
+
+def render_user_profile_context(profile: "UserProfile | None") -> str:
+    """Serialize a UserProfile into an instruction-suffix block.
+
+    Returns "" when *profile* is None or is still at default settings — so
+    the synthesizer prompt is unchanged for users who have never customised
+    preferences (backward-compatible with all existing test fixtures).
+    """
+    from sentinel.memory.schema import UserProfile as _UP
+    if profile is None:
+        return ""
+    defaults = _UP(user_id="__defaults__")
+    if (
+        profile.verbosity == defaults.verbosity
+        and profile.citation_density == defaults.citation_density
+        and profile.domain_level == defaults.domain_level
+        and profile.preferred_format == defaults.preferred_format
+    ):
+        return ""
+    lines = [
+        "## User preferences",
+        f"- verbosity: {profile.verbosity}/5",
+        f"- citation_density: {profile.citation_density}/5",
+        f"- domain_level: {profile.domain_level}",
+        f"- preferred_format: {profile.preferred_format}",
+    ]
+    return "\n".join(lines)

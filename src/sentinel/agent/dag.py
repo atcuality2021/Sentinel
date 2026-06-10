@@ -1088,6 +1088,19 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
             kwargs = {**kwargs, "base_seed": _base}
     except Exception:
         pass
+    # G-14: user profile — inject operator preferences into instruction_suffix. Fail-soft.
+    try:
+        _user_id = kwargs.get("user_id") or (kwargs.get("base_seed") or {}).get("user_id")
+        if _user_id:
+            from sentinel.memory.store import UserProfileStore, render_user_profile_context
+            _profile = UserProfileStore().get(_user_id)
+            _profile_ctx = render_user_profile_context(_profile)
+            if _profile_ctx:
+                _base = dict(kwargs.get("base_seed") or {})
+                _base["persona_framing"] = (_base.get("persona_framing") or "") + "\n\n" + _profile_ctx
+                kwargs = {**kwargs, "base_seed": _base}
+    except Exception:
+        pass  # fail-soft: user profile injection must never break a run
     result = await run_plan(plan, assemble=assemble_generic, **kwargs)
     # G-07: procedural memory — record successful plan structures so the planner can reuse them.
     if not result.degraded:

@@ -591,3 +591,63 @@ def test_context_budget_unknown_slot_returns_safe_fallback():
     from sentinel.memory.context_budget import ContextBudget
     budget = ContextBudget(total=1000)
     assert budget.slot("nonexistent_slot") > 0
+
+
+# ---------------------------------------------------------------------------
+# G-14 — User Modeling
+# ---------------------------------------------------------------------------
+
+def test_user_profile_upsert_and_get_roundtrip(tmp_path):
+    """upsert() persists a profile; get() returns it with all fields intact."""
+    from sentinel.memory.store import UserProfileStore
+    from sentinel.memory.schema import UserProfile
+    store = UserProfileStore(tmp_path / "sentinel.db")
+    profile = UserProfile(
+        user_id="harish",
+        verbosity=5,
+        citation_density=4,
+        domain_level="expert",
+        preferred_format="prose",
+    )
+    store.upsert(profile)
+    got = store.get("harish")
+    assert got is not None
+    assert got.user_id == "harish"
+    assert got.verbosity == 5
+    assert got.citation_density == 4
+    assert got.domain_level == "expert"
+    assert got.preferred_format == "prose"
+
+
+def test_user_profile_get_unknown_returns_none(tmp_path):
+    """get() for an unseen user_id returns None without raising."""
+    from sentinel.memory.store import UserProfileStore
+    store = UserProfileStore(tmp_path / "sentinel.db")
+    assert store.get("ghost-user") is None
+
+
+def test_render_user_profile_context_default_returns_empty():
+    """render_user_profile_context returns '' for a default-valued profile (backward compat)."""
+    from sentinel.memory.store import render_user_profile_context
+    from sentinel.memory.schema import UserProfile
+    profile = UserProfile(user_id="default-user")  # all defaults
+    assert render_user_profile_context(profile) == ""
+    assert render_user_profile_context(None) == ""
+
+
+def test_render_user_profile_context_customised_includes_prefs():
+    """A customised profile renders a '## User preferences' block injected into synthesizer."""
+    from sentinel.memory.store import render_user_profile_context
+    from sentinel.memory.schema import UserProfile
+    profile = UserProfile(
+        user_id="power-user",
+        verbosity=5,
+        citation_density=5,
+        domain_level="expert",
+        preferred_format="table",
+    )
+    ctx = render_user_profile_context(profile)
+    assert "## User preferences" in ctx
+    assert "verbosity: 5/5" in ctx
+    assert "domain_level: expert" in ctx
+    assert "preferred_format: table" in ctx
