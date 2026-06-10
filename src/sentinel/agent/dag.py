@@ -402,6 +402,17 @@ async def _run_skill(
         state = await _run_parallel_extract(
             extractor_agent, state, spec=spec, cfg=cfg, trace=trace, mc=mc,
         )
+    # G-12: sandbox-validate tool outputs before they reach the synthesizer (pass2).
+    # This is a best-effort injection/PII check; the run continues with sanitized text on any flag.
+    if pass1 and state.get("public_findings"):
+        try:
+            from sentinel.security.sandbox import validate_tool_output
+            _sb = validate_tool_output(str(state["public_findings"]), context=spec.capability)
+            state = {**state, "public_findings": _sb.sanitized}
+            if not _sb.safe:
+                trace.append(f"sandbox({spec.capability}): {_sb.reason}")
+        except Exception:
+            pass
     if pass2:
         state = await _run_agents(
             pass2, name=f"{spec.capability}_p2", streaming=StreamingMode.SSE,
