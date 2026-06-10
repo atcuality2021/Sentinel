@@ -1033,7 +1033,22 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
             kwargs = {**kwargs, "base_seed": _base}
     except Exception:
         pass
-    return await run_plan(plan, assemble=assemble_generic, **kwargs)
+    result = await run_plan(plan, assemble=assemble_generic, **kwargs)
+    # G-07: procedural memory — record successful plan structures so the planner can reuse them.
+    if not result.degraded:
+        try:
+            from sentinel.memory.store import SpecStore
+            completed_caps = [s.capability for s in plan.steps if s.status == "done"]
+            if completed_caps:
+                domain = "+".join(sorted(set(completed_caps)))
+                SpecStore().record_procedural_trace(
+                    domain, completed_caps,
+                    eval_score=result.grade.score if result.grade else None,
+                    project_id=kwargs.get("project_id"),
+                )
+        except Exception:
+            pass
+    return result
 
 
 def _union_citations(results: dict[str, dict], produced: list[tuple[str, str]]) -> list[Source]:

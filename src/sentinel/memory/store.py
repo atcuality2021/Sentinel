@@ -161,6 +161,19 @@ CREATE TABLE IF NOT EXISTS entity_relations (
 );
 CREATE INDEX IF NOT EXISTS idx_rel_from ON entity_relations(from_entity);
 CREATE INDEX IF NOT EXISTS idx_rel_to   ON entity_relations(to_entity);
+
+-- Procedural memory: proven plan execution traces (SENTINEL-016 G-07)
+-- Captures which step sequence produced high-quality output for a given domain,
+-- so the planner can bias toward successful patterns on future tasks.
+CREATE TABLE IF NOT EXISTS procedural_traces (
+    id             TEXT PRIMARY KEY,
+    domain         TEXT NOT NULL,
+    step_sequence  TEXT NOT NULL,  -- JSON array of capability names in execution order
+    eval_score     REAL,
+    project_id     TEXT,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_trace_domain ON procedural_traces(domain, eval_score);
 """
 
 
@@ -1041,6 +1054,57 @@ class SpecStore:
                 "SELECT * FROM agent_specs ORDER BY capability, domain, version DESC"
             ).fetchall()
         return [_row_to_spec(r) for r in rows]
+
+    # ---------------------------------------------------------------------- #
+    # Procedural memory (SENTINEL-016 G-07)
+    # ---------------------------------------------------------------------- #
+
+    def record_procedural_trace(
+        self,
+        domain: str,
+        steps: list[str],
+        *,
+        eval_score: float | None = None,
+        project_id: str | None = None,
+    ) -> str:
+        """Persist a proven plan structure so the planner can reuse successful patterns.
+
+        ``steps`` is the ordered list of capability names that executed successfully.
+        Returns the new trace id. Fail-soft.
+        """
+        import uuid as _uuid
+        trace_id = _uuid.uuid4().hex
+        try:
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "INSERT INTO procedural_traces (id, domain, step_sequence, eval_score, project_id) "
+                    "VALUES (?,?,?,?,?)",
+                    (trace_id, domain, json.dumps(steps), eval_score, project_id),
+                )
+                conn.commit()
+        except Exception:
+            pass
+        return trace_id
+
+    def best_traces_for(self, domain: str, top_k: int = 3) -> list[dict]:
+        """Return up to ``top_k`` highest-scored procedural traces for ``domain``.
+
+        Each dict has ``steps`` (list[str]), ``eval_score`` (float|None), ``id``.
+        Returns [] on any error (fail-soft).
+        """
+        try:
+            with _connect(self.path) as conn:
+                rows = conn.execute(
+                    "SELECT id, step_sequence, eval_score FROM procedural_traces "  # noqa: S608
+                    "WHERE domain=? ORDER BY eval_score DESC NULLS LAST LIMIT ?",
+                    (domain, top_k),
+                ).fetchall()
+            return [
+                {"id": r["id"], "steps": json.loads(r["step_sequence"]), "eval_score": r["eval_score"]}
+                for r in rows
+            ]
+        except Exception:
+            return []
 
 
 class KBStore:

@@ -304,6 +304,80 @@ def test_delete_run_without_project_id_works_for_global_admin(store):
     assert store.all() == []
 
 
+# --------------------------------------------------------------------------- #
+# G-07: procedural memory — SpecStore trace save + retrieval
+# --------------------------------------------------------------------------- #
+
+def test_record_procedural_trace_and_retrieve(tmp_path):
+    """record_procedural_trace saves a trace; best_traces_for returns it."""
+    from sentinel.memory.store import SpecStore
+    store = SpecStore(tmp_path / "sentinel.db")
+    store.record_procedural_trace(
+        "market", ["self_profile", "competitor", "compare"],
+        eval_score=0.85, project_id="proj-A",
+    )
+    traces = store.best_traces_for("market")
+    assert len(traces) == 1
+    assert traces[0]["steps"] == ["self_profile", "competitor", "compare"]
+    assert traces[0]["eval_score"] == pytest.approx(0.85)
+
+
+def test_best_traces_for_orders_by_score_desc(tmp_path):
+    """best_traces_for returns highest-scored traces first."""
+    from sentinel.memory.store import SpecStore
+    store = SpecStore(tmp_path / "sentinel.db")
+    store.record_procedural_trace("market", ["a"], eval_score=0.5)
+    store.record_procedural_trace("market", ["b"], eval_score=0.9)
+    store.record_procedural_trace("market", ["c"], eval_score=0.7)
+    traces = store.best_traces_for("market", top_k=3)
+    scores = [t["eval_score"] for t in traces]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_best_traces_for_empty_on_unknown_domain(tmp_path):
+    """No traces for an unseen domain → empty list, no error."""
+    from sentinel.memory.store import SpecStore
+    assert SpecStore(tmp_path / "sentinel.db").best_traces_for("unknown-domain") == []
+
+
+def test_run_dag_records_procedural_trace_on_success(tmp_path, monkeypatch):
+    """run_dag records a procedural trace via SpecStore after a non-degraded result."""
+    import asyncio
+    from sentinel.agent import dag as dag_mod
+    from sentinel.memory.store import SpecStore
+
+    monkeypatch.setattr(dag_mod, "run_plan", _fake_run_plan_success)
+
+    from sentinel.artifacts.schemas import Plan, Step
+    plan = Plan(id="p-tr", task_id="t-tr", steps=[
+        Step(id="s1", capability="self_profile", output_key="out_s1"),
+    ])
+    plan.steps[0].status = "done"
+    from sentinel.config.defaults import build_default
+    from sentinel.config.schema import BackendOption
+    cfg = build_default()
+    cfg.backend.default = "vllm"
+    cfg.backend.roles = {
+        "synthesizer": BackendOption(model="gemma-4-26B", api_base="https://omni.atcuality.com/v1"),
+    }
+    asyncio.run(dag_mod.run_dag(plan, cfg=cfg, backend="vllm", cloud_allowed=False,
+                                use_cache=False, project_id="p-x"))
+
+    # Verify via the real DB that the trace was saved.
+    store = SpecStore(tmp_path / "sentinel.db")
+    traces = store.best_traces_for("self_profile")
+    assert len(traces) == 1
+    assert traces[0]["steps"] == ["self_profile"]
+
+
+async def _fake_run_plan_success(plan, *, assemble, **kw):
+    from sentinel.artifacts.schemas import Result
+    for s in plan.steps:
+        s.status = "done"
+    return Result(task_id=plan.task_id, summary="ok", artifacts=[], citations=[],
+                  dashboard_payload={"artifacts": {}}, degraded=False)
+
+
 def test_governance_ddg_stays_ddg_without_key():
     """Without BRAVE_API_KEY, duckduckgo provider is unchanged."""
     cfg = SentinelConfig.default()
