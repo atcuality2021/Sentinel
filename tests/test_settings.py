@@ -487,3 +487,149 @@ def test_settings_renders_models_and_coordinator_sections(client, monkeypatch):
     assert "Gemma-4 role tiering" in s and "Coordinator" in s
     assert "ATCUALITY_API_KEY:" in s            # boolean pill
     assert "Phase 2" in s                        # remote-private gated control labelled
+
+
+# --------------------------------------------------------------------------- #
+# Prompts CRUD page (create_prompt / delete_prompt helpers + dedicated routes)
+# --------------------------------------------------------------------------- #
+
+def test_create_prompt_adds_new_key():
+    cfg = _cfg()
+    new = S.create_prompt(cfg, "finance.custom_scorer", "Score {target} for risk.", ["target"])
+    assert "finance.custom_scorer" in new.prompts
+    assert new.prompts["finance.custom_scorer"].template == "Score {target} for risk."
+    assert new.prompts["finance.custom_scorer"].variables == ["target"]
+    assert new.prompts["finance.custom_scorer"].default_template is None  # no shipped default
+
+
+def test_create_prompt_rejects_duplicate_key():
+    cfg = _cfg()
+    with pytest.raises(ValueError, match="already exists"):
+        S.create_prompt(cfg, "competitor.planner", "Any template.", [])
+
+
+def test_create_prompt_rejects_empty_key():
+    with pytest.raises(ValueError, match="empty"):
+        S.create_prompt(_cfg(), "   ", "Some template.", [])
+
+
+def test_create_prompt_rejects_blank_template():
+    with pytest.raises(ValueError, match="empty"):
+        S.create_prompt(_cfg(), "custom.step", "   ", [])
+
+
+def test_delete_prompt_removes_custom_key():
+    cfg = _cfg()
+    cfg = S.create_prompt(cfg, "custom.step", "Do {target}.", ["target"])
+    cfg = S.delete_prompt(cfg, "custom.step")
+    assert "custom.step" not in cfg.prompts
+
+
+def test_delete_prompt_rejects_shipped_key():
+    with pytest.raises(ValueError, match="Cannot delete a shipped prompt"):
+        S.delete_prompt(_cfg(), "competitor.planner")
+
+
+def test_delete_prompt_rejects_unknown_key():
+    with pytest.raises(ValueError):
+        S.delete_prompt(_cfg(), "does.not.exist")
+
+
+def test_get_prompts_page_renders(client):
+    r = client.get("/settings/prompts")
+    assert r.status_code == 200
+    assert "Prompts" in r.text
+    assert "competitor" in r.text
+    assert "finance" in r.text
+    assert "New custom prompt" in r.text
+    assert "competitor.synthesizer" in r.text
+
+
+def test_get_prompts_page_shows_total_count(client):
+    r = client.get("/settings/prompts")
+    assert "total prompts" in r.text
+
+
+def test_post_prompts_create_adds_key(client):
+    r = client.post("/settings/prompts/create", data={
+        "key": "test.custom_step",
+        "template": "Analyse {target} carefully.",
+        "variables": "target",
+    })
+    assert r.status_code == 200
+    assert "created" in r.text.lower()
+    assert "test.custom_step" in _stored().prompts
+
+
+def test_post_prompts_create_rejects_duplicate(client):
+    r = client.post("/settings/prompts/create", data={
+        "key": "competitor.planner",
+        "template": "Any template.",
+        "variables": "",
+    })
+    assert r.status_code == 200
+    assert "already exists" in r.text.lower()
+
+
+def test_post_prompts_save_redirects_to_prompts_page(client):
+    key = "competitor.synthesizer"
+    r = client.post(f"/settings/prompts/{key}", data={
+        "template": "Fresh card {target} {public_findings}."
+    })
+    assert r.status_code == 200
+    assert "Prompts" in r.text              # landed on prompts page, not settings
+    assert "saved" in r.text.lower()
+    assert _stored().prompts[key].template == "Fresh card {target} {public_findings}."
+
+
+def test_post_prompts_reset_redirects_to_prompts_page(client):
+    key = "competitor.synthesizer"
+    default = _stored().prompts[key].default_template
+    client.post(f"/settings/prompts/{key}", data={"template": "Edited {target} {public_findings}."})
+    r = client.post(f"/settings/prompts/{key}/reset")
+    assert r.status_code == 200
+    assert "Prompts" in r.text
+    assert "reset" in r.text.lower()
+    assert _stored().prompts[key].template == default
+
+
+def test_post_prompts_delete_removes_custom_only(client):
+    client.post("/settings/prompts/create", data={
+        "key": "custom.disposable", "template": "Do the thing.", "variables": "",
+    })
+    assert "custom.disposable" in _stored().prompts
+    r = client.post("/settings/prompts/custom.disposable/delete")
+    assert r.status_code == 200
+    assert "deleted" in r.text.lower()
+    assert "custom.disposable" not in _stored().prompts
+
+
+def test_post_prompts_delete_rejects_shipped(client):
+    r = client.post("/settings/prompts/competitor.planner/delete")
+    assert r.status_code == 200
+    assert "Cannot delete" in r.text or "cannot delete" in r.text.lower()
+    assert "competitor.planner" in _stored().prompts
+
+
+def test_api_prompts_list_returns_all_keys(client):
+    r = client.get("/api/prompts")
+    assert r.status_code == 200
+    data = r.json()
+    assert "competitor.synthesizer" in data
+    assert "finance.planner" in data
+    assert isinstance(data["competitor.synthesizer"]["template"], str)
+    assert isinstance(data["competitor.synthesizer"]["has_default"], bool)
+
+
+def test_api_prompt_detail_returns_role(client):
+    r = client.get("/api/prompts/competitor.synthesizer")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["key"] == "competitor.synthesizer"
+    assert d["role"] in ("synthesizer", "synthesize", None) or d["role"]
+    assert "template" in d
+
+
+def test_api_prompt_detail_404_unknown(client):
+    r = client.get("/api/prompts/does.not.exist")
+    assert r.status_code == 404

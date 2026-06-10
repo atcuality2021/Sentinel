@@ -60,8 +60,7 @@ AGENT_KEYS = [
 
 # --- Default prompts (verbatim from the pre-refactor builders) --------------------------- #
 _P_COMPETITOR_PLANNER = (
-    "You are a competitive-intelligence planner. The user will name a competitor "
-    "(in session state key 'target') and optionally a 'vertical_context'. "
+    "You are a competitive-intelligence planner. The competitor to research is: {target}. "
     "Decompose the research into 3-5 specific, answerable questions covering: "
     "market positioning, product strengths and weaknesses, pricing signals, and "
     "recent developments. Output ONLY a numbered list of research questions."
@@ -96,8 +95,8 @@ _P_COMPETITOR_SYNTH = (
     "the competitor name."
 )
 _P_CLIENT_PLANNER = (
-    "You are an account-intelligence planner. The user names an account in state key "
-    "'target' (optional 'vertical_context'). Produce 3-5 research questions split into "
+    "You are an account-intelligence planner. The account to research is: {target}. "
+    "Produce 3-5 research questions split into "
     "PUBLIC questions (firmographics, news, filings, public profiles) and PRIVATE "
     "questions (deal stage, deal history, prior proposals, last contact). "
     "Output a numbered list, each tagged [PUBLIC] or [PRIVATE]."
@@ -198,8 +197,8 @@ _P_CLIENT_STRATEGIST = (
 # Mirror of the competitor graph: state key 'target' is our own brand, not a rival. Public-only by
 # construction (web search) → never crosses the SENTINEL-002 boundary. Synthesizer emits a SelfProfile.
 _P_SELF_PROFILE_PLANNER = (
-    "You are a product-marketing analyst profiling YOUR OWN organisation. The org/brand is in "
-    "session state key 'target' (optionally a 'vertical_context'). Decompose the research into "
+    "You are a product-marketing analyst profiling YOUR OWN organisation. The org/brand is: {target}. "
+    "Decompose the research into "
     "3-5 specific, answerable questions covering: our product line, each product's category and "
     "market positioning, our differentiating strengths, and any visible gaps. "
     "Output ONLY a numbered list of research questions."
@@ -345,7 +344,7 @@ _P_PLANNER = (
 # ── software ────────────────────────────────────────────────────────────────────────────── #
 _P_SOFTWARE_PLANNER = (
     "You are a software-evaluation analyst. The software product, library, or API to research "
-    "is in session state key 'target' (optional 'vertical_context'). "
+    "is: {target}. "
     "Decompose the research into 3-5 specific, answerable questions covering: "
     "tech stack and architecture, API/SDK quality and developer experience, "
     "community health (stars, contributors, activity), maintenance cadence, "
@@ -388,7 +387,7 @@ _P_SOFTWARE_SYNTH_2T = (
 # ── finance ─────────────────────────────────────────────────────────────────────────────── #
 _P_FINANCE_PLANNER = (
     "You are a financial research analyst. The company, instrument, or market to profile "
-    "is in session state key 'target' (optional 'vertical_context'). "
+    "is: {target}. "
     "Decompose the research into 3-5 specific, answerable questions covering: "
     "revenue and growth trajectory, profitability and margins, balance sheet signals, "
     "market position versus peers, recent material developments (earnings, M&A, filings), "
@@ -414,24 +413,40 @@ _P_FINANCE_EXTRACTOR = (
 )
 _P_FINANCE_SYNTH = (
     "Synthesize a FinancialProfile for '{target}' from these researched findings:\n\n{public_findings}\n\n"
-    "Rules: set 'target'. Every Finding.source.boundary MUST be 'public'. "
-    "Populate key_metrics (cited figures only), market_position, risk_signals, recent_developments. "
-    "Write 'financial_summary' (narrative) and an optional neutral 'investment_thesis' "
-    "(bull/bear synthesis — no advice, facts only). "
-    "If a figure had no reliable source, add a Gap rather than inventing numbers."
+    "You MUST populate ALL of the following fields — do NOT leave them empty if findings contain relevant data:\n"
+    "• target: company/instrument name\n"
+    "• one_line_summary: one sentence (max 25 words)\n"
+    "• key_metrics: extract EVERY cited financial figure (revenue, EPS, NIM, ROE, loan book size, GNPA%, "
+    "NNPA%, capital adequacy, AUM, net profit, etc.). Each entry: metric_name, value (with units), "
+    "period (quarter/year), source (boundary='public', label=publisher, url=article URL).\n"
+    "• market_position: 2-4 sentences on competitive standing, market share, key rivals.\n"
+    "• risk_signals: list EVERY risk or headwind named in the findings (regulatory, credit, macro, "
+    "liquidity, competition). Each entry: metric_name=risk name, value=description, source.\n"
+    "• recent_developments: list material events (earnings beats/misses, M&A, leadership changes, "
+    "product launches, filings). Each entry: metric_name=event name, value=brief description, source.\n"
+    "• financial_summary: 2-3 paragraph narrative covering growth, profitability, and risks.\n"
+    "• investment_thesis (optional): neutral bull/bear synthesis — facts only, no investment advice.\n\n"
+    "Rules: Every Finding.source.boundary MUST be 'public'. "
+    "Add a Gap for any KPI that was searched but not found rather than inventing numbers."
 )
 _P_FINANCE_SYNTH_2T = (
     "Synthesize a FinancialProfile for '{target}' from these per-source extractions:\n\n{extractions}\n\n"
-    "Rules: set 'target'. Every Finding.source.boundary MUST be 'public'. "
-    "Populate key_metrics (cited figures only), market_position, risk_signals, recent_developments. "
-    "Write 'financial_summary' and an optional neutral 'investment_thesis' (facts only, no advice). "
-    "If a figure had no reliable source, add a Gap."
+    "You MUST populate ALL of the following fields — do NOT leave them empty if extractions contain relevant data:\n"
+    "• target, one_line_summary (max 25 words)\n"
+    "• key_metrics: every cited figure — metric_name, value (with units), period, source (boundary='public').\n"
+    "• market_position: 2-4 sentences on competitive standing and peers.\n"
+    "• risk_signals: every named risk — metric_name=risk, value=description, source.\n"
+    "• recent_developments: material events — metric_name=event, value=description, source.\n"
+    "• financial_summary: 2-3 paragraph narrative (growth, profitability, risks).\n"
+    "• investment_thesis (optional): neutral facts-only bull/bear synthesis.\n\n"
+    "Rules: Every Finding.source.boundary MUST be 'public'. "
+    "Add a Gap for any KPI not found rather than inventing data."
 )
 
 # ── academic ────────────────────────────────────────────────────────────────────────────── #
 _P_ACADEMIC_PLANNER = (
     "You are an academic research librarian. The topic or research question to survey "
-    "is in session state key 'target' (optional 'vertical_context'). "
+    "is: {target}. "
     "Decompose the literature survey into 3-5 specific, answerable questions covering: "
     "the state of knowledge on the topic, key empirical findings with effect sizes, "
     "dominant research methodologies, notable researchers or institutions, "
@@ -472,7 +487,7 @@ _P_ACADEMIC_SYNTH_2T = (
 # ── nutrition ────────────────────────────────────────────────────────────────────────────── #
 _P_NUTRITION_PLANNER = (
     "You are a nutrition science researcher. The food, nutrient, ingredient, or dietary pattern "
-    "to research is in session state key 'target' (optional 'vertical_context'). "
+    "to research is: {target}. "
     "Decompose the research into 3-5 specific, answerable questions covering: "
     "the existing body of scientific evidence and its quality (RCT vs observational), "
     "established health effects (positive, neutral, and negative), "
@@ -517,7 +532,7 @@ _P_NUTRITION_SYNTH_2T = (
 # ── travel ───────────────────────────────────────────────────────────────────────────────── #
 _P_TRAVEL_PLANNER = (
     "You are a travel research specialist. The destination, route, or travel question "
-    "is in session state key 'target' (optional 'vertical_context' for travel type/style). "
+    "is: {target}. "
     "Decompose the research into 3-5 specific, answerable questions covering: "
     "what makes the destination notable (highlights, character), "
     "practical logistics (visa requirements, transport, connectivity, currency), "
@@ -710,20 +725,20 @@ def build_default() -> SentinelConfig:
         "travel.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
     }
     prompts = {
-        "competitor.planner": _prompt(_P_COMPETITOR_PLANNER, []),
+        "competitor.planner": _prompt(_P_COMPETITOR_PLANNER, ["target"]),
         "competitor.public_research": _prompt(_P_COMPETITOR_PUBLIC, ["target", "research_plan"]),
         "competitor.extractor": _prompt(_P_COMPETITOR_EXTRACTOR, ["target", "public_findings"]),
         "competitor.synthesizer": _prompt(_P_COMPETITOR_SYNTH, ["target", "public_findings"]),
         "competitor.synthesizer_2t": _prompt(_P_COMPETITOR_SYNTH_2T, ["target", "extractions"]),
         "competitor.strategist": _prompt(_P_COMPETITOR_STRATEGIST, ["battlecard"]),
-        "client.planner": _prompt(_P_CLIENT_PLANNER, []),
+        "client.planner": _prompt(_P_CLIENT_PLANNER, ["target"]),
         "client.public_research": _prompt(_P_CLIENT_PUBLIC, ["target", "research_plan"]),
         "client.private_research": _prompt(_P_CLIENT_PRIVATE, ["target", "research_plan"]),
         "client.extractor": _prompt(_P_CLIENT_EXTRACTOR, ["target", "public_findings"]),
         "client.synthesizer": _prompt(_P_CLIENT_SYNTH, ["target", "public_findings"]),
         "client.synthesizer_2t": _prompt(_P_CLIENT_SYNTH_2T, ["target", "extractions"]),
         "client.strategist": _prompt(_P_CLIENT_STRATEGIST, ["account_brief"]),
-        "self_profile.planner": _prompt(_P_SELF_PROFILE_PLANNER, []),
+        "self_profile.planner": _prompt(_P_SELF_PROFILE_PLANNER, ["target"]),
         "self_profile.public_research": _prompt(_P_SELF_PROFILE_PUBLIC, ["target", "research_plan"]),
         "self_profile.synthesizer": _prompt(_P_SELF_PROFILE_SYNTH, ["target", "public_findings"]),
         "compare.synthesizer": _prompt(_P_COMPARE, ["self_profile", "battlecard"]),
@@ -741,27 +756,27 @@ def build_default() -> SentinelConfig:
         "client.private_note_connected": _prompt(_NOTE_CONNECTED, []),
         "client.private_note_absent": _prompt(_NOTE_ABSENT, []),
         # SENTINEL-014: universal domain specialists
-        "software.planner": _prompt(_P_SOFTWARE_PLANNER, []),
+        "software.planner": _prompt(_P_SOFTWARE_PLANNER, ["target"]),
         "software.public_research": _prompt(_P_SOFTWARE_PUBLIC, ["target", "research_plan"]),
         "software.extractor": _prompt(_P_SOFTWARE_EXTRACTOR, ["target", "public_findings"]),
         "software.synthesizer": _prompt(_P_SOFTWARE_SYNTH, ["target", "public_findings"]),
         "software.synthesizer_2t": _prompt(_P_SOFTWARE_SYNTH_2T, ["target", "extractions"]),
-        "finance.planner": _prompt(_P_FINANCE_PLANNER, []),
+        "finance.planner": _prompt(_P_FINANCE_PLANNER, ["target"]),
         "finance.public_research": _prompt(_P_FINANCE_PUBLIC, ["target", "research_plan"]),
         "finance.extractor": _prompt(_P_FINANCE_EXTRACTOR, ["target", "public_findings"]),
         "finance.synthesizer": _prompt(_P_FINANCE_SYNTH, ["target", "public_findings"]),
         "finance.synthesizer_2t": _prompt(_P_FINANCE_SYNTH_2T, ["target", "extractions"]),
-        "academic.planner": _prompt(_P_ACADEMIC_PLANNER, []),
+        "academic.planner": _prompt(_P_ACADEMIC_PLANNER, ["target"]),
         "academic.public_research": _prompt(_P_ACADEMIC_PUBLIC, ["target", "research_plan"]),
         "academic.extractor": _prompt(_P_ACADEMIC_EXTRACTOR, ["target", "public_findings"]),
         "academic.synthesizer": _prompt(_P_ACADEMIC_SYNTH, ["target", "public_findings"]),
         "academic.synthesizer_2t": _prompt(_P_ACADEMIC_SYNTH_2T, ["target", "extractions"]),
-        "nutrition.planner": _prompt(_P_NUTRITION_PLANNER, []),
+        "nutrition.planner": _prompt(_P_NUTRITION_PLANNER, ["target"]),
         "nutrition.public_research": _prompt(_P_NUTRITION_PUBLIC, ["target", "research_plan"]),
         "nutrition.extractor": _prompt(_P_NUTRITION_EXTRACTOR, ["target", "public_findings"]),
         "nutrition.synthesizer": _prompt(_P_NUTRITION_SYNTH, ["target", "public_findings"]),
         "nutrition.synthesizer_2t": _prompt(_P_NUTRITION_SYNTH_2T, ["target", "extractions"]),
-        "travel.planner": _prompt(_P_TRAVEL_PLANNER, []),
+        "travel.planner": _prompt(_P_TRAVEL_PLANNER, ["target"]),
         "travel.public_research": _prompt(_P_TRAVEL_PUBLIC, ["target", "research_plan"]),
         "travel.extractor": _prompt(_P_TRAVEL_EXTRACTOR, ["target", "public_findings"]),
         "travel.synthesizer": _prompt(_P_TRAVEL_SYNTH, ["target", "public_findings"]),

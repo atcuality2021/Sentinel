@@ -1356,22 +1356,101 @@ async def settings_agent(
     return _settings_html(ok=f"Agent {key} saved.")
 
 
+# --------------------------------------------------------------------------- #
+# Prompts CRUD page + JSON API (full Create / Read / Update / Delete)
+# --------------------------------------------------------------------------- #
+
+def _prompts_html(*, ok: str = "", err: str = "") -> str:
+    cfg = get_config()
+    backend = cfg.backend.default
+    return render.prompts_page(cfg, backend=backend, ok=ok, err=err)
+
+
+@app.get("/settings/prompts", response_class=HTMLResponse)
+async def prompts_page(ok: str = "", err: str = "") -> str:
+    return _prompts_html(ok=ok, err=err)
+
+
+@app.post("/settings/prompts/create", response_class=HTMLResponse)
+async def prompts_create(
+    key: str = Form(...),
+    template: str = Form(...),
+    variables: str = Form(""),
+) -> RedirectResponse:
+    try:
+        vars_list = [v.strip() for v in variables.split(",") if v.strip()]
+        set_config(settings_helpers.create_prompt(get_config(), key, template, vars_list), persist=True)
+    except ValueError as exc:
+        from urllib.parse import quote as _q
+        return RedirectResponse(f"/settings/prompts?err={_q(str(exc))}", status_code=303)
+    from urllib.parse import quote as _q
+    return RedirectResponse(f"/settings/prompts?ok={_q(f'Prompt {key} created.')}", status_code=303)
+
+
 @app.post("/settings/prompts/{key}", response_class=HTMLResponse)
-async def settings_prompt(key: str, template: str = Form(...)) -> str:
+async def prompts_save(key: str, template: str = Form(...)) -> RedirectResponse:
     try:
         set_config(settings_helpers.apply_prompt(get_config(), key, template), persist=True)
     except ValueError as exc:
-        return _settings_html(err=str(exc))
-    return _settings_html(ok=f"Prompt {key} saved. The next run uses it.")
+        from urllib.parse import quote as _q
+        return RedirectResponse(f"/settings/prompts?err={_q(str(exc))}", status_code=303)
+    from urllib.parse import quote as _q
+    return RedirectResponse(f"/settings/prompts?ok={_q(f'Prompt {key} saved.')}", status_code=303)
 
 
 @app.post("/settings/prompts/{key}/reset", response_class=HTMLResponse)
-async def settings_prompt_reset(key: str) -> str:
+async def prompts_reset(key: str) -> RedirectResponse:
     try:
         set_config(settings_helpers.reset_prompt(get_config(), key), persist=True)
     except ValueError as exc:
-        return _settings_html(err=str(exc))
-    return _settings_html(ok=f"Prompt {key} reset to the shipped default.")
+        from urllib.parse import quote as _q
+        return RedirectResponse(f"/settings/prompts?err={_q(str(exc))}", status_code=303)
+    from urllib.parse import quote as _q
+    return RedirectResponse(f"/settings/prompts?ok={_q(f'Prompt {key} reset to default.')}", status_code=303)
+
+
+@app.post("/settings/prompts/{key}/delete", response_class=HTMLResponse)
+async def prompts_delete(key: str) -> RedirectResponse:
+    try:
+        set_config(settings_helpers.delete_prompt(get_config(), key), persist=True)
+    except ValueError as exc:
+        from urllib.parse import quote as _q
+        return RedirectResponse(f"/settings/prompts?err={_q(str(exc))}", status_code=303)
+    from urllib.parse import quote as _q
+    return RedirectResponse(f"/settings/prompts?ok={_q(f'Prompt {key} deleted.')}", status_code=303)
+
+
+@app.get("/api/prompts")
+async def api_prompts_list():
+    from fastapi.responses import JSONResponse as _J
+    cfg = get_config()
+    return _J({
+        k: {
+            "template": v.template,
+            "variables": v.variables,
+            "has_default": v.default_template is not None,
+            "is_custom": v.default_template is None,
+        }
+        for k, v in sorted(cfg.prompts.items())
+    })
+
+
+@app.get("/api/prompts/{key}")
+async def api_prompt_detail(key: str):
+    from fastapi.responses import JSONResponse as _J
+    cfg = get_config()
+    if key not in cfg.prompts:
+        return _J({"error": f"Prompt {key!r} not found"}, status_code=404)
+    p = cfg.prompts[key]
+    ac = cfg.agents.get(key)
+    return _J({
+        "key": key,
+        "template": p.template,
+        "variables": p.variables,
+        "has_default": p.default_template is not None,
+        "is_custom": p.default_template is None,
+        "role": ac.role if ac else None,
+    })
 
 
 def _failure_hint(exc: Exception) -> str:

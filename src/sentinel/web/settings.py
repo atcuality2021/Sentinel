@@ -185,6 +185,44 @@ def reset_prompt(cfg: SentinelConfig, key: str) -> SentinelConfig:
     return new
 
 
+def create_prompt(cfg: SentinelConfig, key: str, template: str, variables: list[str]) -> SentinelConfig:
+    """Return a copy with a brand-new custom prompt key added.
+
+    Custom prompts have no shipped default (``default_template=None``) — they can be deleted
+    but not reset. Raises if the key already exists (use ``apply_prompt`` to update) or if
+    the template is empty.
+    """
+    new = cfg.model_copy(deep=True)
+    key = key.strip()
+    if not key:
+        raise ValueError("Prompt key cannot be empty.")
+    if key in new.prompts:
+        raise ValueError(f"Prompt {key!r} already exists — use Save to update it.")
+    if _blank(template):
+        raise ValueError("Prompt template cannot be empty.")
+    new.prompts[key] = PromptTemplate(
+        template=template,
+        variables=[v.strip() for v in variables if v.strip()],
+        default_template=None,
+    )
+    return new
+
+
+def delete_prompt(cfg: SentinelConfig, key: str) -> SentinelConfig:
+    """Return a copy with a custom prompt removed.
+
+    Only prompts without a shipped ``default_template`` may be deleted; shipped prompts must
+    be reset instead (preserving the default as a fallback).
+    """
+    new = cfg.model_copy(deep=True)
+    if key not in new.prompts:
+        raise ValueError(f"Unknown prompt {key!r}.")
+    if new.prompts[key].default_template is not None:
+        raise ValueError(f"Cannot delete a shipped prompt — use Reset to restore the default.")
+    del new.prompts[key]
+    return new
+
+
 def apply_memory(
     cfg: SentinelConfig,
     *,
