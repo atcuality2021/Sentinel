@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from google.adk.agents import Agent, SequentialAgent
+from sentinel.agent._compat import Agent, SequentialAgent
 from google.adk.agents.run_config import StreamingMode
 
 from sentinel.agent import orchestrator as orch

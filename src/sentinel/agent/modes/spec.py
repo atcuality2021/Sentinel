@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from google.adk.agents import Agent, SequentialAgent
+from sentinel.agent._compat import Agent, SequentialAgent
 from pydantic import BaseModel
 
 from sentinel.agent.modes._build import make_agent

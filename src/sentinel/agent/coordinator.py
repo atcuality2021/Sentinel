@@ -18,7 +18,7 @@ Phase 2 (AC-14): it needs the ``a2a-sdk`` dependency + an ADR and is not built h
 
 from __future__ import annotations
 
-from google.adk.agents import Agent, SequentialAgent
+from sentinel.agent._compat import Agent, SequentialAgent
 from google.adk.tools.agent_tool import AgentTool
 
 from sentinel.agent.modes._build import make_agent, maybe_strategist

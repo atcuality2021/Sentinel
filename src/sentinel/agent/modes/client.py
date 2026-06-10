@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from google.adk.agents import Agent, SequentialAgent
+from sentinel.agent._compat import Agent, SequentialAgent
 
 from sentinel.agent.modes._build import maybe_strategist
 from sentinel.agent.modes.spec import CLIENT_SPEC, build_step_agents

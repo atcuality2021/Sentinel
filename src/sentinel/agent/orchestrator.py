@@ -13,7 +13,7 @@ import json
 import time as _time
 from dataclasses import dataclass, field
 
-from google.adk.agents import SequentialAgent
+from sentinel.agent._compat import SequentialAgent
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import InMemoryRunner
 from google.genai import types

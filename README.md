@@ -43,7 +43,7 @@ but **cannot** send private client data to a third-party SaaS or cloud LLM.
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                   # 18 tests, no API key needed
+pytest -q                                   # 693 tests, no API key needed
 
 # add a Gemini key for a live run (https://aistudio.google.com/apikey)
 cp .env.example .env && $EDITOR .env        # set GOOGLE_API_KEY=...
@@ -105,9 +105,14 @@ with the missing source recorded as a flagged `Gap` (never silently dropped).
 
 ## Tech
 
-Python 3.11+ · **Google ADK** (`SequentialAgent`, `google_search`, `McpToolset`) ·
-**Gemini 2.x** via AI Studio / Vertex · **MCP** for private connectors ·
-**LiteLLM → vLLM** for on-prem · **FastAPI** demo UI · **Cloud Run** hosting.
+Python 3.11+ · **Google ADK 2.2** (`LlmAgent`, `AgentTool`, `google_search`, `McpToolset`) ·
+**Gemini 2.x** via AI Studio / Vertex · **Gemma-4 dual-tier** (12B tool-caller + 26B reasoner,
+on-prem via LiteLLM → vLLM) · **MCP** for private connectors ·
+**FastAPI** server-rendered UI · **Cloud Run** hosting.
+
+Research domains: competitor · client · finance · software · academic · nutrition · travel.
+Memory: episodic (SQLite run store) + semantic (ChromaDB + BM25 + reranker) + procedural (playbooks).
+Evaluation: built-in grader + score write-back + telemetry.
 
 ## Project docs
 
