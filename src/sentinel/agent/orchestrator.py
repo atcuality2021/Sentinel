@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time as _time
 from dataclasses import dataclass, field
 
 from google.adk.agents import SequentialAgent
@@ -667,6 +668,7 @@ async def run_async(
     backend: str | None = None,
     config=None,
     project_id: str | None = None,
+    handoff_id: str | None = None,
 ) -> RunResult:
     cfg = config or get_config()
 
@@ -699,6 +701,7 @@ async def run_async(
     _max_turns = getattr(cfg.backend, "max_turns", None)
     _max_retries = int(getattr(cfg.backend, "max_retries", 3))
     _retry_delay = float(getattr(cfg.backend, "base_retry_delay_s", 1.0))
+    _t0 = _time.monotonic()
     try:
         artifact, state = await _execute_pipeline(
             target, mode, cfg=cfg, backend=backend, cloud_ok=cloud_ok, provider=provider,
@@ -744,6 +747,34 @@ async def run_async(
     # --- Recompute the deterministic focus score (SENTINEL-011b) ------------------------- #
     # After persistence, so this run's findings + memory feed the score. Fail-soft, no LLM.
     _recompute_priority(target=target, mode=mode, cfg=cfg, trace=trace)
+
+    # G-13: run-level telemetry for the legacy path (fail-soft).
+    try:
+        from sentinel.telemetry import TelemetryEvent
+        from sentinel.memory.store import TelemetryStore
+        TelemetryStore().record(TelemetryEvent(
+            step=mode, model=resolved_backend,
+            run_id=target,
+            latency_ms=(_time.monotonic() - _t0) * 1000.0,
+            project_id=project_id,
+        ))
+    except Exception:
+        pass
+
+    # G-15: skill curation — record outcome for this mode's capability (no grade on legacy path).
+    try:
+        from sentinel.memory.store import SkillCurationStore
+        SkillCurationStore().record_outcome(mode, None)
+    except Exception:
+        pass
+
+    # G-17: A2A cross-session coordination — mark originating handoff done (fail-soft).
+    try:
+        if handoff_id:
+            from sentinel.memory.store import SessionHandoffStore
+            SessionHandoffStore().complete(handoff_id)
+    except Exception:
+        pass
 
     return RunResult(
         mode=mode, target=target, artifact=artifact,
