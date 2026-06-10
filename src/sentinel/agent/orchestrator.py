@@ -106,25 +106,33 @@ def allowed_boundaries(mode: Mode) -> set[DataBoundary]:
     return {DataBoundary.PUBLIC, DataBoundary.PRIVATE}
 
 
-def _render_memory_context(entries: list[MemoryEntry]) -> str:
+def _render_memory_context(entries: list[MemoryEntry], *, relations: list | None = None) -> str:
     """Compact, boundary-tagged prior-memory block appended to the synthesizer instruction.
 
-    Returns "" for no entries so the instruction stays byte-identical to SENTINEL-001 (AC-10).
-    Carries its own leading newlines so it appends cleanly after the prompt template.
+    Returns "" for no entries AND no relations so the instruction stays byte-identical to
+    SENTINEL-001 (AC-10). Optionally includes a knowledge-graph section listing related entities
+    (SENTINEL-016 G-06).
     """
-    if not entries:
+    if not entries and not relations:
         return ""
-    lines = [
-        "\n\n## Prior memory for this entity (boundary-filtered, accumulated across prior runs)"
-    ]
-    for e in entries:
-        tag = e.boundary.value.upper()
-        src = f" — {e.source_label}" if e.source_label else ""
-        lines.append(f"- ({tag}) {e.content}{src}")
-    lines.append(
-        "Use this prior context where it is still relevant; prefer fresh findings on conflict, "
-        "and never let PRIVATE memory leak into a public-only field."
-    )
+    lines: list[str] = []
+    if entries:
+        lines.append(
+            "\n\n## Prior memory for this entity (boundary-filtered, accumulated across prior runs)"
+        )
+        for e in entries:
+            tag = e.boundary.value.upper()
+            src = f" — {e.source_label}" if e.source_label else ""
+            lines.append(f"- ({tag}) {e.content}{src}")
+        lines.append(
+            "Use this prior context where it is still relevant; prefer fresh findings on conflict, "
+            "and never let PRIVATE memory leak into a public-only field."
+        )
+    if relations:
+        lines.append("\n## Known entity relationships (knowledge graph, PUBLIC boundary)")
+        for r in relations:
+            ctx = f" — {r.context}" if r.context else ""
+            lines.append(f"- {r.from_entity} → {r.rel_type} → {r.to_entity}{ctx}")
     return "\n".join(lines)
 
 
@@ -304,9 +312,11 @@ def _recall_memory(
         ctx_parts: list[str] = []
 
         if getattr(cfg.memory, "entity_memory", True):
-            recalled = MemoryStore().recall(target, allowed_boundaries(mode))
+            _mem = MemoryStore()
+            recalled = _mem.recall(target, allowed_boundaries(mode))
             entity_count = len(recalled)
-            entity_ctx = _render_memory_context(recalled)
+            relations = _mem.get_related(target)
+            entity_ctx = _render_memory_context(recalled, relations=relations)
             if entity_ctx:
                 ctx_parts.append(entity_ctx)
 

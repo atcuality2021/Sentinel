@@ -61,6 +61,30 @@ class MemoryType(str, Enum):
     OBSERVATION = "observation"
 
 
+class EntityRelation(BaseModel):
+    """One directed edge in the entity knowledge graph (SENTINEL-016 G-06).
+
+    ``from_entity → rel_type → to_entity`` e.g. "biltiq ai → competitor → crayon".
+    Boundary mirrors the MemoryEntry contract: PUBLIC edges may reach any agent;
+    PRIVATE edges are filtered the same way recall() filters memory entries.
+    """
+
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    from_entity: str
+    rel_type: str
+    to_entity: str
+    boundary: DataBoundary = DataBoundary.PUBLIC
+    context: str = ""
+    project_id: str | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+
+    @model_validator(mode="after")
+    def _normalise(self) -> "EntityRelation":
+        self.from_entity = normalize_entity(self.from_entity)
+        self.to_entity = normalize_entity(self.to_entity)
+        return self
+
+
 class MemoryEntry(BaseModel):
     """One boundary-tagged fact about an entity, with SM-2 reinforcement state (AC-2)."""
 

@@ -979,8 +979,10 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
                 ctx_parts: list[str] = []
                 if _entity_on:
                     from sentinel.memory import DataBoundary, MemoryStore
-                    recalled = MemoryStore().recall(target, {DataBoundary.PUBLIC})
-                    entity_ctx = orch._render_memory_context(recalled)
+                    _mem = MemoryStore()
+                    recalled = _mem.recall(target, {DataBoundary.PUBLIC})
+                    relations = _mem.get_related(target, allowed_boundaries={DataBoundary.PUBLIC})
+                    entity_ctx = orch._render_memory_context(recalled, relations=relations)
                     if entity_ctx:
                         ctx_parts.append(entity_ctx)
                 if _episodic_on:

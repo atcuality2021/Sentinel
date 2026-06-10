@@ -755,6 +755,32 @@ def _persist_run(task, result, backend: str) -> None:
         project_id=task.project_id,
     )
     RunStore().save(rec)
+    # G-06: save entity relations from compare/competitor artifacts (fail-soft).
+    try:
+        from sentinel.memory.schema import EntityRelation
+        from sentinel.memory.store import MemoryStore
+        artifacts = (result.dashboard_payload or {}).get("artifacts", {})
+        store = MemoryStore()
+        if "compare" in artifacts:
+            cm = artifacts["compare"]
+            subj = str(cm.get("subject") or "").strip()
+            rival = str(cm.get("rival") or "").strip()
+            if subj and rival:
+                store.upsert_relation(EntityRelation(
+                    from_entity=subj, rel_type="competitor", to_entity=rival,
+                    project_id=task.project_id,
+                ))
+        if "competitor" in artifacts:
+            bc = artifacts["competitor"]
+            rival = str(bc.get("target") or "").strip()
+            us = str(task.objective).split(" and ")[0].replace("Profile ", "").strip()
+            if rival and us:
+                store.upsert_relation(EntityRelation(
+                    from_entity=us, rel_type="competitor", to_entity=rival,
+                    project_id=task.project_id,
+                ))
+    except Exception:
+        pass
 
 
 def _plan_is_stale(task, plan) -> bool:

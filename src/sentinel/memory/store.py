@@ -21,6 +21,7 @@ from pathlib import Path
 from sentinel.artifacts.schemas import AgentSpec, Plan, Project, Task
 from sentinel.memory.schema import (
     DataBoundary,
+    EntityRelation,
     EntitySummary,
     MemoryEntry,
     RunRecord,
@@ -145,6 +146,21 @@ CREATE TABLE IF NOT EXISTS user_feedback (
 );
 CREATE INDEX IF NOT EXISTS idx_fb_run ON user_feedback(run_id);
 CREATE INDEX IF NOT EXISTS idx_fb_entity ON user_feedback(entity);
+
+-- Semantic knowledge graph: directed entity relationships (SENTINEL-016 G-06)
+-- Each edge: from_entity → rel_type → to_entity (e.g. "biltiq ai → competitor → crayon")
+CREATE TABLE IF NOT EXISTS entity_relations (
+    id           TEXT PRIMARY KEY,
+    from_entity  TEXT NOT NULL,
+    rel_type     TEXT NOT NULL,
+    to_entity    TEXT NOT NULL,
+    boundary     TEXT NOT NULL DEFAULT 'public',
+    context      TEXT NOT NULL DEFAULT '',
+    project_id   TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_rel_from ON entity_relations(from_entity);
+CREATE INDEX IF NOT EXISTS idx_rel_to   ON entity_relations(to_entity);
 """
 
 
@@ -409,6 +425,61 @@ class MemoryStore:
         for entry in entries:
             self.write(entry)
         return len(entries)
+
+    # ---------------------------------------------------------------------- #
+    # Knowledge graph: entity relations (SENTINEL-016 G-06)
+    # ---------------------------------------------------------------------- #
+
+    def upsert_relation(self, rel: "EntityRelation") -> None:
+        """Insert or replace a directed entity relation edge. Fail-soft."""
+        try:
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO entity_relations "
+                    "(id, from_entity, rel_type, to_entity, boundary, context, project_id, created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        rel.id, rel.from_entity, rel.rel_type, rel.to_entity,
+                        rel.boundary.value, rel.context,
+                        rel.project_id, rel.created_at.isoformat(),
+                    ),
+                )
+                conn.commit()
+        except Exception:
+            pass
+
+    def get_related(
+        self,
+        entity: str,
+        *,
+        allowed_boundaries: "set[DataBoundary] | None" = None,
+    ) -> list["EntityRelation"]:
+        """Return all edges where ``entity`` is either the source or target.
+
+        ``allowed_boundaries`` defaults to ``{PUBLIC}`` — matches the recall() contract.
+        Never raises (fail-soft).
+        """
+        allowed = allowed_boundaries or {DataBoundary.PUBLIC}
+        norm = normalize_entity(entity)
+        placeholders = ",".join("?" for _ in allowed)
+        try:
+            with _connect(self.path) as conn:
+                rows = conn.execute(
+                    f"SELECT * FROM entity_relations "  # noqa: S608
+                    f"WHERE (from_entity=? OR to_entity=?) AND boundary IN ({placeholders})"
+                    " ORDER BY created_at DESC",
+                    (norm, norm, *[b.value for b in allowed]),
+                ).fetchall()
+            return [
+                EntityRelation(
+                    id=r["id"], from_entity=r["from_entity"], rel_type=r["rel_type"],
+                    to_entity=r["to_entity"], boundary=DataBoundary(r["boundary"]),
+                    context=r["context"] or "", project_id=r["project_id"],
+                )
+                for r in rows
+            ]
+        except Exception:
+            return []
 
     def purge_entity(self, entity: str) -> None:
         """Remove an entity's memory AND run history (AC-9)."""

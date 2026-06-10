@@ -282,3 +282,60 @@ def test_memory_context_is_appended_when_present():
     synth = next(s for s in agent.sub_agents if s.name == "battlecard_synthesizer")
     assert synth.instruction.endswith(block)
     assert synth.instruction.startswith(cfg.prompts["competitor.synthesizer"].template)
+
+
+# --------------------------------------------------------------------------- #
+# G-06: knowledge graph — EntityRelation + upsert/recall + render enrichment
+# --------------------------------------------------------------------------- #
+
+def test_entity_relation_normalises_entities():
+    from sentinel.memory.schema import EntityRelation
+    rel = EntityRelation(from_entity="BiltIQ AI", rel_type="competitor", to_entity=" Crayon ")
+    assert rel.from_entity == "biltiq ai"
+    assert rel.to_entity == "crayon"
+
+
+def test_upsert_and_get_related_roundtrip(tmp_path):
+    from sentinel.memory.schema import EntityRelation
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    rel = EntityRelation(from_entity="biltiq ai", rel_type="competitor", to_entity="crayon")
+    store.upsert_relation(rel)
+    edges = store.get_related("biltiq ai")
+    assert len(edges) == 1
+    assert edges[0].rel_type == "competitor"
+    assert edges[0].to_entity == "crayon"
+
+
+def test_get_related_returns_both_directions(tmp_path):
+    """get_related returns edges where entity is either source OR target."""
+    from sentinel.memory.schema import EntityRelation
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    store.upsert_relation(EntityRelation(from_entity="a", rel_type="knows", to_entity="b"))
+    assert len(store.get_related("b")) == 1  # b is the target
+    assert len(store.get_related("a")) == 1  # a is the source
+
+
+def test_get_related_empty_when_no_edges(tmp_path):
+    from sentinel.memory.store import MemoryStore
+    assert MemoryStore(tmp_path / "sentinel.db").get_related("nobody") == []
+
+
+def test_render_memory_context_includes_relations():
+    from sentinel.agent.orchestrator import _render_memory_context
+    from sentinel.memory.schema import EntityRelation
+    rel = EntityRelation(from_entity="biltiq ai", rel_type="competitor", to_entity="crayon",
+                         context="SaaS mid-market")
+    out = _render_memory_context([], relations=[rel])
+    assert "crayon" in out
+    assert "competitor" in out
+    assert "SaaS mid-market" in out
+
+
+def test_render_memory_context_empty_with_no_entries_and_no_relations():
+    """AC-10 parity: empty entries + no relations → "" (byte-identical to pre-G06)."""
+    from sentinel.agent.orchestrator import _render_memory_context
+    assert _render_memory_context([]) == ""
+    assert _render_memory_context([], relations=[]) == ""
+    assert _render_memory_context([], relations=None) == ""
