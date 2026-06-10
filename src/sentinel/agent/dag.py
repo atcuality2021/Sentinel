@@ -977,14 +977,20 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
             target = str(raw_target).strip()
             if target:
                 ctx_parts: list[str] = []
+                from sentinel.memory.context_budget import ContextBudget
+                _ctx_budget = ContextBudget(
+                    total=int(getattr(mem_cfg, "context_window_tokens", None) or 2400)
+                )
                 if _entity_on:
                     from sentinel.memory import DataBoundary, MemoryStore
                     _mem = MemoryStore()
-                    # G-08: hot tier first; supplement with cold page if budget allows.
-                    hot = _mem.recall(target, {DataBoundary.PUBLIC}, tier="hot", token_budget=800)
+                    # G-08/G-11: hot tier first; supplement with cold page if budget allows.
+                    hot = _mem.recall(target, {DataBoundary.PUBLIC}, tier="hot",
+                                      token_budget=_ctx_budget.slot("entity_hot"))
                     cold = _mem.recall(
                         target, {DataBoundary.PUBLIC},
-                        tier="cold", page=0, page_size=10, token_budget=400,
+                        tier="cold", page=0, page_size=10,
+                        token_budget=_ctx_budget.slot("entity_cold"),
                     ) if not hot or len(hot) < 4 else []
                     recalled = hot + cold
                     relations = _mem.get_related(target, allowed_boundaries={DataBoundary.PUBLIC})

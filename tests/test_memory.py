@@ -564,3 +564,30 @@ def test_resolve_conflict_keep_b_quarantines_a(tmp_path):
     assert len(resolved) == 1
     recalled = store.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)
     assert not any(e.id == loser_id for e in recalled)
+
+
+# --------------------------------------------------------------------------- #
+# G-11: context window budget allocator
+# --------------------------------------------------------------------------- #
+
+def test_context_budget_slots_sum_to_total():
+    """All named slots must sum to approximately the declared total (±1 token per slot for rounding)."""
+    from sentinel.memory.context_budget import ContextBudget, _PROPORTIONS
+    budget = ContextBudget(total=2400)
+    total_alloc = sum(budget.slot(name) for name in _PROPORTIONS)
+    assert abs(total_alloc - 2400) <= len(_PROPORTIONS)
+
+
+def test_context_budget_none_total_uses_defaults():
+    """total=None falls back to the hardcoded default caps (backward-compatible)."""
+    from sentinel.memory.context_budget import ContextBudget, _DEFAULTS
+    budget = ContextBudget(total=None)
+    for name, default in _DEFAULTS.items():
+        assert budget.slot(name) == default
+
+
+def test_context_budget_unknown_slot_returns_safe_fallback():
+    """An unrecognised slot name returns a positive fallback without raising."""
+    from sentinel.memory.context_budget import ContextBudget
+    budget = ContextBudget(total=1000)
+    assert budget.slot("nonexistent_slot") > 0
