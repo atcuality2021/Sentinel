@@ -779,6 +779,40 @@ def _persist_run(task, result, backend: str) -> None:
                     from_entity=us, rel_type="competitor", to_entity=rival,
                     project_id=task.project_id,
                 ))
+        # HIGH-05: domain artifacts → warm entity graph so get_related() is non-empty on
+        # subsequent runs for the same entity.  field map mirrors each domain's schema.
+        _DOMAIN_ENTITY_FIELDS = {
+            "software": "target",
+            "finance": "target",
+            "academic": "topic",
+            "nutrition": "topic",
+            "travel": "destination",
+        }
+        for _art_key, _field in _DOMAIN_ENTITY_FIELDS.items():
+            if _art_key not in artifacts:
+                continue
+            _art = artifacts[_art_key]
+            if not isinstance(_art, dict):
+                continue
+            _entity = str(_art.get(_field) or "").strip()
+            if not _entity:
+                continue
+            store.upsert_relation(EntityRelation(
+                from_entity=_entity,
+                rel_type=f"{_art_key}_profile",
+                to_entity=task.objective,
+                project_id=task.project_id,
+            ))
+            if _art_key == "software":
+                for _alt in (_art.get("alternatives") or []):
+                    _alt_s = str(_alt).strip()
+                    if _alt_s and _alt_s.lower() != _entity.lower():
+                        store.upsert_relation(EntityRelation(
+                            from_entity=_entity,
+                            rel_type="competitor",
+                            to_entity=_alt_s,
+                            project_id=task.project_id,
+                        ))
     except Exception:
         pass
 

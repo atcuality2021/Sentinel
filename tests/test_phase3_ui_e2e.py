@@ -102,3 +102,76 @@ def test_persist_run_writes_a_scoped_runrecord(tmp_path, monkeypatch):
     assert rec.public == 1 and rec.private == 0              # one public citation
     assert rec.backend == "vllm"
     assert "self_profile" in rec.reference                  # the artifact ref is recorded
+
+
+# --------------------------------------------------------------------------- #
+# HIGH-05: domain artifacts auto-populate entity_relations so get_related() is
+# non-empty on subsequent runs (knowledge graph warm-up).
+# --------------------------------------------------------------------------- #
+
+
+def _domain_result(art_key: str, art_data: dict) -> Result:
+    return Result(
+        task_id="t1", summary=f"produced 1 artifact(s) — {art_key}",
+        artifacts=[art_key], citations=[],
+        dashboard_payload={"artifacts": {art_key: art_data}},
+        degraded=False,
+    )
+
+
+def test_persist_run_finance_writes_profile_relation(tmp_path, monkeypatch):
+    monkeypatch.setenv("SENTINEL_DATA_DIR", str(tmp_path))
+    from sentinel.memory.store import MemoryStore
+    from sentinel.web.app import _persist_run
+
+    _persist_run(_task(), _domain_result("finance", {"target": "HDFC Bank"}), "gemini")
+    rels = MemoryStore().get_related("HDFC Bank")
+    assert any(r.rel_type == "finance_profile" for r in rels)
+
+
+def test_persist_run_software_writes_profile_and_competitor_relations(tmp_path, monkeypatch):
+    monkeypatch.setenv("SENTINEL_DATA_DIR", str(tmp_path))
+    from sentinel.memory.store import MemoryStore
+    from sentinel.web.app import _persist_run
+
+    art = {"target": "ChromaDB", "alternatives": ["Weaviate", "Pinecone"]}
+    _persist_run(_task(), _domain_result("software", art), "gemini")
+    rels = MemoryStore().get_related("ChromaDB")
+    rel_types = {r.rel_type for r in rels}
+    assert "software_profile" in rel_types
+    assert "competitor" in rel_types
+    rivals = {r.to_entity for r in rels if r.rel_type == "competitor"}
+    assert "weaviate" in rivals or "Weaviate" in rivals
+    assert "pinecone" in rivals or "Pinecone" in rivals
+
+
+def test_persist_run_software_self_alternative_skipped(tmp_path, monkeypatch):
+    monkeypatch.setenv("SENTINEL_DATA_DIR", str(tmp_path))
+    from sentinel.memory.store import MemoryStore
+    from sentinel.web.app import _persist_run
+
+    art = {"target": "ChromaDB", "alternatives": ["ChromaDB", "Weaviate"]}
+    _persist_run(_task(), _domain_result("software", art), "gemini")
+    rels = MemoryStore().get_related("ChromaDB")
+    rivals = [r.to_entity for r in rels if r.rel_type == "competitor"]
+    assert not any(r.lower() == "chromadb" for r in rivals)
+
+
+def test_persist_run_academic_writes_profile_relation(tmp_path, monkeypatch):
+    monkeypatch.setenv("SENTINEL_DATA_DIR", str(tmp_path))
+    from sentinel.memory.store import MemoryStore
+    from sentinel.web.app import _persist_run
+
+    _persist_run(_task(), _domain_result("academic", {"topic": "quantum entanglement"}), "gemini")
+    rels = MemoryStore().get_related("quantum entanglement")
+    assert any(r.rel_type == "academic_profile" for r in rels)
+
+
+def test_persist_run_domain_missing_entity_field_skips_silently(tmp_path, monkeypatch):
+    monkeypatch.setenv("SENTINEL_DATA_DIR", str(tmp_path))
+    from sentinel.memory.store import MemoryStore
+    from sentinel.web.app import _persist_run
+
+    _persist_run(_task(), _domain_result("finance", {"other_field": "x"}), "gemini")
+    rels = MemoryStore().get_related("x")
+    assert rels == []
