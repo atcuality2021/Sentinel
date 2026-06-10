@@ -418,3 +418,87 @@ def test_recall_all_tier_unchanged_for_existing_callers(tmp_path):
     default_result = store.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)
     all_result = store.recall("acme", {DataBoundary.PUBLIC}, tier="all", reinforce_on_read=False)
     assert {e.id for e in default_result} == {e.id for e in all_result}
+
+
+# --------------------------------------------------------------------------- #
+# G-09: prospective memory / scheduler
+# --------------------------------------------------------------------------- #
+
+def test_schedule_and_due_tasks_roundtrip(tmp_path):
+    """schedule_task → due_tasks returns the task when due_at is in the past."""
+    from datetime import timezone
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    past = utcnow() - timedelta(hours=1)
+    tid = store.schedule_task("Acme", "Q3 earnings published", "refresh competitive profile", past)
+    assert tid  # non-empty id
+    tasks = store.due_tasks("acme")
+    assert len(tasks) == 1
+    assert tasks[0]["action_hint"] == "refresh competitive profile"
+    assert tasks[0]["id"] == tid
+
+
+def test_future_task_not_returned_by_due_tasks(tmp_path):
+    """Tasks with due_at in the future must not appear in due_tasks."""
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    future = utcnow() + timedelta(days=7)
+    store.schedule_task("Acme", "next earnings", "re-run analysis", future)
+    assert store.due_tasks("acme") == []
+
+
+def test_mark_fired_removes_task_from_due_tasks(tmp_path):
+    """After mark_fired, the task must no longer appear in due_tasks."""
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    past = utcnow() - timedelta(minutes=5)
+    tid = store.schedule_task("Acme", "condition", "action", past)
+    store.mark_fired(tid)
+    assert store.due_tasks("acme") == []
+
+
+def test_due_tasks_injected_into_run_dag_context(tmp_path, monkeypatch):
+    """run_dag appends pending follow-up block to base_seed when tasks are due."""
+    import asyncio
+    from sentinel.agent import dag as dag_mod
+    from sentinel.artifacts.schemas import Plan, Step, Result
+    from sentinel.memory.store import MemoryStore
+    from sentinel.config.defaults import build_default
+    from sentinel.config.schema import BackendOption
+
+    # Pre-schedule a due task for the target entity
+    store = MemoryStore(tmp_path / "sentinel.db")
+    past = utcnow() - timedelta(hours=1)
+    store.schedule_task("acme corp", "Q3 published", "refresh profile", past)
+
+    captured: list[dict] = []
+
+    async def fake_run_plan(plan, *, assemble, **kw):
+        captured.append(dict(kw.get("base_seed") or {}))
+        for s in plan.steps:
+            s.status = "done"
+        return Result(task_id=plan.task_id, summary="ok", artifacts=[], citations=[],
+                      dashboard_payload={"artifacts": {}}, degraded=False)
+
+    monkeypatch.setattr(dag_mod, "run_plan", fake_run_plan)
+
+    plan = Plan(id="p-g09", task_id="t-g09", steps=[
+        Step(id="s1", capability="self_profile", output_key="out"),
+    ])
+    cfg = build_default()
+    cfg.backend.default = "vllm"
+    cfg.backend.roles = {
+        "synthesizer": BackendOption(model="gemma-4-26B", api_base="https://omni.atcuality.com/v1"),
+    }
+    asyncio.run(dag_mod.run_dag(
+        plan, cfg=cfg, backend="vllm", cloud_allowed=False, use_cache=False,
+        project_id="p-x",
+        base_seed={"target": "acme corp"},
+    ))
+
+    assert captured, "fake_run_plan was never called"
+    ctx = captured[0].get("memory_context", "")
+    assert "Pending follow-ups" in ctx
+    assert "refresh profile" in ctx
+    # Task should now be fired
+    assert store.due_tasks("acme corp") == []

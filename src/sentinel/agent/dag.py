@@ -1015,6 +1015,21 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
                                 )
                     except Exception:
                         pass  # KB unavailable → fail-soft, run continues without it
+                # G-09: prospective memory — surface due follow-up tasks and fire them.
+                try:
+                    from sentinel.memory import MemoryStore as _MS
+                    _ptasks = _MS().due_tasks(target, project_id=project_id)
+                    if _ptasks:
+                        lines = ["\n\n## Pending follow-ups (scheduled by prior sessions)"]
+                        for t in _ptasks:
+                            lines.append(
+                                f"- [{t['due_at'][:10]}] {t['trigger_condition']}: {t['action_hint']}"
+                            )
+                        ctx_parts.append("\n".join(lines))
+                        for t in _ptasks:
+                            _MS().mark_fired(t["id"])
+                except Exception:
+                    pass  # fail-soft — prospective tasks are advisory
                 if ctx_parts:
                     base["memory_context"] = base.get("memory_context", "") + "".join(ctx_parts)
                     kwargs = {**kwargs, "base_seed": base}

@@ -175,6 +175,21 @@ CREATE TABLE IF NOT EXISTS procedural_traces (
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_trace_domain ON procedural_traces(domain, eval_score);
+
+-- Prospective memory: future-triggered follow-up actions (SENTINEL-016 G-09)
+-- Agent schedules a task at save-time; run_dag surfaces unfired due tasks at
+-- recall-time as "Pending follow-ups" context so the synthesizer acts on them.
+CREATE TABLE IF NOT EXISTS prospective_tasks (
+    id                TEXT PRIMARY KEY,
+    entity            TEXT NOT NULL,
+    trigger_condition TEXT NOT NULL,  -- human-readable when/why condition
+    action_hint       TEXT NOT NULL,  -- what to do when triggered
+    due_at            TEXT NOT NULL,  -- ISO-8601 UTC; checked on each run_dag
+    fired             INTEGER NOT NULL DEFAULT 0,
+    project_id        TEXT,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ptask_entity ON prospective_tasks(entity, fired, due_at);
 """
 
 
@@ -595,6 +610,86 @@ class MemoryStore:
                 ),
             )
             conn.commit()
+
+    # ---------------------------------------------------------------------- #
+    # Prospective memory (SENTINEL-016 G-09)
+    # ---------------------------------------------------------------------- #
+
+    def schedule_task(
+        self,
+        entity: str,
+        trigger_condition: str,
+        action_hint: str,
+        due_at: "datetime",
+        *,
+        project_id: str | None = None,
+    ) -> str:
+        """Schedule a future follow-up for ``entity``.
+
+        Returns the new task id. Fail-soft: any DB error is swallowed and an
+        empty string is returned so callers never crash.
+        """
+        import uuid as _uuid
+        from sentinel.memory.schema import utcnow as _utcnow
+        task_id = _uuid.uuid4().hex
+        try:
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "INSERT INTO prospective_tasks "
+                    "(id, entity, trigger_condition, action_hint, due_at, project_id) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (task_id, normalize_entity(entity), trigger_condition, action_hint,
+                     due_at.isoformat(), project_id),
+                )
+                conn.commit()
+        except Exception:
+            return ""
+        return task_id
+
+    def due_tasks(
+        self,
+        entity: str,
+        *,
+        now: "datetime | None" = None,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        """Return unfired prospective tasks for ``entity`` that are due on or before ``now``.
+
+        Each dict: ``{id, trigger_condition, action_hint, due_at}``. Fail-soft → [].
+        """
+        from sentinel.memory.schema import utcnow as _utcnow
+        now = now or _utcnow()
+        try:
+            sql = (
+                "SELECT id, trigger_condition, action_hint, due_at "
+                "FROM prospective_tasks "
+                "WHERE entity=? AND fired=0 AND due_at <= ?"
+            )
+            params: list = [normalize_entity(entity), now.isoformat()]
+            if project_id is not None:
+                sql += " AND (project_id=? OR project_id IS NULL)"
+                params.append(project_id)
+            sql += " ORDER BY due_at ASC"
+            with _connect(self.path) as conn:
+                rows = conn.execute(sql, params).fetchall()
+            return [
+                {"id": r["id"], "trigger_condition": r["trigger_condition"],
+                 "action_hint": r["action_hint"], "due_at": r["due_at"]}
+                for r in rows
+            ]
+        except Exception:
+            return []
+
+    def mark_fired(self, task_id: str) -> None:
+        """Mark a prospective task as fired so it won't surface again. Fail-soft."""
+        try:
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "UPDATE prospective_tasks SET fired=1 WHERE id=?", (task_id,)
+                )
+                conn.commit()
+        except Exception:
+            pass
 
 
 # --------------------------------------------------------------------------- #
