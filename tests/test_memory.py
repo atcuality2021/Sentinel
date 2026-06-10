@@ -502,3 +502,65 @@ def test_due_tasks_injected_into_run_dag_context(tmp_path, monkeypatch):
     assert "refresh profile" in ctx
     # Task should now be fired
     assert store.due_tasks("acme corp") == []
+
+
+# --------------------------------------------------------------------------- #
+# G-10: shared memory conflict resolution
+# --------------------------------------------------------------------------- #
+
+def test_conflict_logged_for_same_topic_different_content(tmp_path):
+    """Writing two entries with the same entity+boundary+topic_prefix but different content
+    must create an 'open' conflict row."""
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    # First 40 chars identical ("acme annual revenue report shows growth "); amount differs after.
+    store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $50M net"))
+    store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $60M net"))
+    conflicts = store.list_conflicts("acme")
+    assert len(conflicts) == 1
+    assert conflicts[0]["status"] == "open"
+    assert conflicts[0]["entity"] == "acme"
+
+
+def test_no_conflict_for_distinct_topics(tmp_path):
+    """Entries with clearly different topic prefixes must not trigger a conflict."""
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    store.write(_entry("acme", DataBoundary.PUBLIC, "hiring surge in Q3 2024"))
+    store.write(_entry("acme", DataBoundary.PUBLIC, "new product launch scheduled for Q4"))
+    assert store.list_conflicts("acme") == []
+
+
+def test_resolve_conflict_keep_a_quarantines_b(tmp_path):
+    """resolve_conflict(keep='a') must quarantine entry_id_b and mark status resolved_a."""
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $50M net"))
+    store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $60M net"))
+    conflicts = store.list_conflicts("acme")
+    assert conflicts
+    cid = conflicts[0]["id"]
+    loser_id = conflicts[0]["entry_id_b"]
+    store.resolve_conflict(cid, keep="a")
+    # Conflict row now resolved_a
+    resolved = store.list_conflicts("acme", status="resolved_a")
+    assert len(resolved) == 1
+    # Losing entry is quarantined and no longer appears in PUBLIC recall
+    recalled = store.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)
+    assert not any(e.id == loser_id for e in recalled)
+
+
+def test_resolve_conflict_keep_b_quarantines_a(tmp_path):
+    """resolve_conflict(keep='b') must quarantine entry_id_a and mark status resolved_b."""
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $50M net"))
+    store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $60M net"))
+    conflicts = store.list_conflicts("acme")
+    cid = conflicts[0]["id"]
+    loser_id = conflicts[0]["entry_id_a"]
+    store.resolve_conflict(cid, keep="b")
+    resolved = store.list_conflicts("acme", status="resolved_b")
+    assert len(resolved) == 1
+    recalled = store.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)
+    assert not any(e.id == loser_id for e in recalled)

@@ -190,6 +190,21 @@ CREATE TABLE IF NOT EXISTS prospective_tasks (
     created_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_ptask_entity ON prospective_tasks(entity, fired, due_at);
+
+-- Shared memory conflict log (SENTINEL-016 G-10)
+-- When two entries for the same entity share a "topic prefix" (normalised first 40 chars)
+-- but have different content, a conflict row is recorded for human review.
+-- status: 'open' | 'resolved_a' | 'resolved_b' | 'dismissed'
+CREATE TABLE IF NOT EXISTS memory_conflicts (
+    id             TEXT PRIMARY KEY,
+    entity         TEXT NOT NULL,
+    entry_id_a     TEXT NOT NULL,
+    entry_id_b     TEXT NOT NULL,
+    topic_prefix   TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'open',
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_conflict_entity ON memory_conflicts(entity, status);
 """
 
 
@@ -443,7 +458,12 @@ class MemoryStore:
         return [_row_to_entry(r) for r in rows]
 
     def write(self, entry: MemoryEntry) -> str:
-        """Insert an entry. Fail-closed on bad boundary (quarantine); dedup → reinforce (AC-4/7)."""
+        """Insert an entry. Fail-closed on bad boundary (quarantine); dedup → reinforce (AC-4/7).
+
+        G-10: after a successful insert, scans for an existing entry in the same entity+boundary
+        that shares the same 40-char topic prefix but differs in content → logs a conflict row.
+        Fail-soft: conflict detection never prevents the write.
+        """
         if not _valid_boundary(entry.boundary):
             entry.quarantined = True
             self._insert(entry, boundary_value=str(entry.boundary))
@@ -463,6 +483,28 @@ class MemoryStore:
             return existing.id
 
         self._insert(entry, boundary_value=bval)
+        # G-10: conflict detection — same topic prefix, different content in same entity+boundary.
+        try:
+            import uuid as _uuid
+            topic_prefix = entry.content[:40].lower()
+            if topic_prefix:
+                with _connect(self.path) as conn:
+                    rival = conn.execute(
+                        "SELECT id FROM memory_entries "
+                        "WHERE entity=? AND boundary=? AND quarantined=0 "
+                        "AND id != ? AND LOWER(SUBSTR(content,1,40))=? LIMIT 1",
+                        (entry.entity, bval, entry.id, topic_prefix),
+                    ).fetchone()
+                if rival is not None:
+                    with _connect(self.path) as conn:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO memory_conflicts "
+                            "(id, entity, entry_id_a, entry_id_b, topic_prefix) VALUES (?,?,?,?,?)",
+                            (_uuid.uuid4().hex, entry.entity, rival["id"], entry.id, topic_prefix),
+                        )
+                        conn.commit()
+        except Exception:
+            pass  # conflict detection is advisory — never break a write
         return entry.id
 
     def process_run(self, entity: str, artifact) -> int:
@@ -473,6 +515,66 @@ class MemoryStore:
         for entry in entries:
             self.write(entry)
         return len(entries)
+
+    # ---------------------------------------------------------------------- #
+    # Shared memory conflict resolution (SENTINEL-016 G-10)
+    # ---------------------------------------------------------------------- #
+
+    def list_conflicts(
+        self,
+        entity: str | None = None,
+        *,
+        status: str = "open",
+    ) -> list[dict]:
+        """Return conflict rows (optionally filtered by entity and status). Fail-soft → [].
+
+        Each dict: ``{id, entity, entry_id_a, entry_id_b, topic_prefix, status}``.
+        """
+        try:
+            sql = "SELECT * FROM memory_conflicts WHERE status=?"  # noqa: S608
+            params: list = [status]
+            if entity is not None:
+                sql += " AND entity=?"
+                params.append(normalize_entity(entity))
+            sql += " ORDER BY created_at DESC"
+            with _connect(self.path) as conn:
+                rows = conn.execute(sql, params).fetchall()
+            return [
+                {
+                    "id": r["id"], "entity": r["entity"],
+                    "entry_id_a": r["entry_id_a"], "entry_id_b": r["entry_id_b"],
+                    "topic_prefix": r["topic_prefix"], "status": r["status"],
+                }
+                for r in rows
+            ]
+        except Exception:
+            return []
+
+    def resolve_conflict(self, conflict_id: str, keep: str = "a") -> None:
+        """Resolve a conflict by quarantining the losing entry and marking the row resolved.
+
+        ``keep="a"`` quarantines entry_id_b; ``keep="b"`` quarantines entry_id_a.
+        Fail-soft: any error is swallowed and the conflict row is left as-is.
+        """
+        try:
+            with _connect(self.path) as conn:
+                row = conn.execute(
+                    "SELECT * FROM memory_conflicts WHERE id=?", (conflict_id,)
+                ).fetchone()
+            if row is None:
+                return
+            loser_id = row["entry_id_b"] if keep == "a" else row["entry_id_a"]
+            status = "resolved_a" if keep == "a" else "resolved_b"
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "UPDATE memory_entries SET quarantined=1 WHERE id=?", (loser_id,)
+                )
+                conn.execute(
+                    "UPDATE memory_conflicts SET status=? WHERE id=?", (status, conflict_id)
+                )
+                conn.commit()
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------------- #
     # Knowledge graph: entity relations (SENTINEL-016 G-06)
