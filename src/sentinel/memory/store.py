@@ -531,6 +531,15 @@ class RunStore:
                 ),
             )
             conn.commit()
+        # G-05: embed and index the run for semantic episodic recall. Fail-soft — a missing
+        # embed server must never prevent a run record from being saved.
+        try:
+            from sentinel.memory.episodic_vector import embed_and_index_run
+            embed_and_index_run(
+                rec.id, rec.entity, rec.finding_texts, data_dir(), project_id=rec.project_id
+            )
+        except Exception:
+            pass
         return rec.id
 
     # SENTINEL-012 (ADR-0003): every run-side read takes an OPTIONAL ``project_id``. Default None ⇒
@@ -698,6 +707,28 @@ class RunStore:
                                     break
                     except Exception:
                         pass  # KB unavailable or not yet indexed — degrade silently
+
+                # 4. Dense vector search over episodic ChromaDB index (G-05)
+                if len(results) < top_k:
+                    try:
+                        from sentinel.memory.episodic_vector import semantic_search_run_ids
+
+                        run_ids = semantic_search_run_ids(entity, data_dir(), top_k=top_k * 2)
+                        if run_ids:
+                            ph = ",".join("?" for _ in run_ids)
+                            vec_sql = (  # noqa: S608
+                                f"SELECT * FROM run_records WHERE id IN ({ph})"
+                                " ORDER BY created_at DESC"
+                            )
+                            for r in conn.execute(vec_sql, run_ids).fetchall():
+                                rec = _row_to_run(r)
+                                if rec.entity not in seen:
+                                    seen.add(rec.entity)
+                                    results.append(rec)
+                                if len(results) >= top_k:
+                                    break
+                    except Exception:
+                        pass  # episodic vector index unavailable — degrade silently
         except Exception:
             return []
 

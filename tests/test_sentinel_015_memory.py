@@ -312,3 +312,88 @@ def test_governance_ddg_stays_ddg_without_key():
     with patch.dict(os.environ, env, clear=True):
         result = effective_search_provider(cfg, allow_cloud=True)
     assert result == "duckduckgo"
+
+
+# --------------------------------------------------------------------------- #
+# G-05: episodic vector index — embed_and_index_run + semantic_search_run_ids
+# --------------------------------------------------------------------------- #
+
+def test_embed_and_index_run_upserts_to_chroma(tmp_path):
+    """embed_and_index_run calls embed_one and upserts the document into the collection."""
+    from unittest.mock import MagicMock, patch as _patch
+    from sentinel.memory.episodic_vector import embed_and_index_run
+
+    fake_vec = [0.1] * 8
+    fake_col = MagicMock()
+    with _patch("sentinel.memory.episodic_vector._episodic_col", return_value=fake_col), \
+         _patch("sentinel.kb.embedder.embed_one", return_value=fake_vec):
+        embed_and_index_run("run-1", "stripe", ["payment infra", "api sdks"], tmp_path,
+                            project_id="proj-A")
+
+    fake_col.upsert.assert_called_once()
+    call_kwargs = fake_col.upsert.call_args[1]
+    assert call_kwargs["ids"] == ["run-1"]
+    assert "stripe" in call_kwargs["documents"][0]
+
+
+def test_embed_and_index_run_fail_soft_on_embed_error(tmp_path):
+    """embed_and_index_run swallows embed errors — the caller must not be affected."""
+    from unittest.mock import patch as _patch
+    from sentinel.memory.episodic_vector import embed_and_index_run
+
+    with _patch("sentinel.kb.embedder.embed_one", side_effect=RuntimeError("server down")):
+        embed_and_index_run("run-2", "stripe", ["finding"], tmp_path)  # must not raise
+
+
+def test_semantic_search_returns_run_ids(tmp_path):
+    """semantic_search_run_ids returns run IDs from Chroma metadata."""
+    from unittest.mock import MagicMock, patch as _patch
+    from sentinel.memory.episodic_vector import semantic_search_run_ids
+
+    fake_col = MagicMock()
+    fake_col.count.return_value = 2
+    fake_col.query.return_value = {
+        "metadatas": [[{"run_id": "run-a"}, {"run_id": "run-b"}]],
+    }
+    with _patch("sentinel.memory.episodic_vector._episodic_col", return_value=fake_col), \
+         _patch("sentinel.kb.embedder.embed_one", return_value=[0.1] * 8):
+        ids = semantic_search_run_ids("electric vehicles", tmp_path, top_k=2)
+
+    assert ids == ["run-a", "run-b"]
+
+
+def test_semantic_search_empty_collection_returns_empty(tmp_path):
+    """semantic_search_run_ids returns [] immediately when the collection is empty."""
+    from unittest.mock import MagicMock, patch as _patch
+    from sentinel.memory.episodic_vector import semantic_search_run_ids
+
+    fake_col = MagicMock()
+    fake_col.count.return_value = 0
+    with _patch("sentinel.memory.episodic_vector._episodic_col", return_value=fake_col):
+        assert semantic_search_run_ids("anything", tmp_path) == []
+
+
+def test_recall_episodes_strategy4_fires_on_semantic_miss(store, tmp_path, monkeypatch):
+    """Strategy 4 (dense vector) surfaces runs that exact/keyword match misses."""
+    # Save a run for a different entity so exact+keyword don't match our query.
+    r = RunRecord(
+        entity="spacex launch vehicle", target="spacex", mode="competitor",
+        backend="gemini", kind="Battlecard", public=2, private=0, gaps=0,
+        reference="ref-s", finding_texts=["reusable rocket", "falcon 9"],
+    )
+    # Patch embed_and_index_run so save() doesn't try to reach the embed server.
+    monkeypatch.setattr(
+        "sentinel.memory.episodic_vector.embed_and_index_run",
+        lambda *a, **kw: None,
+    )
+    store.save(r)
+
+    # Strategy 4: mock semantic_search_run_ids to return the spacex run id.
+    monkeypatch.setattr(
+        "sentinel.memory.episodic_vector.semantic_search_run_ids",
+        lambda query, dd, top_k=5: [str(r.id)],
+    )
+    # Query with a semantically related but lexically different phrase.
+    results = store.recall_episodes("reusable spacecraft propulsion", top_k=1)
+    assert len(results) == 1
+    assert results[0].entity == "spacex launch vehicle"
