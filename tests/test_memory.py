@@ -339,3 +339,82 @@ def test_render_memory_context_empty_with_no_entries_and_no_relations():
     assert _render_memory_context([]) == ""
     assert _render_memory_context([], relations=[]) == ""
     assert _render_memory_context([], relations=None) == ""
+
+
+# --------------------------------------------------------------------------- #
+# G-08: hierarchical memory paging — tier filter + pagination
+# --------------------------------------------------------------------------- #
+
+def _write_entries_with_strengths(store, entity: str, strengths: list[float]) -> None:
+    """Write one PUBLIC entry per strength value, bypassing reinforcement for predictable setup."""
+    from sentinel.memory.schema import content_hash, utcnow
+    from sentinel.memory.schema import MemoryEntry
+    for i, s in enumerate(strengths):
+        e = MemoryEntry(
+            entity=entity, boundary=DataBoundary.PUBLIC,
+            content=f"finding {i} strength {s}",
+        )
+        e.strength = s
+        store.write(e)
+
+
+def test_hot_tier_returns_only_high_strength_entries(tmp_path):
+    """tier='hot' must return only entries with decayed_strength >= HOT_THRESHOLD."""
+    from sentinel.memory.store import MemoryStore
+    from sentinel.memory.strength import HOT_THRESHOLD
+    store = MemoryStore(tmp_path / "sentinel.db")
+    _write_entries_with_strengths(store, "acme", [0.5, 1.0, 1.5, 1.8])
+    hot = store.recall("acme", {DataBoundary.PUBLIC}, tier="hot", reinforce_on_read=False)
+    assert all(e.strength >= HOT_THRESHOLD for e in hot)
+    assert len(hot) == 2  # 1.5 and 1.8 qualify
+
+
+def test_cold_tier_returns_only_below_threshold_entries(tmp_path):
+    """tier='cold' returns entries with STRENGTH_FLOOR <= s < HOT_THRESHOLD."""
+    from sentinel.memory.store import MemoryStore
+    from sentinel.memory.strength import HOT_THRESHOLD, STRENGTH_FLOOR
+    store = MemoryStore(tmp_path / "sentinel.db")
+    _write_entries_with_strengths(store, "acme", [0.5, 1.0, 1.5, 1.8])
+    cold = store.recall("acme", {DataBoundary.PUBLIC}, tier="cold", reinforce_on_read=False)
+    assert all(STRENGTH_FLOOR <= e.strength < HOT_THRESHOLD for e in cold)
+    assert len(cold) == 2  # 0.5 and 1.0 qualify
+
+
+def test_hot_plus_cold_covers_all_entries(tmp_path):
+    """hot + cold entry IDs must equal all-tier IDs (no gaps, no duplicates)."""
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    _write_entries_with_strengths(store, "acme", [0.3, 0.8, 1.3, 1.9])
+    all_ids = {e.id for e in store.recall("acme", {DataBoundary.PUBLIC}, tier="all",
+                                          reinforce_on_read=False, limit=20)}
+    hot_ids = {e.id for e in store.recall("acme", {DataBoundary.PUBLIC}, tier="hot",
+                                          reinforce_on_read=False, limit=20)}
+    cold_ids = {e.id for e in store.recall("acme", {DataBoundary.PUBLIC}, tier="cold",
+                                           reinforce_on_read=False, limit=20)}
+    assert hot_ids | cold_ids == all_ids
+    assert hot_ids & cold_ids == set()  # no overlap
+
+
+def test_cold_tier_pagination_no_overlap(tmp_path):
+    """Page 0 and page 1 of cold tier must not share any entries."""
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    # Write 6 cold entries (all below HOT_THRESHOLD = 1.2)
+    _write_entries_with_strengths(store, "acme", [0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
+    pg0 = store.recall("acme", {DataBoundary.PUBLIC}, tier="cold",
+                       page=0, page_size=3, reinforce_on_read=False)
+    pg1 = store.recall("acme", {DataBoundary.PUBLIC}, tier="cold",
+                       page=1, page_size=3, reinforce_on_read=False)
+    assert len(pg0) == 3
+    assert len(pg1) == 3
+    assert {e.id for e in pg0} & {e.id for e in pg1} == set()
+
+
+def test_recall_all_tier_unchanged_for_existing_callers(tmp_path):
+    """Default tier='all' is backward-compatible: same results as before G-08."""
+    from sentinel.memory.store import MemoryStore
+    store = MemoryStore(tmp_path / "sentinel.db")
+    _write_entries_with_strengths(store, "acme", [0.5, 1.5])
+    default_result = store.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)
+    all_result = store.recall("acme", {DataBoundary.PUBLIC}, tier="all", reinforce_on_read=False)
+    assert {e.id for e in default_result} == {e.id for e in all_result}

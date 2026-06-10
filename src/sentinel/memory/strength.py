@@ -20,6 +20,7 @@ from sentinel.memory.schema import MemoryEntry, utcnow
 
 STRENGTH_FLOOR = 0.05   # recall drops anything decayed below this
 STRENGTH_CEIL = 2.0     # reinforcement asymptotes here, never exceeds
+HOT_THRESHOLD = 1.2     # G-08: entries >= this are "hot" (reinforced >= 2x)
 _GAIN = 0.4             # fraction of the remaining headroom gained per positive reinforcement
 _EASE_CEIL = 3.0
 

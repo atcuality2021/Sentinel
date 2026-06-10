@@ -29,6 +29,7 @@ from sentinel.memory.schema import (
     utcnow,
 )
 from sentinel.memory.strength import (
+    HOT_THRESHOLD,
     STRENGTH_FLOOR,
     ReinforceSignal,
     decayed_strength,
@@ -326,12 +327,21 @@ class MemoryStore:
         token_budget: int = 1200,
         now=None,
         reinforce_on_read: bool = True,
+        tier: str = "all",
+        page: int = 0,
+        page_size: int | None = None,
     ) -> list[MemoryEntry]:
         """Return non-quarantined entries for ``entity`` whose boundary ∈ ``allowed`` only.
 
         A competitor (public-only) run passes ``{PUBLIC}`` and therefore *cannot* receive a PRIVATE
         entry (AC-3). Results are ranked by decayed strength, dropped below the floor, capped at
         ``limit`` and a token budget; reading reinforces (testing effect, AC-6).
+
+        G-08 — hierarchical paging:
+        ``tier="hot"``  — only entries with decayed_strength >= HOT_THRESHOLD (reinforced ~2× or more).
+        ``tier="cold"`` — entries below HOT_THRESHOLD but above STRENGTH_FLOOR.
+        ``tier="all"``  — all above-floor entries (default, backward-compatible).
+        ``page`` / ``page_size`` slice within the tier after strength-sorting (0-indexed).
         """
         entity = normalize_entity(entity)
         allowed_set = {DataBoundary(b) for b in allowed}
@@ -353,7 +363,17 @@ class MemoryStore:
         now = now or utcnow()
         scored = [(e, decayed_strength(e, now)) for e in entries]
         scored = [(e, s) for (e, s) in scored if s >= STRENGTH_FLOOR]
+        # G-08: tier filter
+        if tier == "hot":
+            scored = [(e, s) for (e, s) in scored if s >= HOT_THRESHOLD]
+        elif tier == "cold":
+            scored = [(e, s) for (e, s) in scored if s < HOT_THRESHOLD]
         scored.sort(key=lambda t: t[1], reverse=True)
+
+        # G-08: page slice (applied before token/limit capping)
+        if page_size is not None:
+            start = page * page_size
+            scored = scored[start: start + page_size]
 
         selected: list[MemoryEntry] = []
         used = 0
