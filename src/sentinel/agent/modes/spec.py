@@ -301,8 +301,21 @@ def build_step_agents(
                 continue                      # boundary not configured → omit the private step
             tools: list | None = [private_toolset]
         elif step.tool == "search":
+            # ADK's google_search builtin is Gemini-native — it hard-errors when given to a
+            # LiteLLM (vLLM) model. Detect the mismatch: if this step's agent resolves to vLLM
+            # (pin_gemini=False and mode_backend=vllm, or cloud_allowed=False) and the caller
+            # passed "gemini" as the search provider, fall back to duckduckgo so the research
+            # step can actually run with the 12B tool-caller.
+            from sentinel.llm.gateway import resolve_backend as _rb
+            _ac = cfg.agents.get(step.agent_key)
+            _pin = _ac.pin_gemini if _ac else False
+            _resolved = "vllm" if not cloud_allowed else ("gemini" if _pin else _rb(backend or cfg.backend.default))
+            _eff_provider = (
+                "duckduckgo" if (_resolved == "vllm" and search_provider == "gemini")
+                else search_provider
+            )
             tools = [get_search_tool(
-                search_provider, results=cfg.search.results,
+                _eff_provider, results=cfg.search.results,
                 max_calls=getattr(cfg.search, "max_calls", 0),
                 stagger_s=getattr(cfg.search, "stagger_s", 0.0),
             )]

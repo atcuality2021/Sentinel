@@ -318,3 +318,45 @@ def test_new_mode_without_two_tier_keys_has_no_extractor():
     cfg.research.two_tier = True
     agent = build_pipeline(NOTES_SPEC, cfg, search_provider="duckduckgo")
     assert _names(agent) == ["notes_planner", "notes_research", "notes_synthesizer"]  # no extractor
+
+
+# --------------------------------------------------------------------------- #
+# BUG-FIX: vLLM domain skills must NOT receive google_search (Gemini-only tool)
+# --------------------------------------------------------------------------- #
+
+def test_domain_vllm_search_step_gets_duckduckgo_not_google_search():
+    """When build_step_agents is called with search_provider='gemini' on a vLLM backend,
+    the domain research agents (pin_gemini=False) must fall back to duckduckgo.
+    ADK raises ValueError if google_search is wired to a hosted_vllm model (proven live)."""
+    from sentinel.agent.modes.spec import FINANCE_SPEC, build_step_agents
+    from google.adk.tools.google_search_tool import GoogleSearchTool
+
+    cfg = build_default()
+    agents = build_step_agents(
+        FINANCE_SPEC, cfg, "vllm", cloud_allowed=True,
+        search_provider="gemini", two_tier=False, memory_context="",
+    )
+    research = next(a for a in agents if a.name == "finance_public_research")
+    tools = getattr(research, "tools", None) or []
+    assert tools, "research agent must have a search tool"
+    assert not any(isinstance(t, GoogleSearchTool) for t in tools), (
+        "google_search must not be used with a vLLM model — should fall back to duckduckgo"
+    )
+
+
+def test_self_profile_pin_gemini_agent_keeps_google_search_tool():
+    """self_profile.public_research has pin_gemini=True so it stays on Gemini search even on
+    a vLLM backend call — the fix must not strip its GoogleSearchTool."""
+    from sentinel.agent.modes.spec import SELF_PROFILE_SPEC, build_step_agents
+    from google.adk.tools.google_search_tool import GoogleSearchTool
+
+    cfg = build_default()
+    agents = build_step_agents(
+        SELF_PROFILE_SPEC, cfg, "vllm", cloud_allowed=True,
+        search_provider="gemini", two_tier=False, memory_context="",
+    )
+    research = next(a for a in agents if a.name == "self_profile_public_research")
+    tools = getattr(research, "tools", None) or []
+    assert any(isinstance(t, GoogleSearchTool) for t in tools), (
+        "self_profile research must keep GoogleSearchTool (pin_gemini=True)"
+    )
