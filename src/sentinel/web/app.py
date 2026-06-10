@@ -1237,6 +1237,7 @@ async def settings_memory(
     inject_org_prefs: str = Form(""),
     episodic_recall: str = Form(""),
     episodic_recall_top_k: str = Form("3"),
+    context_window_tokens: str = Form("2400"),
 ) -> str:
     try:
         cfg = settings_helpers.apply_memory(
@@ -1246,6 +1247,7 @@ async def settings_memory(
             inject_org_prefs=bool(inject_org_prefs),
             episodic_recall=bool(episodic_recall),
             episodic_recall_top_k=episodic_recall_top_k,
+            context_window_tokens=context_window_tokens,
         )
         set_config(cfg, persist=True)
     except ValueError as exc:

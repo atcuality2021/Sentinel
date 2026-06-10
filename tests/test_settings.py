@@ -159,6 +159,34 @@ def test_apply_memory_rejects_bad_retention():
         S.apply_memory(_cfg(), entity_memory=True, retention_days="zero", inject_org_prefs=True)
 
 
+# --- MEDIUM-07: context_window_tokens is now a real MemoryConfig field --------------------#
+
+def test_memory_config_has_context_window_tokens_default():
+    """MemoryConfig must have context_window_tokens with default 2400."""
+    from sentinel.config.schema import MemoryConfig
+    m = MemoryConfig()
+    assert m.context_window_tokens == 2400
+
+
+def test_apply_memory_sets_context_window_tokens():
+    """apply_memory must persist context_window_tokens into the returned config copy."""
+    new = S.apply_memory(
+        _cfg(), entity_memory=True, retention_days=365, inject_org_prefs=True,
+        context_window_tokens=4800,
+    )
+    assert new.memory.context_window_tokens == 4800
+
+
+def test_apply_memory_clamps_context_window_tokens_to_bounds():
+    """context_window_tokens below 800 or above 16000 must raise ValueError."""
+    with pytest.raises(ValueError):
+        S.apply_memory(_cfg(), entity_memory=True, retention_days=365, inject_org_prefs=True,
+                       context_window_tokens=400)
+    with pytest.raises(ValueError):
+        S.apply_memory(_cfg(), entity_memory=True, retention_days=365, inject_org_prefs=True,
+                       context_window_tokens=20000)
+
+
 # --------------------------------------------------------------------------- #
 # Steps 3-6 — routes (TestClient + isolated config path)
 # --------------------------------------------------------------------------- #
@@ -305,6 +333,23 @@ def test_post_memory_updates(client):
     cfg = _stored()
     assert cfg.memory.retention_days == 90
     assert cfg.memory.entity_memory is False and cfg.memory.inject_org_prefs is False
+
+
+def test_post_memory_saves_context_window_tokens(client):
+    """POST /settings/memory must persist context_window_tokens to the stored config."""
+    r = client.post("/settings/memory", data={
+        "retention_days": "365", "context_window_tokens": "6000",
+    })
+    assert "saved" in r.text.lower()
+    assert _stored().memory.context_window_tokens == 6000
+
+
+def test_settings_page_renders_context_window_tokens_input(client):
+    """GET /settings must render a context_window_tokens number input in the memory section."""
+    r = client.get("/settings")
+    assert r.status_code == 200
+    assert "context_window_tokens" in r.text
+    assert "Context window" in r.text
 
 
 # AC-9 — a saved prompt edit is reflected in the next agent build (no restart) ---

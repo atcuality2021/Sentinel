@@ -171,6 +171,10 @@ class MemoryConfig(BaseModel):  # stub — filled by SENTINEL-002
     # KB/ChromaDB context injection (SENTINEL-016 G-03): pull top-N indexed document chunks into
     # base_seed["memory_context"] via hybrid_search before every DAG run.
     kb_context: bool = True
+    # Context budget for memory injection (G-11 ContextBudget). Total tokens split proportionally
+    # across entity-hot (30%), entity-cold (15%), episodic (25%), KB (30%). Default 2400.
+    context_window_tokens: int = Field(default=2400, ge=800, le=16000,
+                                       description="Total memory-context token budget per DAG run.")
 
 
 class GovernanceConfig(BaseModel):

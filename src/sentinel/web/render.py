@@ -2672,12 +2672,16 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         + _num("retention_days", "Retention (days)", cfg.memory.retention_days, step="1", mn="1")
         + _num("episodic_recall_top_k", "Episodic recall depth (top-K sessions)", getattr(cfg.memory,"episodic_recall_top_k",3), step="1", mn="1", mx="10")
         + "</div>"
+        + "<div class='row2'>"
+        + _num("context_window_tokens", "Context window (tokens)", getattr(cfg.memory,"context_window_tokens",2400), step="100", mn="800", mx="16000")
+        + "</div>"
         + "<div class='set-actions'>"
         + "<a class='btn' href='/memory/episodes' style='background:var(--bg2);color:var(--txt)'>View &amp; manage episodes</a>"
         + "<span style='flex:1'></span>"
         + "<button class='btn' type='submit'>Save memory</button></div>"
         + "<p class='note'>Episodic recall injects prior research sessions into the planner's context. "
         + "Top-K sets how many prior sessions are recalled (1–10). "
+        + "Context window controls the total token budget split across entity-hot/cold, episodic and KB context (800–16 000). "
         + "<a href='/memory/episodes'>View / delete individual run records →</a></p>"
         "</form></div>"
     )

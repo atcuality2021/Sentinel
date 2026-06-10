@@ -193,16 +193,19 @@ def apply_memory(
     inject_org_prefs: bool,
     episodic_recall: bool = True,
     episodic_recall_top_k: str | int = 3,
+    context_window_tokens: str | int = 2400,
 ) -> SentinelConfig:
-    """Return a copy with memory settings updated (spec AC-8 + SENTINEL-015)."""
+    """Return a copy with memory settings updated (spec AC-8 + SENTINEL-015 + MEDIUM-07)."""
     days = _as_int(str(retention_days), "retention_days", 1)
     top_k = _as_int(str(episodic_recall_top_k), "episodic_recall_top_k", 1, 10)
+    ctx_tokens = _as_int(str(context_window_tokens), "context_window_tokens", 800, 16000)
     new = cfg.model_copy(deep=True)
     new.memory.entity_memory = entity_memory
     new.memory.retention_days = days
     new.memory.inject_org_prefs = inject_org_prefs
     new.memory.episodic_recall = episodic_recall
     new.memory.episodic_recall_top_k = top_k
+    new.memory.context_window_tokens = ctx_tokens
     return new
 
 
