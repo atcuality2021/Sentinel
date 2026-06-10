@@ -110,3 +110,35 @@ def test_value_chain_schemas_construct():
     ProgramStrategy(assessment="strong in sovereignty", ran_on_partial_data=True)
     GradeReport(passed=False, hard_failures=["schema_valid"], checks={"schema_valid": False})
     Result(task_id="t1", summary="done", degraded=True, missing_inputs=["s3"])
+
+
+# --- CRITICAL-01/02 wiring: user_id and handoff_id on Task -------------------------------- #
+
+
+def test_task_user_id_and_handoff_id_round_trip():
+    """Task serialises user_id and handoff_id; model_validate restores them exactly (G-14/G-17)."""
+    task = Task(
+        id="t2", project_id="p1", objective="HDFC Bank credit risk",
+        domain=Domain(name="finance"), created_at="2026-06-10T00:00:00Z",
+        user_id="credit-analyst-01", handoff_id="abc123",
+    )
+    restored = Task.model_validate(task.model_dump())
+    assert restored.user_id == "credit-analyst-01"
+    assert restored.handoff_id == "abc123"
+
+
+def test_task_user_id_handoff_id_default_none():
+    """Existing Task rows without user_id/handoff_id deserialise with None — backward compat."""
+    task = Task(
+        id="t3", project_id="p1", objective="legacy task",
+        domain=Domain(name="market"), created_at="2026-06-10T00:00:00Z",
+    )
+    assert task.user_id is None
+    assert task.handoff_id is None
+    # A JSON payload that predates these fields also deserialises cleanly.
+    old_json = '{"id":"t3","project_id":"p1","objective":"legacy","domain":{"name":"market"},' \
+               '"created_at":"2026-06-10T00:00:00Z"}'
+    import json
+    restored = Task.model_validate(json.loads(old_json))
+    assert restored.user_id is None
+    assert restored.handoff_id is None

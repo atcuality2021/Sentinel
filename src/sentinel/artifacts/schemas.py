@@ -268,6 +268,11 @@ class Task(BaseModel):
     status: TaskStatus = "created"
     plan_id: str | None = None
     created_at: str = Field(description="ISO-8601 UTC timestamp (caller-supplied).")
+    # G-14: user_id seeds UserProfileStore lookup so synthesizer output adapts to saved preferences.
+    # G-17: handoff_id marks the originating SessionHandoff done after a successful run.
+    # Both ride in the existing tasks.data JSON column — no DDL change needed.
+    user_id: str | None = Field(default=None, description="Operator user ID for profile injection (G-14).")
+    handoff_id: str | None = Field(default=None, description="A2A SessionHandoff to complete post-run (G-17).")
     # The latest run output, persisted on the task so it lives at the task's own URL (PRG): Approve &
     # Run redirects to /tasks/{id}, which re-renders this instead of the result being trapped in a POST
     # response body. Forward-ref to ``Result`` (defined below) — resolved by ``Task.model_rebuild()`` at

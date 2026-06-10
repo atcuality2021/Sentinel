@@ -808,7 +808,8 @@ def _persona_for(name: str) -> Persona:
 
 @app.get("/projects/{project_id}/plan", response_class=HTMLResponse)
 async def plan_review(project_id: str, objective: str = "", domain: str = "market",
-                      persona: str = "enterprise", backend: str = "") -> str:
+                      persona: str = "enterprise", backend: str = "",
+                      user_id: str = "") -> str:
     proj = ProjectStore().get_project(project_id)
     if proj is None:
         return render.not_found_page(what=f"project {project_id}", backend=_active())
@@ -824,9 +825,12 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
     if task is None:
         now = utcnow().isoformat()
         task = Task(id=f"task-{now}", project_id=project_id, objective=objective,
-                    domain=Domain(name=dom), persona=_persona_for(persona), created_at=now)
+                    domain=Domain(name=dom), persona=_persona_for(persona), created_at=now,
+                    user_id=user_id.strip() or None)
     else:
         task.persona = _persona_for(persona)
+        if user_id.strip():
+            task.user_id = user_id.strip()
     cloud_allowed = _cloud_allowed_for(proj)
     # Validate and apply user-chosen backend, honouring sovereignty (never allow cloud when blocked).
     backend = backend.strip().lower()
@@ -848,6 +852,9 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
             proposal, autonomy=proj.settings.autonomy, seeds=_plan_seeds(task, proposal.plan, proj),
             cfg=get_config(), cloud_allowed=cloud_allowed, trace=trace, **policy,
             persona=task.persona, grade=_grade_sample(), grade_objective=task.objective,
+            project_id=task.project_id,
+            user_id=task.user_id or None,
+            handoff_id=task.handoff_id or None,
         )
         if outcome.ran and outcome.result is not None:
             task.status = "failed" if outcome.result.degraded else "done"   # honest run state
@@ -962,6 +969,8 @@ async def _approve_and_run(task_id: str, override_backend: str = "") -> Redirect
             cfg=get_config(), cloud_allowed=cloud_allowed, trace=trace, **policy,
             persona=task.persona, grade=_grade_sample(), grade_objective=task.objective,
             project_id=task.project_id,
+            user_id=task.user_id or None,
+            handoff_id=task.handoff_id or None,
         )
         if outcome.ran and outcome.result is not None:
             task.status = "failed" if outcome.result.degraded else "done"   # reflect the run in the list
