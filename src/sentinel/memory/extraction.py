@@ -25,8 +25,26 @@ def _entry(entity: str, f: Finding) -> MemoryEntry:
     )
 
 
+def _all_findings(artifact) -> list[Finding]:
+    """Walk every list field on a pydantic model and collect Finding instances."""
+    out: list[Finding] = []
+    for field_name in type(artifact).model_fields:
+        val = getattr(artifact, field_name, None)
+        if isinstance(val, list):
+            for item in val:
+                if isinstance(item, Finding):
+                    out.append(item)
+    return out
+
+
 def extract_entries(entity: str, artifact) -> list[MemoryEntry]:
-    """One boundary-stamped entry per concrete finding in the artifact."""
+    """One boundary-stamped entry per concrete finding in the artifact.
+
+    Battlecard and AccountBrief use explicit field ordering (backward compat).
+    All SENTINEL-014 domain artifacts (SoftwareBrief, FinancialProfile,
+    AcademicBrief, NutritionBrief, TravelBrief) and any future types
+    fall through to the generic model_fields walker.
+    """
     entity = normalize_entity(entity)
     out: list[MemoryEntry] = []
     if isinstance(artifact, Battlecard):
@@ -40,6 +58,8 @@ def extract_entries(entity: str, artifact) -> list[MemoryEntry]:
     elif isinstance(artifact, AccountBrief):
         out.extend(_entry(entity, f) for f in artifact.public_signal)
         out.extend(_entry(entity, f) for f in artifact.private_signal)
+    else:
+        out.extend(_entry(entity, f) for f in _all_findings(artifact))
     return out
 
 

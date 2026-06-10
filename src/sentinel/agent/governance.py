@@ -10,10 +10,13 @@ decisions the run path enforces structurally:
 The no-cloud guarantee in ``on_prem_required`` is not a prompt instruction — it is realized by
 ``effective_backend`` returning ``"vllm"`` (so ``resolve_model`` never builds a Gemini object) and
 ``effective_search_provider`` never returning ``"gemini"`` (so ``google_search`` is never attached).
-Holds no secrets and performs no I/O.
+Holds no secrets and performs no I/O — except :func:`effective_search_provider` reads ``BRAVE_API_KEY``
+from the environment to auto-upgrade DDG (anti-botted) to Brave when the key is present (SENTINEL-015).
 """
 
 from __future__ import annotations
+
+import os
 
 from sentinel.config.schema import SentinelConfig
 from sentinel.llm.gateway import resolve_backend
@@ -40,13 +43,25 @@ def effective_backend(
     return resolve_backend(requested or cfg.backend.default)
 
 
-def effective_search_provider(cfg: SentinelConfig, *, allow_cloud: bool) -> str:
-    """Resolve the public-search provider, after applying policy (AC-4, AC-5).
+def effective_search_provider(
+    cfg: SentinelConfig, *, allow_cloud: bool, backend: str | None = None
+) -> str:
+    """Resolve the public-search provider, after applying policy (AC-4, AC-5) + runtime upgrade.
 
-    When cloud is not allowed but the configured provider is ``gemini``, fall back to the
-    configured non-cloud provider (default ``duckduckgo``) so a sovereign run still has web eyes.
+    Resolution order:
+    1. Apply compliance + backend policy: ``google_search`` (Gemini builtin) only works with
+       Google's API — it is NOT a callable function tool that LiteLlm can invoke. When cloud is
+       disallowed OR the resolved backend is ``vllm``, fall back to ``onprem_fallback`` (usually
+       ``duckduckgo``). Callers that have already resolved the backend should pass it explicitly;
+       when omitted we derive it from ``cfg.backend.default``.
+    2. Auto-upgrade DDG → Brave when ``BRAVE_API_KEY`` is set (SENTINEL-015 FR-09): DDG lite
+       returns HTTP 202 anti-bot challenges with 0 results; Brave is already implemented in
+       ``web_search.py``. Only ``duckduckgo`` is upgraded — any explicit non-DDG choice is honored.
     """
     provider = cfg.search.provider
-    if not allow_cloud and provider == "gemini":
-        return cfg.search.onprem_fallback
+    resolved_backend = backend if backend is not None else cfg.backend.default
+    if (not allow_cloud or resolved_backend == "vllm") and provider == "gemini":
+        provider = cfg.search.onprem_fallback
+    if provider == "duckduckgo" and os.environ.get("BRAVE_API_KEY"):
+        return "brave"
     return provider

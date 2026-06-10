@@ -126,6 +126,14 @@ class BackendConfig(BaseModel):
     # this many at a time — mirroring LeadFlow's ``Semaphore(3)``. Guards the leaf only (no nested
     # acquire), so the deepest linear plan can never deadlock. ``ge=1`` keeps it a real gate.
     max_concurrency: int = Field(default=3, ge=1)
+    # Turn controller (SENTINEL-015 FR-06): max LLM calls per step run. Passed to ADK
+    # RunConfig.max_llm_calls — stops a runaway tool-call loop at this count.
+    max_turns: int = Field(default=30, ge=1)
+    # Retry policy (SENTINEL-015 FR-07): on transient failure, retry up to max_retries times
+    # with exponential backoff: delay = base_retry_delay_s * (2 ** attempt).
+    # Total max wait = 1+2+4 = 7s for default max_retries=3. Set to 1 to disable retry.
+    max_retries: int = Field(default=3, ge=1)
+    base_retry_delay_s: float = Field(default=1.0, gt=0)
 
 
 class PromptTemplate(BaseModel):
@@ -155,6 +163,11 @@ class MemoryConfig(BaseModel):  # stub — filled by SENTINEL-002
     entity_memory: bool = True
     retention_days: int = 365
     inject_org_prefs: bool = True
+    # Episodic memory injection (SENTINEL-015): recall past research sessions at task start
+    # and inject a compact summary into the planner's context. When off, the run is
+    # byte-identical to pre-015 (AC-10 parity).
+    episodic_recall: bool = True
+    episodic_recall_top_k: int = Field(default=3, ge=1, le=10)
 
 
 class GovernanceConfig(BaseModel):
@@ -245,9 +258,9 @@ class SearchConfig(BaseModel):
     configured provider is still ``gemini``.
     """
 
-    provider: Literal["gemini", "duckduckgo", "brave", "serpapi", "searxng"] = "gemini"
+    provider: Literal["gemini", "duckduckgo", "brave", "serpapi", "google_cse", "searxng"] = "gemini"
     results: int = 5
-    onprem_fallback: Literal["duckduckgo", "brave", "serpapi", "searxng"] = "duckduckgo"
+    onprem_fallback: Literal["duckduckgo", "brave", "serpapi", "google_cse", "searxng"] = "duckduckgo"
     # Per-run budget on the public-research agent's `search()` calls (function-tool providers only;
     # the Gemini builtin manages its own grounding). When the model exhausts the budget the tool
     # returns a soft "synthesize now" message instead of more results, so the loop stops gracefully

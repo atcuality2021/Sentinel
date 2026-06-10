@@ -80,11 +80,12 @@
 
 ### Project-specific
 
-[PROJECT: list any internal API or wrapper that is now deprecated and what replaces it.]
-
 | Deprecated | Replacement | Removal target |
 |---|---|---|
 | `google/gemma-3-4b-it` (flat on-prem default) | Gemma-4 role map (12B tools / 26B reason) | SENTINEL-011 (ADR-0001) |
+| `api.duckduckgo.com?format=json` (DDG Instant API) | `https://lite.duckduckgo.com/lite/` SERP parser or SearXNG | SENTINEL-013 Phase 1 |
+| `run_async(target, mode)` direct orchestrator call | `gate_proposal()` + `ProjectStore` task/plan flow | SENTINEL-012 (Projects) |
+| `SentinelConfig` direct instantiation in tests | `build_default()` from `sentinel.config.defaults` | SENTINEL-003 |
 
 ---
 

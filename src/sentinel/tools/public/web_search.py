@@ -36,6 +36,7 @@ _DDG_ENDPOINT = "https://lite.duckduckgo.com/lite/"
 _DDG_UA = "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0"
 _BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 _SERPAPI_ENDPOINT = "https://serpapi.com/search.json"
+_GOOGLE_CSE_ENDPOINT = "https://www.googleapis.com/customsearch/v1"
 
 # Result row keys callers can rely on.
 SearchResult = dict[str, str]
@@ -199,6 +200,43 @@ def _serpapi(query: str, results: int) -> SearchResponse:
     return _ok(rows, "serpapi")
 
 
+def _google_cse(query: str, results: int) -> SearchResponse:
+    """Google Custom Search Engine API. Reads GOOGLE_API_KEY + GOOGLE_CSE_ID from env. Fail-soft.
+
+    Lets an on-prem (vLLM) run use real Google results without switching to the Gemini backend.
+    Create a Custom Search Engine at https://programmablesearchengine.google.com/ — set it to
+    "Search the entire web". Both env vars must be set; either missing → a clean error gap.
+    """
+    import httpx
+
+    key = os.getenv("GOOGLE_API_KEY", "").strip()
+    cx = os.getenv("GOOGLE_CSE_ID", "").strip()
+    if not key:
+        return _err("GOOGLE_API_KEY is not set", "google_cse")
+    if not cx:
+        return _err(
+            "GOOGLE_CSE_ID is not set — create a search engine at "
+            "https://programmablesearchengine.google.com/ and add GOOGLE_CSE_ID to .env",
+            "google_cse",
+        )
+    try:
+        resp = httpx.get(
+            _GOOGLE_CSE_ENDPOINT,
+            params={"key": key, "cx": cx, "q": query, "num": min(results, 10)},
+            timeout=_TIMEOUT_S,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        return _err(f"google_cse request failed: {type(exc).__name__}", "google_cse")
+
+    rows = [
+        _row(item.get("title", ""), item.get("link", ""), item.get("snippet", ""))
+        for item in (data.get("items", []) if isinstance(data, dict) else [])[:results]
+    ]
+    return _ok(rows, "google_cse")
+
+
 def _searxng(query: str, results: int) -> SearchResponse:
     """Self-hosted **SearXNG** metasearch (SENTINEL-013). The sovereign search path: keyless, and the
     instance runs on the customer's own box so a query egresses to **no third party** — unlike scraping
@@ -232,6 +270,7 @@ _FETCHERS: dict[str, Callable[[str, int], SearchResponse]] = {
     "duckduckgo": _duckduckgo,
     "brave": _brave,
     "serpapi": _serpapi,
+    "google_cse": _google_cse,
     "searxng": _searxng,
 }
 
@@ -315,5 +354,6 @@ def get_search_tool(
             provider, results, max_calls, stagger_s=stagger_s, now=now, sleep=sleep
         )
     raise ValueError(
-        f"Unknown search provider {provider!r} (expected gemini|duckduckgo|brave|serpapi|searxng)"
+        f"Unknown search provider {provider!r} "
+        "(expected gemini|duckduckgo|brave|serpapi|google_cse|searxng)"
     )

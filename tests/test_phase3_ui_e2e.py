@@ -29,12 +29,18 @@ def _task() -> Task:
 
 
 def test_project_detail_page_has_a_task_form():
-    html = render.project_detail_page(project=_project(), tasks=[], backend="vllm")
-    assert "/projects/p1/plan" in html          # form targets the planner route
-    assert "name='objective'" in html           # objective field
-    assert "name='domain'" in html              # domain selector
-    assert "Plan task" in html                  # the submit control
-    assert "New task" in html
+    # Overview page links to the Research tab; the actual form lives on project_tasks_page.
+    overview = render.project_detail_page(project=_project(), tasks=[], backend="vllm")
+    assert "/projects/p1/tasks" in overview     # CTA button points to Research tab
+    assert "New Research Task" in overview      # action label present
+
+    # Research tab carries the full planner form.
+    tasks_html = render.project_tasks_page(project=_project(), tasks=[], backend="vllm")
+    assert "/projects/p1/plan" in tasks_html    # form targets the planner route
+    assert "name='objective'" in tasks_html     # objective field
+    assert "name='domain'" in tasks_html        # domain selector
+    assert "Plan task" in tasks_html            # submit control
+    assert "New task" in tasks_html
 
 
 # --------------------------------------------------------------------------- #

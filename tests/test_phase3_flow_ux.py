@@ -23,8 +23,9 @@ def _task(persona="developer") -> "object":
 
 
 def test_task_form_offers_a_persona_dimension():
-    html = render.project_detail_page(project=Project(id="p1", name="X", created_at=_NOW),
-                                      tasks=[], backend="vllm")
+    # Persona selector lives on the Research (tasks) tab, not the project overview.
+    html = render.project_tasks_page(project=Project(id="p1", name="X", created_at=_NOW),
+                                     tasks=[], backend="vllm")
     assert "name='persona'" in html
     assert "enterprise" in html and "developer" in html      # persona options surfaced
 
@@ -95,7 +96,7 @@ def test_plan_seeds_targets_self_rival_and_carries_objective():
     assert seeds["s1"]["target"] == "BiltIQ AI"      # the 'us' side → our org, extracted
     assert seeds["s2"]["target"] == "Crayon"         # the rival side → the named competitor
     assert seeds["s3"]["target"]                      # reasoner gets the objective (non-empty)
-    assert all(v["vertical_context"] == task.objective for v in seeds.values())
+    assert all(v["vertical_context"].startswith(task.objective) for v in seeds.values())
 
 
 def test_plan_seeds_falls_back_when_no_rival_named():
@@ -118,8 +119,8 @@ def test_plan_seeds_falls_back_when_no_rival_named():
 def test_task_status_badge_distinguishes_states():
     assert ">created<" in render._task_status_badge("created")
     assert ">done<" in render._task_status_badge("done")
-    assert "16a34a" in render._task_status_badge("done")        # done is green
-    assert "b78a00" in render._task_status_badge("failed")      # failed is amber
+    assert "5bd07f" in render._task_status_badge("done")         # done is green
+    assert "ff6b6b" in render._task_status_badge("failed")      # failed is red
 
 
 def test_task_rows_link_to_task_detail():

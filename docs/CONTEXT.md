@@ -10,7 +10,7 @@
 
 **Positioning lines** (used in marketing for the on-premise category specifically): "Your Data. Your Premises. Your AI." For non-regulated cloud work, frame around capability and cost — not data sovereignty.
 
-[PROJECT: customize below — not every BiltIQ repo is about a regulated-sector product.]
+**This repo is Sentinel** — a sovereign intelligence agent for regulated SMBs. It is a BiltIQ-internal product built for the Google for Startups AI Agents Challenge (Track 1: Build, APAC, deadline 2026-06-11). It directly serves the regulated-sector customer profiles below. The BiltIQ product suite context is provided for shared tooling and brand consistency; Sentinel is the primary deliverable in this repo.
 
 ---
 
@@ -79,7 +79,11 @@ If a task involves drafting customer-facing material, default tone is direct, te
 
 **Active safety flag:** Qwen3.5-9B-Uncensored at Node 2 port 8102 has stripped alignment fine-tuning. **Do not use it in any user-facing medical orchestration role.** Replace with aligned instruct variant before any deployment.
 
-[PROJECT: replace with actual deploy infra for this repo if different.]
+**Sentinel-specific inference endpoints (live):**
+- Gemma-4-12B tools: `https://gemma.atcuality.com/v1` (auth: `ATCUALITY_API_KEY` header)
+- Gemma-4-26B (omni) reasoning: `https://omni.atcuality.com/v1` (auth: `ATCUALITY_API_KEY` header)
+- Demo runtime: Google Cloud Run + Vertex AI (Gemini 2.x grounding, `GOOGLE_API_KEY`)
+- Deploy command: `bash deploy/cloudrun.sh` (one-command, `asia-south1`, `--allow-unauthenticated`)
 
 ---
 

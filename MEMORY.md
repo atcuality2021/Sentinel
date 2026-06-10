@@ -47,10 +47,7 @@ cloud-native for demo and sovereign on-prem (vLLM) for production without rework
 
 ## Recent decisions (last 30 days)
 
-- 2026-06-09 — Compliance mode dual-declared: `cloud_ok` (demo) + `on_prem_preferred` (production target). `on_prem_required` heuristic was too strict for the pilot customer use case.
-- 2026-06-09 — Private GitHub repo created: `atcuality2021/Sentinel`. Direct push to main (no branch protection on private repo — intentional for solo sprint).
-- 2026-06-08 — ADR-0004: `agent_specs` registry table. ADR-0003: SQLite project/task store.
-- 2026-06-07 — ADR-0001: A2A coordinator uses `AgentTool` (not `RemoteA2aAgent`; `a2a-sdk` not yet available in ADK 2.2.0).
+_(no decisions recorded)_
 
 ## Recently completed
 
@@ -148,19 +145,15 @@ Terms introduced or changed since `/docs/GLOSSARY.md` was last updated.
 
 ## Active task
 
-- _(none in flight)_ — last closed: **SENTINEL-013** _2026-06-09_
+- _(none in flight)_ — last closed: **SENTINEL-012** _2026-06-08 08:27_
 
 ## Today's activity (2026-06-09)
 
-- SENTINEL-013 Steps 8–10 built and committed (`1f35d77`): parallel per-source extraction, sovereignty tests, reflect.md. 470 tests green.
-- AGENT_RULES.md: stack section rewritten with actual built state; dual compliance mode declared.
-- MEMORY.md: fully updated (date, current focus, decisions, conventions, glossary, session log).
-- Repo pushed to `atcuality2021/Sentinel` (private, `main`).
+_(no activity recorded today)_
 
 ## Open blockers
 
-- **Cloud Run deploy** — blocked on user completing GCP project setup + `gcloud auth login`. Command ready: `bash deploy/cloudrun.sh`.
-- **Workspace MCP OAuth** — blocked on user configuring Google OAuth consent screen.
+_(no open blockers)_
 
 ## Doctor installs
 
@@ -168,8 +161,7 @@ _(no doctor installs recorded yet)_
 
 ## Documentation updates
 
-- 2026-06-09 — AGENT_RULES.md stack section updated to reflect actual built state (Python 3.14.4, ADK 2.2.0, SQLite, vLLM gateway live, 470 tests).
-- 2026-06-09 — Dual compliance mode declared in AGENT_RULES.md (`cloud_ok` demo / `on_prem_preferred` production).
+_(no documentation updates recorded yet)_
 
 ## Archive
 

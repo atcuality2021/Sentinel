@@ -28,10 +28,15 @@ from pydantic import BaseModel
 from sentinel.agent.modes._build import make_agent
 from sentinel.artifacts.schemas import (
     AccountBrief,
+    AcademicBrief,
     Battlecard,
     ComparisonMatrix,
     ExtractionSet,
+    FinancialProfile,
+    NutritionBrief,
     SelfProfile,
+    SoftwareBrief,
+    TravelBrief,
 )
 from sentinel.config import SentinelConfig, get_config
 from sentinel.config.render import render_prompt
@@ -161,11 +166,104 @@ COMPARE_SPEC = ResearchModeSpec(
 )
 
 
+# --------------------------------------------------------------------------- #
+# SENTINEL-014: universal domain specialists — one ResearchModeSpec per domain.
+# All follow the same plan→research(search)→synthesize topology as competitor/
+# self_profile: planner (tool-caller, 12B), public_research (search, 12B),
+# synthesizer (reasoner, 26B, tool-free). No private boundary (public-only domains).
+# Adding a new domain is: new spec here + prompts + agent configs in defaults.py.
+# --------------------------------------------------------------------------- #
+
+SOFTWARE_SPEC = ResearchModeSpec(
+    name="sentinel_software",
+    output_schema=SoftwareBrief,
+    capability="software",
+    domain="software",
+    extractor_key="software.extractor",
+    extractor_name="software_extractor",
+    steps=[
+        StepSpec("software.planner", "software_planner", "research_plan", role="plan"),
+        StepSpec("software.public_research", "software_public_research", "public_findings",
+                 tool="search", role="research"),
+        StepSpec("software.synthesizer", "software_synthesizer", "software_brief",
+                 output_schema=SoftwareBrief, role="synthesize"),
+    ],
+)
+
+FINANCE_SPEC = ResearchModeSpec(
+    name="sentinel_finance",
+    output_schema=FinancialProfile,
+    capability="finance",
+    domain="finance",
+    extractor_key="finance.extractor",
+    extractor_name="finance_extractor",
+    steps=[
+        StepSpec("finance.planner", "finance_planner", "research_plan", role="plan"),
+        StepSpec("finance.public_research", "finance_public_research", "public_findings",
+                 tool="search", role="research"),
+        StepSpec("finance.synthesizer", "finance_synthesizer", "financial_profile",
+                 output_schema=FinancialProfile, role="synthesize"),
+    ],
+)
+
+ACADEMIC_SPEC = ResearchModeSpec(
+    name="sentinel_academic",
+    output_schema=AcademicBrief,
+    capability="academic",
+    domain="academic",
+    extractor_key="academic.extractor",
+    extractor_name="academic_extractor",
+    steps=[
+        StepSpec("academic.planner", "academic_planner", "research_plan", role="plan"),
+        StepSpec("academic.public_research", "academic_public_research", "public_findings",
+                 tool="search", role="research"),
+        StepSpec("academic.synthesizer", "academic_synthesizer", "academic_brief",
+                 output_schema=AcademicBrief, role="synthesize"),
+    ],
+)
+
+NUTRITION_SPEC = ResearchModeSpec(
+    name="sentinel_nutrition",
+    output_schema=NutritionBrief,
+    capability="nutrition",
+    domain="nutrition",
+    extractor_key="nutrition.extractor",
+    extractor_name="nutrition_extractor",
+    steps=[
+        StepSpec("nutrition.planner", "nutrition_planner", "research_plan", role="plan"),
+        StepSpec("nutrition.public_research", "nutrition_public_research", "public_findings",
+                 tool="search", role="research"),
+        StepSpec("nutrition.synthesizer", "nutrition_synthesizer", "nutrition_brief",
+                 output_schema=NutritionBrief, role="synthesize"),
+    ],
+)
+
+TRAVEL_SPEC = ResearchModeSpec(
+    name="sentinel_travel",
+    output_schema=TravelBrief,
+    capability="travel",
+    domain="travel",
+    extractor_key="travel.extractor",
+    extractor_name="travel_extractor",
+    steps=[
+        StepSpec("travel.planner", "travel_planner", "research_plan", role="plan"),
+        StepSpec("travel.public_research", "travel_public_research", "public_findings",
+                 tool="search", role="research"),
+        StepSpec("travel.synthesizer", "travel_synthesizer", "travel_brief",
+                 output_schema=TravelBrief, role="synthesize"),
+    ],
+)
+
+
 # The skill registry: capability → spec (design §2.1, "the mode library becomes the skill registry").
 # A flat in-code seed for now; Phase 3's AgentRegistry will resolve (capability, domain) → best spec.
 SKILL_SPECS: dict[str, ResearchModeSpec] = {
     spec.capability: spec
-    for spec in (COMPETITOR_SPEC, CLIENT_SPEC, SELF_PROFILE_SPEC, COMPARE_SPEC)
+    for spec in (
+        COMPETITOR_SPEC, CLIENT_SPEC, SELF_PROFILE_SPEC, COMPARE_SPEC,
+        # SENTINEL-014: universal domain specialists
+        SOFTWARE_SPEC, FINANCE_SPEC, ACADEMIC_SPEC, NUTRITION_SPEC, TRAVEL_SPEC,
+    )
 }
 
 

@@ -35,10 +35,22 @@ def _backfill_defaults(cfg: SentinelConfig) -> SentinelConfig:
     or prompts) would ``KeyError`` the moment that feature is enabled. Back-filling the shipped
     defaults for *missing* keys only — never overwriting an admin's edits — keeps an old config
     forward-compatible without a manual migration. New keys inherit the default (dark) behaviour.
+
+    ``role`` and ``pin_gemini`` are structural metadata (capability tier and cloud-pin — set by
+    the canonical defaults, not by the admin). They are always synced from the shipped defaults so
+    that a YAML written before role-tiering existed gets the correct tier without a manual migration.
+    The user-editable fields (``enabled``, ``model``, ``generation``) are never touched here.
     """
     d = SentinelConfig.default()
     for key, ac in d.agents.items():
-        cfg.agents.setdefault(key, ac)
+        if key not in cfg.agents:
+            cfg.agents[key] = ac
+        else:
+            # Sync role (structural capability tier — never user-editable, set by defaults only).
+            # pin_gemini and all other fields are user-editable and must not be overwritten.
+            existing = cfg.agents[key]
+            if existing.role != ac.role:
+                cfg.agents[key] = existing.model_copy(update={"role": ac.role})
     for key, tmpl in d.prompts.items():
         cfg.prompts.setdefault(key, tmpl)
     return cfg

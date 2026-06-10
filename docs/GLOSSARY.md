@@ -103,7 +103,17 @@
 
 ## Project-specific terms
 
-[PROJECT: add terms used only in this repo here. When the list grows, fold into the relevant section above.]
+| Term | Definition |
+|---|---|
+| **two-tier** | 12B tool-callers (pass1, `StreamingMode.NONE`) → 26B reasoners (pass2, `StreamingMode.SSE`). Config: `backend.roles`. Default off (`two_tier=False`). Fixes Cloudflare 524 timeouts on long non-streamed 26B generations. |
+| **SearXNG** | Self-hosted metasearch engine; primary sovereign keyless search provider. URL via `SEARXNG_URL` env var. Registered as provider `searxng` in `get_search_tool()`. |
+| **_leaf_semaphore** | Process-wide `asyncio.Semaphore` in `orchestrator.py` bounding concurrent ADK `run_step` calls. Sized by `BackendConfig.max_concurrency` (default 3). Loop-bound; auto-recreated on new event loop for test isolation. |
+| **parallel per-source extract** | SENTINEL-013 Phase 3. Instead of one extractor reading all `{public_findings}`, `_run_parallel_extract` splits into N per-source units via `_split_findings` and runs one 12B extractor per source concurrently under `_leaf_semaphore`. |
+| **ResearchModeSpec** | Declarative mode descriptor in `agent/modes/spec.py`. A new research mode is config+data (a `ResearchModeSpec` with ordered `list[StepSpec]` + output schema), not engine code. |
+| **ExtractionSet** | Pydantic v2 schema (`sentinel.artifacts.schemas`). `extractions: list[Extraction]` + `gaps: list[Gap]`. Output of the two-tier extractor stage; consumed by the 26B synthesizer. |
+| **_split_findings** | Helper in `agent/dag.py`. Parses `public_findings` into per-source units: JSON list → N items; `{"results":[...]}` envelope → unwrapped; free text → single-source fallback. |
+| **gate_proposal** | `sentinel.agent.orchestrator_planner.gate_proposal`. Enforces the autonomy gate: `propose` mode shows the plan without running; `autonomous` runs immediately. The human Approve button calls the `run` route which invokes `gate_proposal(autonomy="autonomous")`. |
+| **_run_policy** | `web/app.py` helper. Resolves `{backend, search_provider}` from config + `cloud_allowed` for a project-scoped run. User-selected backend (form toggle) overrides it when present; sovereignty (`on_prem_required`) blocks cloud regardless. |
 
 ---
 

@@ -244,15 +244,17 @@ def _toposort(steps: list[Step]) -> list[Step]:
 async def _run_agents(
     agents: list[Agent], *, name: str, streaming, seed: dict, message: str, trace: list[str],
     max_concurrency: int | None = None,
+    max_retries: int = 3,
 ) -> dict:
     """Run a one-pass slice of a skill. A single agent is driven directly; multiple are wrapped in a
     SequentialAgent (ADK lets a sub-agent have exactly one parent, so we wrap on demand). The per-run
     ``max_concurrency`` (from ``cfg.backend``) is forwarded to the leaf gate in :func:`orch.run_step`
-    (Step 7)."""
+    (Step 7). ``max_retries`` defaults to 3 for the normal pipeline; callers that apply their own
+    fail-soft logic (e.g. per-source extraction) pass 1 to skip retry."""
     runnable = agents[0] if len(agents) == 1 else SequentialAgent(name=name, sub_agents=agents)
     return await orch.run_step(
         runnable, message_text=message, seed_state=seed, streaming=streaming, trace=trace,
-        max_concurrency=max_concurrency,
+        max_concurrency=max_concurrency, max_retries=max_retries,
     )
 
 
@@ -325,7 +327,7 @@ async def _run_parallel_extract(
                 streaming=StreamingMode.NONE,
                 seed=per_source_seed,
                 message=f"Extract insights from source {idx}",
-                trace=trace, max_concurrency=mc,
+                trace=trace, max_concurrency=mc, max_retries=1,
             )
             raw = result_state.get("extractions")
             if raw is None:
@@ -596,6 +598,28 @@ async def _run_one_step(
     step.status = "done"
     step.finished_at = _now_iso()
     trace.append(f"{step.id} ({step.capability}): done → {step.output_key}")
+
+    # Write code-grade eval_score back to created-capability specs so the registry
+    # ranking activates (gap 2: eval_score was never written back post-grading).
+    # Skill-based steps seed their spec via the fixed SKILL_SPECS; only created
+    # capabilities carry a mutable agent_spec_id that benefits from writeback.
+    if step.agent_spec_id and registry is not None and artifact is not None:
+        try:
+            from sentinel.artifacts.schemas import KNOWN_OUTPUT_SCHEMAS
+            from sentinel.eval.graders import code_grade
+
+            spec_row = registry.store.get_spec(step.agent_spec_id)
+            if spec_row is not None:
+                schema = KNOWN_OUTPUT_SCHEMAS.get(spec_row.output_schema_ref)
+                if schema is not None:
+                    art_obj = schema.model_validate(artifact)
+                    grade = code_grade(art_obj)
+                    registry.store.update_eval_score(
+                        step.agent_spec_id, 1.0 if grade.passed else 0.0
+                    )
+        except Exception:
+            pass  # grading never breaks a completed step
+
     return _StepOutcome(
         step=step, status="done", output_key=step.output_key, artifact=artifact,
         reasoner_delta=reasoner_delta, ran=True, trace=trace,
@@ -864,6 +888,20 @@ async def _finalize_result(
                 artifact, objective=grade_objective or result.summary, sources=result.citations,
                 cfg=cfg, backend=backend, cloud_allowed=cloud_allowed, trace=trace,
             )
+            # Write the rubric score back to the primary step's spec so the registry
+            # ranking reflects real output quality (gap 2: eval_score writeback).
+            if result.grade and result.grade.score is not None and execu.produced:
+                try:
+                    _, primary_key = execu.produced[-1]
+                    primary_step = next(
+                        (s for s in execu.plan.steps if s.output_key == primary_key), None
+                    )
+                    if primary_step and primary_step.agent_spec_id and registry is not None:
+                        registry.store.update_eval_score(
+                            primary_step.agent_spec_id, result.grade.score
+                        )
+                except Exception:
+                    pass
         except Exception as exc:  # the grade is a sampled signal — its absence must not fail the run
             trace.append(f"model grade skipped ({type(exc).__name__}: {str(exc)[:60]})")
     return result
@@ -910,7 +948,26 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
     (SENTINEL-012 Step 13). Identical engine to :func:`run_plan` — only the projection is generic:
     the dashboard payload is ``{"artifacts": {output_key: artifact}}`` over whatever the plan produced,
     not the fixed BiltIQ slots. A structural fault (cycle / dangling dep) raises; runtime faults
-    degrade. This is the entry the Phase-3 planner targets once it emits its own plans."""
+    degrade. This is the entry the Phase-3 planner targets once it emits its own plans.
+
+    **Episodic memory injection (SENTINEL-015 FR-01):** when ``cfg.memory.episodic_recall`` is on,
+    recalled prior-session findings are appended to ``base_seed["memory_context"]`` so every DAG
+    step's prompt receives the context block. Fail-soft: any recall error leaves kwargs unchanged.
+    """
+    cfg = kwargs.get("cfg") or get_config()
+    if getattr(getattr(cfg, "memory", None), "episodic_recall", True):
+        try:
+            base = dict(kwargs.get("base_seed") or {})
+            target = str(base.get("target") or plan.task_id or "")
+            if target:
+                top_k = int(getattr(cfg.memory, "episodic_recall_top_k", 3))
+                episodes = RunStore().recall_episodes(target, top_k=top_k)
+                ep_ctx = orch._render_episodic_context(episodes)
+                if ep_ctx:
+                    base["memory_context"] = base.get("memory_context", "") + ep_ctx
+                    kwargs = {**kwargs, "base_seed": base}
+        except Exception:
+            pass  # fail-soft: never let episodic recall break a DAG run
     return await run_plan(plan, assemble=assemble_generic, **kwargs)
 
 

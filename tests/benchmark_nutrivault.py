@@ -129,44 +129,60 @@ async def get_task_html(client: httpx.AsyncClient, pid: str, tid: str) -> str:
 
 
 def extract_result_summary(html: str, label: str) -> dict:
-    """Pull key signals from the result HTML without a DOM parser."""
+    """Pull key signals from the result HTML without a DOM parser.
+
+    The Sentinel result page uses these markers (verified against live HTML):
+    - Artifact type appears in page text (e.g. 'Battlecard', 'SoftwareBrief')
+    - Artifact count: 'produced N artifact(s)' or 'no artifacts produced'
+    - Action plan: 'action_plan' key in rendered JSON or 'how_to_win' for battlecards
+    - Grade: 'eval_score' or 'grade' in page text
+    - Source boundary chips: 'PUBLIC' / 'PRIVATE' boundary labels
+    """
     import re
 
     summary: dict = {"label": label, "ok": False, "has_result": False, "has_action_plan": False,
                      "has_grade": False, "public_findings": 0, "private_findings": 0,
                      "artifact_type": "", "error": ""}
 
-    if "result-section" in html or "artifact-card" in html or "finding-card" in html:
+    # Primary result detection: the page says 'produced N artifact(s)' when the run succeeded
+    if re.search(r'produced\s+[1-9]\d*\s+artifact', html, re.I):
         summary["has_result"] = True
         summary["ok"] = True
-
-    if "action_plan" in html.lower() or "next step" in html.lower() or "recommended" in html.lower():
-        summary["has_action_plan"] = True
-
-    if "grade" in html.lower() or "eval_score" in html.lower():
-        summary["has_grade"] = True
-
-    # Count PUBLIC / PRIVATE boundary chips
-    pub = len(re.findall(r'PUBLIC|public-chip|tag-public', html))
-    prv = len(re.findall(r'PRIVATE|private-chip|tag-private', html))
-    summary["public_findings"] = pub
-    summary["private_findings"] = prv
-
-    # Detect artifact type from page content
+    # Secondary: artifact type name appears AND it's not the "no artifacts" case
+    art_type = ""
     for art in ("Battlecard", "AccountBrief", "SelfProfile", "ComparisonMatrix",
                 "SoftwareBrief", "FinancialProfile", "AcademicBrief",
                 "NutritionBrief", "TravelBrief"):
         if art.lower() in html.lower():
-            summary["artifact_type"] = art
+            art_type = art
             break
+    if art_type and "no artifacts produced" not in html.lower():
+        summary["has_result"] = True
+        summary["ok"] = True
+    summary["artifact_type"] = art_type
 
-    if "error" in html.lower() and not summary["has_result"]:
-        m = re.search(r'<p[^>]*class=["\']error["\'][^>]*>([^<]{10,200})<', html)
-        if m:
-            summary["error"] = m.group(1).strip()
+    # Action plan present when any of these appear in a result context
+    if re.search(r'action_plan|how_to_win|next.{0,5}step|recommended.{0,10}action', html, re.I):
+        summary["has_action_plan"] = True
+
+    # Grade: eval_score or RubricScore appears
+    if re.search(r'eval_score|rubric_score|relevance.*faithfulness|grade', html, re.I):
+        summary["has_grade"] = True
+
+    # Count PUBLIC / PRIVATE boundary chips — the rendered page uses class 'pub-chip'/'priv-chip'
+    # or the literal words in boundary badges
+    pub = len(re.findall(r'pub-chip|class=["\'][^"\']*public[^"\']*["\']|>PUBLIC<', html))
+    prv = len(re.findall(r'priv-chip|class=["\'][^"\']*private[^"\']*["\']|>PRIVATE<', html))
+    summary["public_findings"] = pub
+    summary["private_findings"] = prv
+
+    # Error text
+    m = re.search(r'<[^>]*class=["\'][^"\']*error[^"\']*["\'][^>]*>([^<]{10,200})<', html, re.I)
+    if m and not summary["has_result"]:
+        summary["error"] = m.group(1).strip()
 
     # Check if it's still in "planned" state (run not triggered)
-    if "approve" in html.lower() and not summary["has_result"]:
+    if re.search(r'approve.*plan|plan.*approve|awaiting.*approval', html, re.I) and not summary["has_result"]:
         summary["error"] = "Task still awaiting approval (run did not start)"
 
     return summary

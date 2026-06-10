@@ -59,6 +59,12 @@ _CAPABILITY_DESCRIPTIONS: dict[str, str] = {
     "compare": "compare US vs ONE rival across axes → a comparison matrix. Depends on self_profile + that competitor.",
     "client": "research one account/customer (public + private CRM signal) → an account brief.",
     "program_strategy": "synthesise a cross-product market-capture strategy from the comparison(s). Depends on the compare step(s).",
+    # SENTINEL-014: universal domain specialists
+    "software": "research a software product, library, or API → SoftwareBrief (tech stack, community health, DX, pricing).",
+    "finance": "research a company, instrument, or market → FinancialProfile (key metrics, risk signals, market position).",
+    "academic": "survey academic literature on a topic → AcademicBrief (key findings, research gaps, methodology).",
+    "nutrition": "research a food, nutrient, or dietary pattern → NutritionBrief (evidence quality, claims, general guidance). Non-clinical only.",
+    "travel": "research a destination or travel question → TravelBrief (highlights, practical info, safety, budget).",
 }
 
 
@@ -141,17 +147,36 @@ _STRATEGY_RE = _re.compile(r"\b(?:strateg|market[- ]capture|go[- ]to[- ]market|c
 _PROFILE_RE = _re.compile(r"\b(?:profile|research|analy[sz]e|assess|overview of|about)\b", _re.I)
 
 
+_SINGLE_STEP_DOMAINS: frozenset[str] = frozenset(
+    {"software", "finance", "academic", "nutrition", "travel"}
+)
+
+
 def _template_plan(task: Task) -> Plan | None:
-    """Deterministic plan for the shipped **market** value-chain, so recognised objectives get the
-    correct DAG every time (the 12B planner is unreliable at multi-step decomposition — it tended to
-    emit 2× competitor or a lone self_profile). Returns ``None`` for anything it doesn't recognise, so a
-    novel objective/domain still falls through to the LLM planner (the dynamic path is preserved)."""
-    if task.domain.name != "market":
+    """Deterministic plan for shipped value-chains, bypassing the LLM planner for reliability.
+
+    Single-step domains (SENTINEL-014): each maps 1-to-1 to its SKILL_SPECS capability, so a
+    1-step plan is always correct — no LLM variance, no risk of a wrong capability slug.
+
+    Market domain (multi-step): regex-driven to handle the compare/strategy chain correctly (the
+    12B planner tended to emit 2× competitor or a lone self_profile before this was added).
+
+    Returns ``None`` for anything unrecognised → falls through to the LLM planner.
+    """
+    pid = f"plan-{task.id}"
+    dom = task.domain.name
+
+    # SENTINEL-014: each of these domains has exactly one registered skill; a deterministic
+    # 1-step plan is both faster and 100% reliable vs. the LLM picking the capability slug.
+    if dom in _SINGLE_STEP_DOMAINS:
+        return Plan(id=pid, task_id=task.id,
+                    steps=[Step(id=dom, capability=dom, output_key=dom)])
+
+    if dom != "market":
         return None
     from sentinel.agent.dag import PROGRAM_STRATEGY_CAP   # lazy: the aggregator capability key
 
     obj = task.objective
-    pid = f"plan-{task.id}"
     if _COMPARE_RE.search(obj):                              # profile-us + compare-against-rival
         steps = [
             Step(id="self_profile", capability="self_profile", output_key="self_profile"),

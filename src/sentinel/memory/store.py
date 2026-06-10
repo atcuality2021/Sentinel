@@ -118,6 +118,33 @@ CREATE TABLE IF NOT EXISTS agent_specs (
     data        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_spec_key ON agent_specs(capability, domain, active);
+
+-- KB sources: per-project crawl/upload records (SENTINEL-016)
+CREATE TABLE IF NOT EXISTS kb_sources (
+    id          TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL,
+    url         TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'web',
+    status      TEXT NOT NULL DEFAULT 'pending',
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    error       TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_kb_project ON kb_sources(project_id);
+
+-- User feedback on task results (Gap 4: user modeling loop)
+CREATE TABLE IF NOT EXISTS user_feedback (
+    id         TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    task_id    TEXT NOT NULL,
+    run_id     TEXT NOT NULL,
+    entity     TEXT NOT NULL,
+    signal     INTEGER NOT NULL,  -- +1 thumbs-up, -1 thumbs-down
+    note       TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_fb_run ON user_feedback(run_id);
+CREATE INDEX IF NOT EXISTS idx_fb_entity ON user_feedback(entity);
 """
 
 
@@ -587,6 +614,116 @@ class RunStore:
             rows = conn.execute(sql, params).fetchall()
         return [_row_to_run(r) for r in rows]
 
+    def recall_episodes(
+        self,
+        target: str,
+        *,
+        top_k: int = 3,
+        mode: str | None = None,
+        project_id: str | None = None,
+    ) -> list[RunRecord]:
+        """Top-K episodic recall for a target — exact entity match + keyword LIKE search +
+        optional KB-semantic supplement when ``project_id`` is supplied.
+
+        Strategy (priority):
+        1. Exact entity match (same normalized target) — most recent runs first.
+        2. Keyword LIKE search over ``finding_texts`` JSON for words ≥ 4 chars from the target.
+        3. KB semantic search: when ``project_id`` is provided and results < top_k, query the
+           project's ChromaDB index for the target phrase and find run records that cited the
+           matched source URLs — bridging semantic KB content to episodic run history.
+        Results are deduped by entity (each entity appears at most once, its newest run).
+
+        Never raises — any storage error returns ``[]`` (fail-soft, NFR-03 / SENTINEL-015 FR-02).
+        """
+        entity = normalize_entity(target)
+        keywords = [w for w in entity.split() if len(w) >= 4]
+
+        seen: set[str] = set()
+        results: list[RunRecord] = []
+
+        try:
+            with _connect(self.path) as conn:
+                # 1. Exact entity match
+                exact_sql = "SELECT * FROM run_records WHERE entity=? ORDER BY created_at DESC"
+                for r in conn.execute(exact_sql, (entity,)).fetchall():
+                    rec = _row_to_run(r)
+                    if rec.entity not in seen:
+                        seen.add(rec.entity)
+                        results.append(rec)
+                    if len(results) >= top_k:
+                        return results
+
+                # 2. Keyword LIKE search
+                if keywords:
+                    like_conds = " OR ".join("finding_texts LIKE ?" for _ in keywords)
+                    params: list = [f"%{k}%" for k in keywords]
+                    kw_sql = f"SELECT * FROM run_records WHERE ({like_conds})"  # noqa: S608
+                    if mode:
+                        kw_sql += " AND mode=?"
+                        params.append(mode)
+                    kw_sql += " ORDER BY created_at DESC LIMIT ?"
+                    params.append(top_k * 5)
+                    for r in conn.execute(kw_sql, params).fetchall():
+                        rec = _row_to_run(r)
+                        if rec.entity not in seen:
+                            seen.add(rec.entity)
+                            results.append(rec)
+                        if len(results) >= top_k:
+                            break
+
+                # 3. KB semantic supplement — only when short on results and project_id given
+                if project_id and len(results) < top_k:
+                    try:
+                        import os
+
+                        from sentinel.kb.search import hybrid_search
+
+                        kb_dir = str(data_dir() / "kb")
+                        kb_hits = hybrid_search(project_id, kb_dir, entity, rerank_top_k=5)
+                        related_urls = [h.url for h in kb_hits if h.url]
+                        if related_urls:
+                            url_params: list = [f"%{u}%" for u in related_urls]
+                            url_conds = " OR ".join("sources LIKE ?" for _ in url_params)
+                            url_params.append(top_k * 3)
+                            url_sql = (  # noqa: S608
+                                f"SELECT * FROM run_records WHERE ({url_conds})"
+                                " ORDER BY created_at DESC LIMIT ?"
+                            )
+                            for r in conn.execute(url_sql, url_params).fetchall():
+                                rec = _row_to_run(r)
+                                if rec.entity not in seen:
+                                    seen.add(rec.entity)
+                                    results.append(rec)
+                                if len(results) >= top_k:
+                                    break
+                    except Exception:
+                        pass  # KB unavailable or not yet indexed — degrade silently
+        except Exception:
+            return []
+
+        return results[:top_k]
+
+    def delete_run(self, run_id: str, *, project_id: str | None = None) -> bool:
+        """Delete a single run record by id. Returns True if a row was deleted.
+
+        When ``project_id`` is supplied the DELETE is scoped: the run must belong to that project
+        or rowcount is 0 (returns False). This prevents IDOR — callers in a project context must
+        always pass project_id so a run from another project cannot be deleted via a crafted URL.
+        """
+        try:
+            with _connect(self.path) as conn:
+                if project_id is not None:
+                    cur = conn.execute(
+                        "DELETE FROM run_records WHERE id=? AND project_id=?",
+                        (run_id, project_id),
+                    )
+                else:
+                    cur = conn.execute("DELETE FROM run_records WHERE id=?", (run_id,))
+                conn.commit()
+                return cur.rowcount > 0
+        except Exception:
+            return False
+
 
 # --------------------------------------------------------------------------- #
 # ProjectStore — Project / Task / Plan (SENTINEL-012, ADR-0003)
@@ -624,6 +761,20 @@ class ProjectStore:
         with _connect(self.path) as conn:
             rows = conn.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
         return [_row_to_project(r) for r in rows]
+
+    def delete_project(self, project_id: str) -> bool:
+        """Delete a project and cascade to its tasks and plans. Returns True if the project existed."""
+        with _connect(self.path) as conn:
+            task_ids = [
+                r["id"] for r in
+                conn.execute("SELECT id FROM tasks WHERE project_id=?", (project_id,)).fetchall()
+            ]
+            for tid in task_ids:
+                conn.execute("DELETE FROM plans WHERE task_id=?", (tid,))
+            conn.execute("DELETE FROM tasks WHERE project_id=?", (project_id,))
+            cur = conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+            conn.commit()
+        return cur.rowcount > 0
 
     # --- tasks ---------------------------------------------------------------------------- #
     def save_task(self, t: Task) -> str:
@@ -754,9 +905,168 @@ class SpecStore:
             conn.execute("UPDATE agent_specs SET active=0 WHERE id=?", (spec_id,))
             conn.commit()
 
+    def update_eval_score(self, spec_id: str, score: float) -> None:
+        """Write a grading result back to the spec row so resolve() ranks it correctly.
+
+        Also updates the `data` JSON so the reconstructed AgentSpec carries the score.
+        Fail-soft: any error is silently swallowed — a scoring miss must never break a run.
+        """
+        try:
+            spec = self.get_spec(spec_id)
+            if spec is None:
+                return
+            spec.eval_score = score
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "UPDATE agent_specs SET eval_score=?, data=? WHERE id=?",
+                    (score, spec.model_dump_json(), spec_id),
+                )
+                conn.commit()
+        except Exception:
+            pass
+
     def list_specs(self) -> list[AgentSpec]:
         with _connect(self.path) as conn:
             rows = conn.execute(
                 "SELECT * FROM agent_specs ORDER BY capability, domain, version DESC"
             ).fetchall()
         return [_row_to_spec(r) for r in rows]
+
+
+class KBStore:
+    """Persists KB source records (crawl status, chunk counts) in SQLite."""
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path else db_path()
+        _ensure_schema(self.path)
+
+    def save(self, source: dict) -> None:
+        with _connect(self.path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO kb_sources "
+                "(id, project_id, url, source_type, status, chunk_count, error) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (source["id"], source["project_id"], source["url"],
+                 source["source_type"], source["status"],
+                 source["chunk_count"], source.get("error")),
+            )
+            conn.commit()
+
+    def list_for_project(self, project_id: str) -> list[dict]:
+        with _connect(self.path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM kb_sources WHERE project_id=? ORDER BY created_at DESC",
+                (project_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get(self, source_id: str) -> dict | None:
+        with _connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT * FROM kb_sources WHERE id=?", (source_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def update_status(
+        self, source_id: str, status: str, chunk_count: int = 0, error: str | None = None
+    ) -> None:
+        with _connect(self.path) as conn:
+            conn.execute(
+                "UPDATE kb_sources SET status=?, chunk_count=?, error=? WHERE id=?",
+                (status, chunk_count, error, source_id),
+            )
+            conn.commit()
+
+    def delete(self, source_id: str, project_id: str) -> bool:
+        with _connect(self.path) as conn:
+            cur = conn.execute(
+                "DELETE FROM kb_sources WHERE id=? AND project_id=?",
+                (source_id, project_id),
+            )
+            conn.commit()
+        return cur.rowcount > 0
+
+    def delete_for_project(self, project_id: str) -> None:
+        with _connect(self.path) as conn:
+            conn.execute("DELETE FROM kb_sources WHERE project_id=?", (project_id,))
+            conn.commit()
+
+
+# --------------------------------------------------------------------------- #
+# FeedbackStore — user thumbs-up/down on task results (Gap 4: user modeling)
+# --------------------------------------------------------------------------- #
+class FeedbackStore:
+    """Persist and read user feedback signals on task run results.
+
+    A +1 signal (thumbs-up) triggers SM-2 reinforcement on the memory entries that
+    were stored from the same entity during that run — so approved research stays in
+    recall longer. A -1 signal weakens those entries by applying a negative reinforce
+    (lowering ease/strength), making low-quality results fade faster.
+    """
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path else db_path()
+        _ensure_schema(self.path)
+
+    def save(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        run_id: str,
+        entity: str,
+        signal: int,
+        note: str | None = None,
+    ) -> str:
+        import uuid
+
+        fb_id = str(uuid.uuid4())
+        with _connect(self.path) as conn:
+            conn.execute(
+                "INSERT INTO user_feedback (id, project_id, task_id, run_id, entity, signal, note) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (fb_id, project_id, task_id, run_id, normalize_entity(entity), signal, note),
+            )
+            conn.commit()
+        self._apply_to_memory(entity=entity, signal=signal)
+        return fb_id
+
+    def list_for_run(self, run_id: str) -> list[dict]:
+        with _connect(self.path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM user_feedback WHERE run_id=? ORDER BY created_at DESC",
+                (run_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def aggregate_signal(self, entity: str) -> int:
+        """Sum of all +1/-1 signals for an entity — positive = more good runs than bad."""
+        entity = normalize_entity(entity)
+        with _connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(signal), 0) AS total FROM user_feedback WHERE entity=?",
+                (entity,),
+            ).fetchone()
+        return int(row["total"]) if row else 0
+
+    def _apply_to_memory(self, *, entity: str, signal: int) -> None:
+        """Reinforce (+1) or weaken (-1) the entity's memory entries in response to feedback."""
+        if signal == 0:
+            return
+        try:
+            mem = MemoryStore(self.path)
+            from sentinel.memory.schema import DataBoundary
+
+            entries = mem.list_for_entity(
+                entity, allowed=[DataBoundary.PUBLIC, DataBoundary.PRIVATE]
+            )
+            for entry in entries:
+                if signal > 0:
+                    reinforce(entry, ReinforceSignal.POSITIVE)
+                else:
+                    # Weaken: partial decay — lower strength and ease without quarantining
+                    entry.strength = max(entry.strength * 0.6, STRENGTH_FLOOR)
+                    entry.ease = max(entry.ease - 0.15, 1.3)
+                mem._update_strength(entry)
+        except Exception:
+            pass  # feedback never breaks the request path

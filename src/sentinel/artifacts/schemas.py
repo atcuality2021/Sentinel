@@ -420,6 +420,123 @@ class Result(BaseModel):
     missing_inputs: list[str] = Field(default_factory=list)
 
 
+# --------------------------------------------------------------------------- #
+# Universal domain-specialist output schemas (SENTINEL-014).
+# Each domain has its own artifact type tailored to that research context.
+# All follow the same Findings+Sources+Gaps pattern for provenance consistency.
+# --------------------------------------------------------------------------- #
+
+class SoftwareBrief(BaseModel):
+    """Output of the ``software`` skill: deep profile of a software product, library, or API."""
+
+    target: str = Field(description="The software product, library, or API being researched.")
+    one_line_summary: str = Field(description="One-sentence positioning of the software.")
+    category: str = Field(description="Category, e.g. 'vector database', 'LLM inference framework'.")
+    tech_stack: list[Finding] = Field(default_factory=list, description="Languages, frameworks, dependencies.")
+    api_quality: list[Finding] = Field(default_factory=list, description="API design, SDK quality, DX signals.")
+    community_health: list[Finding] = Field(
+        default_factory=list, description="Stars, contributors, activity, ecosystem size.")
+    maintenance_activity: list[Finding] = Field(
+        default_factory=list, description="Release cadence, issue resolution, roadmap signals.")
+    integration_support: list[Finding] = Field(
+        default_factory=list, description="Known integrations, connectors, marketplace presence.")
+    pricing_model: list[Finding] = Field(default_factory=list, description="Licensing, pricing tiers, OSS status.")
+    alternatives: list[str] = Field(default_factory=list, description="Named alternative products.")
+    sources: list[Source] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list)
+    assessment: str | None = Field(default=None, description="Strategic standing + build/buy/adopt signal.")
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+
+
+class FinancialProfile(BaseModel):
+    """Output of the ``finance`` skill: intelligence brief on a company, instrument, or market."""
+
+    target: str = Field(description="The company, instrument, or market being profiled.")
+    one_line_summary: str = Field(description="One-sentence financial standing summary.")
+    financial_summary: str = Field(description="Narrative overview of financial health and trajectory.")
+    key_metrics: list[Finding] = Field(
+        default_factory=list, description="Revenue, growth, margins, debt, valuation — cited figures only.")
+    market_position: list[Finding] = Field(
+        default_factory=list, description="Competitive standing, market share, sector trends.")
+    risk_signals: list[Finding] = Field(
+        default_factory=list, description="Red flags, regulatory risks, concentration risks.")
+    recent_developments: list[Finding] = Field(
+        default_factory=list, description="Earnings, M&A, leadership changes, filings.")
+    investment_thesis: str | None = Field(
+        default=None, description="Neutral synthesis of bull/bear case — no advice, facts only.")
+    sources: list[Source] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list)
+    assessment: str | None = Field(default=None)
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+
+
+class AcademicBrief(BaseModel):
+    """Output of the ``academic`` skill: literature survey on a research topic or question."""
+
+    topic: str = Field(description="The academic topic or research question.")
+    one_line_summary: str = Field(description="One-sentence overview of the state of knowledge.")
+    topic_overview: str = Field(description="Narrative: what is known, key debates, open questions.")
+    key_findings: list[Finding] = Field(
+        default_factory=list, description="Concrete, cited research findings — each with its source.")
+    research_gaps: list[Gap] = Field(
+        default_factory=list, description="What is not yet known or contested.")
+    notable_researchers: list[str] = Field(
+        default_factory=list, description="Named researchers or institutions prominent in this area.")
+    methodology_notes: list[str] = Field(
+        default_factory=list, description="Dominant methods, dataset types, or evaluation approaches.")
+    sources: list[Source] = Field(default_factory=list)
+    assessment: str | None = Field(default=None, description="Synthesis of where the field stands.")
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+
+
+class NutritionBrief(BaseModel):
+    """Output of the ``nutrition`` skill: evidence-based brief on a food, nutrient, or dietary pattern.
+
+    Non-clinical: this schema surfaces public research and general guidance only.
+    It is NOT a clinical recommendation and must not be used as such.
+    """
+
+    topic: str = Field(description="The food, nutrient, ingredient, or dietary approach researched.")
+    one_line_summary: str = Field(description="One-sentence evidence-based summary.")
+    evidence_quality: str = Field(
+        description="Strength of evidence: 'strong RCT evidence', 'observational only', 'conflicting', etc.")
+    key_claims: list[Finding] = Field(
+        default_factory=list, description="Cited evidence-backed claims (positive, neutral, or negative).")
+    practical_guidance: list[str] = Field(
+        default_factory=list, description="General public-health guidance derived from the evidence.")
+    contraindications: list[str] = Field(
+        default_factory=list,
+        description="Known populations or interactions to be aware of (general, non-clinical).")
+    sources: list[Source] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list)
+    disclaimer: str = Field(
+        default="General information only. Not medical or clinical advice. Consult a qualified practitioner.",
+        description="Always present. Not removable via prompt.",
+    )
+    assessment: str | None = Field(default=None)
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+
+
+class TravelBrief(BaseModel):
+    """Output of the ``travel`` skill: research brief on a destination, itinerary, or travel question."""
+
+    destination: str = Field(description="The destination, route, or travel topic researched.")
+    one_line_summary: str = Field(description="One-sentence travel summary.")
+    destination_overview: str = Field(description="What makes this destination notable; character/vibe.")
+    practical_info: list[Finding] = Field(
+        default_factory=list, description="Visa, currency, transport, connectivity — cited facts.")
+    highlights: list[Finding] = Field(
+        default_factory=list, description="Key experiences, sites, or activities with sources.")
+    safety_notes: list[Finding] = Field(
+        default_factory=list, description="Safety, health advisories, and precautions (current, cited).")
+    best_time: str | None = Field(default=None, description="Best season/months to visit with reasoning.")
+    budget_range: str | None = Field(default=None, description="Indicative daily budget range.")
+    sources: list[Source] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list)
+    assessment: str | None = Field(default=None)
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+
+
 # A registry of artifact schemas that an AgentSpec.output_schema_ref may name (SENTINEL-012 §9.2).
 # Used by validate_agent_spec to reject specs that point at an unknown schema.
 KNOWN_OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
@@ -429,6 +546,12 @@ KNOWN_OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
     "SelfProfile": SelfProfile,
     "ComparisonMatrix": ComparisonMatrix,
     "ProgramStrategy": ProgramStrategy,
+    # SENTINEL-014: universal domain specialists
+    "SoftwareBrief": SoftwareBrief,
+    "FinancialProfile": FinancialProfile,
+    "AcademicBrief": AcademicBrief,
+    "NutritionBrief": NutritionBrief,
+    "TravelBrief": TravelBrief,
 }
 
 

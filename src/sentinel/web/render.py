@@ -15,6 +15,7 @@ from html import escape
 from urllib.parse import quote
 
 from sentinel.artifacts.schemas import AccountBrief, Battlecard, Boundary, Finding, Gap, Source
+from sentinel.kb.url_guard import safe_href
 from sentinel.strategy import discover_playbooks
 
 # Chart.js from CDN — modern interactive charts without bundling. Demo runs online.
@@ -225,6 +226,136 @@ a.gc:hover{border-color:var(--accent-line);transform:translateY(-2px)}
 .legend span{display:inline-flex;align-items:center;gap:7px}
 .swatch{width:11px;height:11px;border-radius:4px;display:inline-block}
 @media(max-width:880px){.cards3,.cards2{grid-template-columns:1fr}}
+
+/* ---- project subnav ---- */
+.proj-subnav{border-bottom:1px solid var(--line);background:rgba(10,14,22,.88);
+  backdrop-filter:blur(8px);position:sticky;top:57px;z-index:4}
+.proj-subnav-inner{max-width:1280px;margin:0 auto;width:100%;display:flex;
+  align-items:center;gap:2px;padding:0 22px}
+.proj-tab{display:inline-flex;align-items:center;gap:7px;padding:11px 14px;
+  color:var(--muted);font-size:13.5px;font-weight:500;border-bottom:2px solid transparent;
+  white-space:nowrap;cursor:pointer;transition:color .15s,border-color .15s}
+.proj-tab:hover{color:var(--ink)}
+.proj-tab.active{color:var(--accent-2);border-bottom-color:var(--accent-2)}
+.proj-tab svg{flex:0 0 auto}
+
+/* ---- kb upload zone ---- */
+.kb-zone{border:2px dashed var(--line);border-radius:14px;padding:40px 24px;
+  text-align:center;color:var(--muted);font-size:14px}
+.kb-zone:hover{border-color:var(--accent-line);color:var(--ink)}
+.kb-types{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:16px}
+.kb-type{background:var(--chip);border:1px solid var(--line);border-radius:8px;
+  padding:6px 14px;font-size:12.5px;font-family:ui-monospace,Menlo,monospace;color:var(--muted)}
+.btn-sm{padding:4px 12px;font-size:12px;border-radius:6px;border:1px solid var(--line);
+  background:var(--chip);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:5px;
+  font-weight:500;transition:background .13s,border-color .13s,color .13s;white-space:nowrap}
+.btn-sm:hover{background:var(--panel);border-color:var(--accent-line);color:var(--ink)}
+.btn-sm.primary{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent-2)}
+.btn-sm.primary:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn-sm.ok{background:rgba(52,168,83,.14);border-color:rgba(52,168,83,.4);color:#5bd07f}
+.btn-sm.ok:hover{background:var(--ok);color:#fff;border-color:var(--ok)}
+.btn-sm.warn{background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#d4a017}
+.btn-sm.warn:hover{background:#b78a00;color:#fff;border-color:#b78a00}
+.btn-sm.bad{border-color:#5a1f1f;background:#1c1011;color:var(--bad)}
+.btn-sm.bad:hover{background:var(--bad);color:#fff;border-color:var(--bad)}
+/* task rows */
+.task-row{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;
+  padding:14px 16px;border-bottom:1px solid var(--line)}
+.task-row:last-child{border-bottom:0}
+.task-row:hover{background:rgba(255,255,255,.02)}
+.task-row .tr-obj{font-size:13.5px;font-weight:600;color:var(--accent-2);
+  text-decoration:none;display:block;margin-bottom:5px;line-height:1.4}
+.task-row .tr-obj:hover{text-decoration:underline}
+.task-row .tr-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.task-row .tr-actions{display:flex;gap:6px;align-items:center;flex-wrap:nowrap}
+.flash{padding:10px 16px;border-radius:8px;font-size:14px}
+.flash.ok{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#4ade80}
+.flash.err{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#f87171}
+
+/* ---- consulting report ---- */
+.rpt-cover{background:linear-gradient(135deg,#0d1627 0%,#0b0e14 60%,#0f1a2e 100%);
+  border:1px solid var(--line);border-radius:16px;padding:48px 40px 40px;margin-bottom:28px;
+  position:relative;overflow:hidden}
+.rpt-cover::before{content:'';position:absolute;top:-40px;right:-40px;width:280px;height:280px;
+  border-radius:50%;background:radial-gradient(circle,rgba(66,133,244,.18) 0%,transparent 70%);pointer-events:none}
+.rpt-cover .rpt-firm{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:20px}
+.rpt-cover h1{font-size:30px;font-weight:700;letter-spacing:-.4px;line-height:1.2;margin:0 0 10px}
+.rpt-cover .rpt-sub{color:var(--muted);font-size:14.5px;margin-bottom:28px;max-width:600px;line-height:1.6}
+.rpt-cover .rpt-meta{display:flex;gap:10px;flex-wrap:wrap}
+.rpt-tag{background:var(--accent-soft);color:var(--accent-2);border:1px solid var(--accent-line);
+  padding:4px 12px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.06em}
+.rpt-tag.gold{background:rgba(251,191,36,.12);color:#fbbf24;border-color:rgba(251,191,36,.3)}
+.rpt-tag.green{background:rgba(52,168,83,.12);color:#5bd07f;border-color:rgba(52,168,83,.3)}
+.rpt-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}
+.rpt-metric{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 16px;text-align:center}
+.rpt-metric .rm-val{font-size:26px;font-weight:700;color:var(--accent-2);letter-spacing:-.5px}
+.rpt-metric .rm-lbl{font-size:11px;color:var(--muted);margin-top:5px;text-transform:uppercase;letter-spacing:.07em}
+.rpt-sec{margin:32px 0}
+.rpt-sec-hd{display:flex;align-items:center;gap:12px;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.rpt-sec-hd .rpt-num{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent-2);background:var(--accent-soft);border:1px solid var(--accent-line);
+  padding:3px 9px;border-radius:6px;white-space:nowrap}
+.rpt-sec-hd h2{font-size:18px;font-weight:700;margin:0;letter-spacing:-.2px}
+.rpt-callout{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:0 10px 10px 0;padding:16px 18px;margin:16px 0;font-size:13.5px;line-height:1.6}
+.rpt-callout.gold{border-left-color:#fbbf24;background:rgba(251,191,36,.05)}
+.rpt-callout.green{border-left-color:var(--ok);background:rgba(52,168,83,.06)}
+.rpt-callout b{color:var(--ink)}
+.rpt-callout .rpt-cl-label{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:7px;display:block}
+.comp-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+.comp-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;
+  display:flex;flex-direction:column;gap:8px}
+.comp-card h4{font-size:14px;font-weight:650;margin:0;color:var(--ink)}
+.comp-card .cc-tags{display:flex;gap:6px;flex-wrap:wrap}
+.comp-card p{font-size:13px;color:var(--muted);line-height:1.55;margin:0}
+.comp-card .cc-win{font-size:12.5px;color:var(--accent-2);line-height:1.5}
+.acc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+.acc-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;
+  border-top:2px solid var(--accent-line)}
+.acc-card h4{font-size:13.5px;font-weight:650;margin:0 0 4px;color:var(--ink)}
+.acc-card .ac-vert{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
+.acc-card p{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0}
+.acc-card .ac-entry{font-size:12px;color:var(--accent-2);margin-top:8px;line-height:1.4}
+.tier-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:16px 0}
+.tier-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px 18px}
+.tier-card.featured{background:linear-gradient(135deg,rgba(66,133,244,.18),rgba(66,133,244,.06));
+  border-color:var(--accent-line)}
+.tier-card .tc-name{font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.tier-card .tc-price{font-size:26px;font-weight:700;color:var(--ink);letter-spacing:-.5px;margin:0 0 3px}
+.tier-card .tc-period{font-size:12px;color:var(--muted);margin-bottom:14px}
+.tier-card ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:7px}
+.tier-card li{font-size:13px;color:var(--muted);display:flex;align-items:flex-start;gap:8px}
+.tier-card li::before{content:'✓';color:var(--ok);font-weight:700;flex:0 0 auto}
+.tl{display:flex;flex-direction:column;gap:0;margin:16px 0}
+.tl-item{display:grid;grid-template-columns:140px 1fr;gap:16px;position:relative;padding-bottom:24px}
+.tl-item:last-child{padding-bottom:0}
+.tl-left{display:flex;flex-direction:column;align-items:flex-end;gap:4px;padding-top:2px}
+.tl-dot{width:10px;height:10px;border-radius:50%;background:var(--accent);margin-left:auto;margin-top:4px;
+  box-shadow:0 0 10px rgba(66,133,244,.5);flex:0 0 auto}
+.tl-dot.gold{background:#fbbf24;box-shadow:0 0 10px rgba(251,191,36,.5)}
+.tl-dot.green{background:var(--ok);box-shadow:0 0 10px rgba(52,168,83,.5)}
+.tl-phase{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.tl-right{border-left:1px solid var(--line);padding-left:20px}
+.tl-right h4{font-size:14.5px;font-weight:650;margin:0 0 6px;color:var(--ink)}
+.tl-right ul{padding-left:16px;margin:0;display:flex;flex-direction:column;gap:5px}
+.tl-right li{font-size:13px;color:var(--muted)}
+.action-grid{display:flex;flex-direction:column;gap:10px;margin:16px 0}
+.action-row{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:14px 16px;display:grid;grid-template-columns:60px 1fr 120px 160px;gap:12px;align-items:center}
+.action-row .ar-p{font-size:13px;font-weight:700;text-align:center;width:48px;height:28px;
+  border-radius:6px;display:flex;align-items:center;justify-content:center}
+.ar-p.p0{background:rgba(234,67,53,.18);color:#ff6b6b}
+.ar-p.p1{background:rgba(251,191,36,.14);color:#fbbf24}
+.ar-p.p2{background:rgba(66,133,244,.14);color:var(--accent-2)}
+.ar-p.p3{background:rgba(52,168,83,.12);color:var(--ok)}
+.action-row h4{font-size:13.5px;font-weight:650;margin:0 0 3px;color:var(--ink)}
+.action-row p{font-size:12.5px;color:var(--muted);margin:0;line-height:1.45}
+.action-row .ar-owner{font-size:12px;color:var(--muted);text-align:center}
+.action-row .ar-deadline{font-size:12px;color:var(--muted)}
+@media(max-width:880px){.rpt-metrics{grid-template-columns:1fr 1fr}.comp-grid{grid-template-columns:1fr}
+  .acc-grid{grid-template-columns:1fr 1fr}.tier-grid{grid-template-columns:1fr}
+  .action-row{grid-template-columns:50px 1fr}}
 """
 
 # --------------------------------------------------------------------------- #
@@ -249,6 +380,10 @@ def _icon(name: str) -> str:
         "merge": "<path d='M6 3v6a6 6 0 0 0 6 6h6'/><path d='M6 21v-6'/><circle cx='6' cy='4' r='2'/><circle cx='6' cy='20' r='2'/><circle cx='20' cy='15' r='2'/>",
         "shield": "<path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/>",
         "play": "<path d='M5 3l14 9-14 9z'/>",
+        "book": "<path d='M4 19.5A2.5 2.5 0 0 1 6.5 17H20'/><path d='M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z'/>",
+        "database": "<ellipse cx='12' cy='5' rx='9' ry='3'/><path d='M21 12c0 1.66-4 3-9 3s-9-1.34-9-3'/><path d='M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5'/>",
+        "folder": "<path d='M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z'/>",
+        "brain": "<path d='M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2z'/><path d='M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2z'/>",
     }.get(name, "")
     return (
         f"<svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' "
@@ -263,18 +398,10 @@ _NAV_GROUPS = [
         ("dashboard", "Dashboard", "grid", "/"),
         ("projects", "Projects", "plan", "/projects"),
         ("agents", "Agents", "agent", "/agents"),
-        ("new", "New Run", "search", "/new"),
-    ]),
-    ("Scale", [
-        ("accounts", "Accounts", "users", "/accounts"),
-        ("artifacts", "Artifacts", "doc", "/artifacts"),
     ]),
     ("Govern", [
         ("backends", "Backends", "chip", "/backends"),
         ("settings", "Settings", "cog", "/settings"),
-    ]),
-    ("Optimize", [
-        ("focus", "Focus", "spark", "/focus"),
     ]),
 ]
 
@@ -334,16 +461,59 @@ if(m&&b&&b.textContent)m.textContent=b.textContent.trim()+'\\u2026';o.style.disp
 """
 
 
+_PROJECT_TABS = [
+    ("overview",   "Overview",       "grid"),
+    ("kb",         "Knowledge Base", "book"),
+    ("tasks",      "Research",       "search"),
+    ("memory",     "Memory",         "brain"),
+    ("artifacts",  "Artifacts",      "folder"),
+    ("report",     "Report",         "doc"),
+]
+
+
+def _project_subnav(project_id: str, active_tab: str, project_name: str = "") -> str:
+    """Horizontal tab strip rendered below the topbar when inside a project."""
+    pid = escape(project_id)
+    hrefs = {
+        "overview":  f"/projects/{pid}",
+        "kb":        f"/projects/{pid}/kb",
+        "tasks":     f"/projects/{pid}/tasks",
+        "memory":    f"/projects/{pid}/memory",
+        "artifacts": f"/projects/{pid}/artifacts",
+        "report":    f"/projects/{pid}/report",
+    }
+    tabs = "".join(
+        f"<a class='proj-tab {'active' if key == active_tab else ''}' href='{hrefs[key]}'>"
+        f"{_icon(icon)}{label}</a>"
+        for key, label, icon in _PROJECT_TABS
+    )
+    name_chip = (
+        f"<span class='pill' style='margin-right:8px;border-color:var(--accent-line);"
+        f"color:var(--accent-2)'>{_icon('plan')}{escape(project_name)}</span>"
+        if project_name else ""
+    )
+    return (
+        "<div class='proj-subnav'>"
+        f"<div class='proj-subnav-inner'>{name_chip}{tabs}</div>"
+        "</div>"
+    )
+
+
 def shell(*, active: str, title: str, content: str, backend: str, head_extra: str = "",
-          body_scripts: str = "", project: str = "sovereign") -> str:
+          body_scripts: str = "", project: str = "sovereign", subnav: str = "") -> str:
     """Wrap a content fragment in the full dashboard shell.
 
-    ``project`` labels the top-bar pill: the active project's name when a project filter is in
-    effect (SENTINEL-012), else the default ``sovereign`` demo label.
+    ``project`` labels the top-bar pill.
+    ``subnav`` is an optional horizontal tab strip (rendered below the topbar, sticky).
     """
     backend_pill = (
         f"<span class='pill'><span class='dotmark {'v' if backend=='vllm' else 'g'}'></span>"
         f"Backend: <b>{escape(backend)}</b></span>"
+    )
+    # When inside a project context, suppress the global "New Run" shortcut (Research tab owns it).
+    topbar_action = (
+        "" if subnav
+        else f"<a class='btn ghost' href='/projects'>{_icon('plan')} Projects</a>"
     )
     return (
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
@@ -361,7 +531,8 @@ def shell(*, active: str, title: str, content: str, backend: str, head_extra: st
         f"<div class='spacer'></div>"
         "<span class='proj-pill'>" + _icon("shield") + " project: " + escape(project) + "</span>"
         f"{backend_pill}"
-        "<a class='btn' href='/new'>" + _icon("bolt") + " New Run</a></div></div>"
+        f"{topbar_action}</div></div>"
+        f"{subnav}"
         f"<div class='content'>{content}</div>"
         "</div></div>"
         f"{_LOADER_HTML}"
@@ -739,19 +910,32 @@ def render_artifact(artifact, *, backend: str, reference: str, trace: list[str],
         return render_account_brief(
             artifact, backend=backend, reference=reference, trace=trace, delta=delta
         )
-    raise TypeError(f"No renderer for {type(artifact).__name__}")
+    # SENTINEL-014 domain artifacts (SoftwareBrief, FinancialProfile, AcademicBrief,
+    # NutritionBrief, TravelBrief) use the shared _artifact_html card renderer.
+    art_dict = artifact.model_dump() if hasattr(artifact, "model_dump") else dict(artifact)
+    content = _artifact_html(type(artifact).__name__, art_dict)
+    return shell(active="artifacts", title=type(artifact).__name__, content=content, backend=backend)
 
 
 # --------------------------------------------------------------------------- #
 # Artifacts list
 # --------------------------------------------------------------------------- #
-def artifacts_page(*, artifacts: list[dict], backend: str, project: str = "sovereign") -> str:
+def artifacts_page(*, artifacts: list[dict], backend: str, project: str = "sovereign",
+                   project_id: str = "") -> str:
+    """Artifact list — scoped to a project when project_id is provided (shows project subnav)."""
+    subnav = _project_subnav(project_id, "artifacts", project) if project_id else ""
+    active = "projects" if project_id else "artifacts"
+    title = "Artifacts" if not project_id else f"{project} · Artifacts"
+
     if not artifacts:
-        content = ("<div class='card'><div class='empty'>No artifacts yet. "
-                   "<a href='/new' style='color:var(--accent-2)'>Run a task</a> to generate "
-                   "a battlecard or account brief.</div></div>")
-        return shell(active="artifacts", title="Artifacts", content=content, backend=backend,
-                 project=project)
+        run_link = (f"<a href='/projects/{escape(project_id)}/tasks' style='color:var(--accent-2)'>"
+                    "create a research task</a>") if project_id else (
+                        "<a href='/projects' style='color:var(--accent-2)'>start a project</a>")
+        content = (f"<div class='card'><div class='empty'>No artifacts yet. "
+                   f"{run_link} to generate a battlecard or account brief.</div></div>")
+        return shell(active=active, title=title, content=content, backend=backend,
+                     project=project, subnav=subnav)
+
     rows = ""
     for a in artifacts:
         name = escape(a["target"])
@@ -773,8 +957,8 @@ def artifacts_page(*, artifacts: list[dict], backend: str, project: str = "sover
         "<th>Saved to</th><th>When</th></tr></thead>"
         f"<tbody>{rows}</tbody></table></div>"
     )
-    return shell(active="artifacts", title="Artifacts", content=content, backend=backend,
-                 project=project)
+    return shell(active=active, title=title, content=content, backend=backend,
+                 project=project, subnav=subnav)
 
 
 # --------------------------------------------------------------------------- #
@@ -978,12 +1162,21 @@ _DOMAINS = ["market", "account", "software", "finance", "academic", "nutrition",
 _PERSONAS = ["enterprise", "developer", "consumer", "student", "doctor", "nurse"]
 
 
-def _task_form(project_id: str) -> str:
-    """The objective → plan entry point (SENTINEL-012): a GET form that hands the objective, domain and
-    persona to the planner route, which proposes a step-DAG. This is the UI door to the orchestrator —
-    the place a Task's three dimensions (objective × domain × persona) are chosen."""
+def _task_form(project_id: str, *, default_backend: str = "gemini",
+               vllm_model: str = "gemma-4-12b-it", sovereign: bool = False) -> str:
+    """The objective → plan entry point (SENTINEL-012): a GET form that hands the objective, domain,
+    persona, and reasoning backend to the planner route. The backend toggle mirrors the New Run form
+    so users with both Gemini and vLLM can choose per-task."""
     domains = "".join(f"<option value='{d}'>{d}</option>" for d in _DOMAINS)
     personas = "".join(f"<option value='{p}'>{p}</option>" for p in _PERSONAS)
+    gemini_checked = "" if (default_backend == "vllm" or sovereign) else "checked"
+    vllm_checked = "checked" if (default_backend == "vllm" or sovereign) else ""
+    gemini_disabled = "disabled" if sovereign else ""
+    sovereign_note = (
+        "<div class='note' style='margin-top:6px;color:var(--accent-2)'>Governance: "
+        "<b>on_prem_required</b> — cloud blocked; tasks run on-prem only.</div>"
+        if sovereign else ""
+    )
     return (
         "<div class='section-h'><h2>New task</h2></div>"
         "<div class='card'>"
@@ -995,6 +1188,17 @@ def _task_form(project_id: str) -> str:
         f"<select id='t-dom' name='domain'>{domains}</select></div>"
         "<div><label class='lbl' for='t-per'>Persona</label>"
         f"<select id='t-per' name='persona'>{personas}</select></div>"
+        "<div><label class='lbl'>Reasoning backend</label>"
+        "<div class='seg'>"
+        f"<input class='cloud' type='radio' id='tb-gemini' name='backend' value='gemini' "
+        f"{gemini_checked} {gemini_disabled}>"
+        "<label class='l-cloud' for='tb-gemini'>☁ Cloud · Gemini"
+        "<span class='sub'>managed API</span></label>"
+        f"<input class='onprem' type='radio' id='tb-vllm' name='backend' value='vllm' {vllm_checked}>"
+        f"<label class='l-onprem' for='tb-vllm'>🔒 On-prem · Gemma"
+        f"<span class='sub'>{escape(vllm_model)} · vLLM</span></label>"
+        "</div></div>"
+        f"{sovereign_note}"
         f"<div><button class='btn' type='submit'>{_icon('bolt')} Plan task</button></div>"
         "</form>"
         "<div class='note' style='margin-top:8px'>Domain selects the research skills + output shape; "
@@ -1003,61 +1207,507 @@ def _task_form(project_id: str) -> str:
     )
 
 
-def _task_status_badge(status: str) -> str:
-    """Colour a task's lifecycle status so the Tasks list is honest at a glance (not all 'created')."""
-    colour = {
-        "created": "var(--muted)", "planned": "rgba(66,133,244,.16);color:var(--accent-2)",
-        "running": "rgba(66,133,244,.16);color:var(--accent-2)",
-        "done": "rgba(22,163,74,.16);color:#16a34a",
-        "failed": "rgba(234,179,8,.16);color:#b78a00",
-        "rejected": "rgba(220,38,38,.16);color:#dc2626",
-    }.get(status, "var(--muted)")
-    bg = colour if ";" in colour else f"transparent;color:{colour}"
-    return f"<span class='badge' style='background:{bg}'>{escape(status)}</span>"
+def _task_status_badge(status: str, degraded: bool = False) -> str:
+    """Colour-coded status badge. Degraded done→partial (amber)."""
+    if status == "done" and degraded:
+        return "<span class='badge' style='background:rgba(234,179,8,.16);color:#d4a017'>partial</span>"
+    _map = {
+        "created":  ("rgba(100,100,100,.18)", "#9aa0a6", "created"),
+        "planned":  ("rgba(66,133,244,.16)",  "#8ab4f8", "planned"),
+        "running":  ("rgba(66,133,244,.22)",  "#8ab4f8", "running…"),
+        "done":     ("rgba(52,168,83,.18)",   "#5bd07f", "done"),
+        "failed":   ("rgba(234,67,53,.18)",   "#ff6b6b", "failed"),
+        "rejected": ("rgba(220,38,38,.18)",   "#dc2626", "rejected"),
+    }
+    bg, color, label = _map.get(status, ("transparent", "var(--muted)", status))
+    return f"<span class='badge' style='background:{bg};color:{color}'>{escape(label)}</span>"
 
 
-def project_detail_page(*, project, tasks: list, backend: str) -> str:
-    """One project: a task entry form + its tasks. The form posts an objective to the planner route,
-    which proposes a step-DAG; the top-bar pill shows this project as the active scope (SENTINEL-012)."""
+def _task_row(task, pid: str, show_full_obj: bool = False) -> str:
+    """Rich task row: objective link, meta pills, action buttons (View / Retry / Delete)."""
+    tid = escape(task.id)
+    obj = task.objective or ""
+    display_obj = obj if show_full_obj else (obj[:110] + "…" if len(obj) > 110 else obj)
+    status = task.status
+    has_result = bool(getattr(task, "result", None))
+    degraded = has_result and getattr(task.result, "degraded", False) if has_result else False
+
+    # meta pills
+    meta = (
+        _task_status_badge(status, degraded)
+        + f"<span class='tag' style='color:var(--muted)'>{escape(task.domain.name)}</span>"
+    )
+    if has_result and degraded:
+        arts = getattr(task.result, "artifacts", []) or []
+        meta += f"<span class='tag' style='color:#d4a017'>{len(arts)} artifact{'s' if len(arts) != 1 else ''} produced</span>"
+    if has_result and not degraded:
+        arts = getattr(task.result, "artifacts", []) or []
+        if arts:
+            meta += f"<span class='tag' style='color:#5bd07f'>{len(arts)} artifact{'s' if len(arts) != 1 else ''}</span>"
+
+    # action buttons
+    view_btn = (
+        f"<a class='btn-sm ok' href='/projects/{pid}/tasks/{tid}'>"
+        f"{_icon('doc')} View</a>"
+        if has_result else
+        f"<a class='btn-sm' href='/projects/{pid}/tasks/{tid}'>"
+        f"{_icon('doc')} Details</a>"
+    )
+    retry_btn = ""
+    if status in ("failed", "done"):
+        retry_btn = (
+            f"<form method='post' action='/projects/run-plan' style='display:inline'>"
+            f"<input type='hidden' name='task_id' value='{tid}'>"
+            f"<input type='hidden' name='backend' value='gemini'>"
+            f"<button class='btn-sm warn' type='submit' title='Re-run this task'>"
+            f"{_icon('bolt')} Re-run</button></form>"
+        )
+    del_btn = (
+        f"<form method='post' action='/projects/{pid}/tasks/{tid}/delete' style='display:inline'>"
+        f"<button class='btn-sm bad' type='submit' title='Delete task'>&times;</button></form>"
+    )
+
+    return (
+        f"<div class='task-row'>"
+        f"<div>"
+        f"<a class='tr-obj' href='/projects/{pid}/tasks/{tid}'>{escape(display_obj)}</a>"
+        f"<div class='tr-meta'>{meta}</div>"
+        f"</div>"
+        f"<div class='tr-actions'>{view_btn}{retry_btn}{del_btn}</div>"
+        f"</div>"
+    )
+
+
+def project_detail_page(*, project, tasks: list, backend: str,
+                        vllm_model: str = "gemma-4-12b-it", sovereign: bool = False) -> str:
+    """Overview tab — project info card + quick stats + recent tasks list (no creation form)."""
+    pid = escape(project.id)
     site = (f"<a href='{escape(project.website)}' rel='noopener' target='_blank' "
             f"style='color:var(--accent-2)'>{escape(project.website)}</a>") if project.website else "—"
+
+    done  = sum(1 for t in tasks if t.status == "done")
+    fail  = sum(1 for t in tasks if t.status == "failed")
+    fail_pill = (
+        f"<span class='pill' style='border-color:rgba(234,67,53,.4);color:#ff6b6b'>"
+        f"Failed: <b>{fail}</b></span>"
+    ) if fail else ""
     header = (
         "<div class='card'><div class='section-h' style='margin-top:0'>"
         f"<h2>{escape(project.name)}</h2>"
-        f"<a class='btn ghost' href='/artifacts?project={escape(project.id)}'>Scoped artifacts</a></div>"
+        f"<a class='btn' href='/projects/{pid}/tasks'>{_icon('bolt')} New Research Task</a></div>"
         f"<div style='display:flex;gap:10px;flex-wrap:wrap;margin-top:8px'>"
         f"<span class='pill'>Website: <b>{site}</b></span>"
-        f"<span class='pill'>Autonomy: <b>{escape(project.settings.autonomy)}</b></span></div></div>"
+        f"<span class='pill'>Autonomy: <b>{escape(project.settings.autonomy)}</b></span>"
+        f"<span class='pill'>Tasks: <b>{len(tasks)}</b></span>"
+        f"<span class='pill' style='border-color:rgba(52,168,83,.4);color:#5bd07f'>Done: <b>{done}</b></span>"
+        f"{fail_pill}</div></div>"
     )
-    form_html = _task_form(project.id)
+
     if tasks:
-        rows = "".join(
-            f"<tr><td><a href='/projects/{escape(project.id)}/tasks/{escape(t.id)}' "
-            f"style='color:var(--accent-2)'><b>{escape(t.objective)}</b></a></td>"
-            f"<td>{escape(t.domain.name)}</td>"
-            f"<td>{_task_status_badge(t.status)}</td>"
-            f"<td style='text-align:right'><form method='post' style='display:inline' "
-            f"action='/projects/{escape(project.id)}/tasks/{escape(t.id)}/delete'>"
-            "<button class='btn ghost' type='submit' title='Remove task' "
-            "style='padding:2px 8px'>&times;</button></form></td></tr>" for t in tasks
-        )
+        recent = tasks[:5]
+        rows = "".join(_task_row(t, pid) for t in recent)
+        failed_note = (
+            f"<span class='tag' style='color:#ff6b6b;margin-left:6px'>"
+            f"{fail} failed — Re-run to retry</span>"
+        ) if fail else ""
         tasks_html = (
-            "<div class='section-h'><h2>Tasks</h2></div>"
-            "<div class='card' style='padding:6px 8px'><table><thead><tr>"
-            "<th>Objective</th><th>Domain</th><th>Status</th><th></th></tr></thead>"
-            f"<tbody>{rows}</tbody></table></div>"
+            "<div class='section-h'>"
+            f"<h2>Recent Research{failed_note}</h2>"
+            f"<a class='btn ghost' href='/projects/{pid}/tasks'>View all</a></div>"
+            f"<div class='card' style='padding:0'>{rows}</div>"
+        )
+    else:
+        tasks_html = (
+            "<div class='section-h'><h2>Recent Research</h2></div>"
+            "<div class='card'><div class='empty'>No research tasks yet. "
+            f"<a href='/projects/{pid}/tasks' style='color:var(--accent-2)'>Open the Research tab</a> "
+            "to create your first task.</div></div>"
+        )
+
+    kb_cta = (
+        "<div class='card' style='margin-top:16px'>"
+        "<div class='section-h' style='margin-top:0'><h2>Knowledge Base</h2>"
+        f"<a class='btn ghost' href='/projects/{pid}/kb'>Open</a></div>"
+        "<p class='note'>Add documents, PDFs, URLs, and data sources that ground every research run "
+        "in this project. Connected sources are cited in every artifact.</p></div>"
+    )
+    memory_cta = (
+        "<div class='card' style='margin-top:16px'>"
+        "<div class='section-h' style='margin-top:0'><h2>Memory</h2>"
+        f"<a class='btn ghost' href='/projects/{pid}/memory'>Open</a></div>"
+        "<p class='note'>Episodic run records, semantic entity facts, and preferences "
+        "accumulated across all research tasks in this project.</p></div>"
+    )
+    danger_zone = (
+        "<div class='card' style='margin-top:32px;border-color:#5a1f1f;background:#140c0c'>"
+        "<div style='display:flex;align-items:center;gap:10px;margin-bottom:14px'>"
+        f"<span style='color:var(--bad);font-size:13px;font-weight:700;text-transform:uppercase;"
+        f"letter-spacing:.1em'>⚠ Danger Zone</span></div>"
+        "<div style='display:flex;align-items:flex-start;justify-content:space-between;"
+        "flex-wrap:wrap;gap:16px;padding:16px;background:#1c1011;border-radius:10px;"
+        "border:1px solid #5a1f1f'>"
+        "<div>"
+        "<div style='font-weight:650;font-size:14px;margin-bottom:6px'>Delete this project</div>"
+        "<p class='note' style='margin:0;max-width:520px'>Permanently removes the project, "
+        "all its tasks, plans, and KB sources. "
+        "Episodic memory run records are kept (they belong to the entity, not the project).</p>"
+        "</div>"
+        f"<form method='post' action='/projects/{pid}/delete' "
+        f"onsubmit='return confirm(\"Delete project \" + {escape(json.dumps(project.name), quote=True)} + \"? All tasks and data will be permanently removed.\")'>"
+        "<button class='btn' type='submit' "
+        "style='background:#7f1d1d;border:1px solid #dc2626;color:#fca5a5;"
+        "padding:10px 18px;flex:0 0 auto'>"
+        f"{_icon('shield')} Delete project</button></form>"
+        "</div></div>"
+    )
+
+    content = header + "<div style='margin-top:16px'></div>" + tasks_html + kb_cta + memory_cta + danger_zone
+    return shell(
+        active="projects", title=project.name, content=content, backend=backend,
+        project=project.name,
+        subnav=_project_subnav(project.id, "overview", project.name),
+    )
+
+
+def project_tasks_page(*, project, tasks: list, backend: str,
+                       vllm_model: str = "gemma-4-12b-it", sovereign: bool = False) -> str:
+    """Research/Tasks tab — task creation form + full task list."""
+    pid = escape(project.id)
+    form_html = _task_form(project.id, default_backend=backend,
+                           vllm_model=vllm_model, sovereign=sovereign)
+    failed_count = sum(1 for t in tasks if t.status == "failed")
+    if tasks:
+        rows = "".join(_task_row(t, pid, show_full_obj=True) for t in tasks)
+        failed_note = (
+            f"<span class='tag' style='color:#ff6b6b;margin-left:6px'>"
+            f"{failed_count} failed</span>"
+        ) if failed_count else ""
+        tasks_html = (
+            f"<div class='section-h'><h2>Tasks{failed_note}</h2></div>"
+            f"<div class='card' style='padding:0'>{rows}</div>"
         )
     else:
         tasks_html = (
             "<div class='section-h'><h2>Tasks</h2></div>"
-            "<div class='card'><div class='empty'>No tasks yet. Task definition and the "
-            "orchestrated value chain (map → compare → strategy) arrive next — this is the project "
-            "workspace they'll populate.</div></div>"
+            "<div class='card'><div class='empty'>No tasks yet — create one above.</div></div>"
         )
-    content = (header + "<div style='margin-top:16px'></div>" + form_html
-               + "<div style='margin-top:16px'></div>" + tasks_html)
-    return shell(active="projects", title=project.name, content=content, backend=backend,
-                 project=project.name)
+    content = form_html + "<div style='margin-top:24px'></div>" + tasks_html
+    return shell(
+        active="projects", title=f"{project.name} · Research", content=content,
+        backend=backend, project=project.name,
+        subnav=_project_subnav(project.id, "tasks", project.name),
+    )
+
+
+def project_kb_page(*, project, sources: list, backend: str, ok: str = "", err: str = "") -> str:
+    """Knowledge Base tab — live crawl form + indexed sources list."""
+    pid = escape(project.id)
+
+    # Status → badge colour
+    _status_colour = {
+        "indexed": "var(--public)", "crawling": "var(--accent-2)",
+        "pending": "var(--ink-3)", "failed": "var(--bad)",
+    }
+
+    flash = ""
+    if ok:
+        flash = f"<div class='flash ok' style='margin-bottom:16px'>{escape(ok)}</div>"
+    elif err:
+        flash = f"<div class='flash err' style='margin-bottom:16px'>{escape(err)}</div>"
+
+    # Add-source form — pre-fill URL with project website if set
+    website_val = escape(getattr(project, "website", "") or "")
+    website_prefill = f" value='{website_val}'" if website_val else ""
+
+    add_form = (
+        "<div class='card'>"
+        "<div class='section-h' style='margin-top:0'><h2>Add Knowledge Source</h2></div>"
+        f"<form method='post' action='/projects/{pid}/kb/sources' "
+        "style='display:grid;gap:14px;max-width:640px'>"
+        "<div><label class='lbl'>URL</label>"
+        f"<input name='url' required placeholder='https://biltiq.ai  or  https://linkedin.com/company/biltiq'{website_prefill} "
+        "style='width:100%'></div>"
+        "<div><label class='lbl'>Source type</label>"
+        "<select name='source_type'>"
+        "<option value='web'>Web — crawl all pages on this domain</option>"
+        "<option value='social'>Social — LinkedIn / YouTube / Crunchbase</option>"
+        "<option value='document'>Document — single URL to a PDF or text file</option>"
+        "</select></div>"
+        f"<div><button class='btn' type='submit'>{_icon('bolt')} Crawl &amp; index</button>"
+        "<span class='note' style='margin-left:12px'>Runs in background — refresh to see status.</span></div>"
+        "</form>"
+        "<p class='note' style='margin-top:16px'>Each indexed source is embedded with "
+        "<b>Qwen3-VL-Embedding-2B</b> + BM25 and reranked via your cross-encoder. "
+        "Research agents query this KB automatically via the <code>search_project_kb</code> MCP tool.</p>"
+        "</div>"
+    )
+
+    # Sources table
+    if sources:
+        rows = ""
+        for s in sources:
+            status = s.get("status", "pending")
+            colour = _status_colour.get(status, "var(--ink-3)")
+            badge = f"<span style='color:{colour};font-weight:600;text-transform:uppercase;font-size:11px'>{escape(status)}</span>"
+            chunks = s.get("chunk_count", 0)
+            stype = s.get("source_type", "web")
+            raw_url = s.get("url", "")
+            url_display = escape(raw_url)
+            # Only emit <a href> for http/https — blocks javascript: URI XSS from stored URLs
+            safe_url = safe_href(raw_url)
+            url_cell = (
+                f"<a href='{escape(safe_url)}' target='_blank' rel='noopener noreferrer'>{url_display}</a>"
+                if safe_url else url_display
+            )
+            raw_err = (s.get("error") or "").split("\n")[0][:140]
+            err_note = f"<br><span style='color:var(--bad);font-size:11px'>{escape(raw_err)}</span>" if raw_err else ""
+            delete_btn = (
+                f"<form method='post' action='/projects/{pid}/kb/sources/{escape(s['id'])}/delete' "
+                "style='display:inline'>"
+                "<button class='btn-sm bad' type='submit' title='Remove source'>×</button></form>"
+            )
+            rows += (
+                f"<tr><td style='max-width:340px;word-break:break-all'>"
+                f"{url_cell}{err_note}</td>"
+                f"<td><span class='pill' style='font-size:11px'>{escape(stype)}</span></td>"
+                f"<td>{badge}</td>"
+                f"<td style='text-align:right'>{chunks:,}</td>"
+                f"<td>{delete_btn}</td></tr>"
+            )
+        sources_section = (
+            "<div class='card' style='margin-top:16px'>"
+            "<div class='section-h' style='margin-top:0'><h2>Indexed Sources</h2></div>"
+            "<table style='width:100%;border-collapse:collapse'>"
+            "<thead><tr style='font-size:11px;color:var(--ink-3);text-transform:uppercase'>"
+            "<th style='text-align:left;padding:6px 8px'>URL</th>"
+            "<th style='text-align:left;padding:6px 8px'>Type</th>"
+            "<th style='text-align:left;padding:6px 8px'>Status</th>"
+            "<th style='text-align:right;padding:6px 8px'>Chunks</th>"
+            "<th></th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
+            "</div>"
+        )
+    else:
+        sources_section = (
+            "<div class='card' style='margin-top:16px'>"
+            "<p class='note' style='margin:0'>No sources indexed yet. Add a URL above to build the KB.</p>"
+            "</div>"
+        )
+
+    crm_zone = (
+        "<div class='card' style='margin-top:16px'>"
+        "<div class='section-h' style='margin-top:0'><h2>CRM &amp; Database Connections</h2></div>"
+        "<div class='grid cards3' style='margin-top:8px'>"
+        + "".join(
+            f"<div class='gc'><div class='gc-ico'>{_icon('database')}</div>"
+            f"<div class='gc-t'>{name}</div>"
+            f"<div class='gc-d' style='font-size:12px'>{desc}</div>"
+            "<div class='gc-tags'><span class='tag pv dark'>coming soon</span></div></div>"
+            for name, desc in [
+                ("Salesforce", "Sync account + opportunity data into project KB"),
+                ("HubSpot", "Pull contact and deal context for research runs"),
+                ("PostgreSQL / MySQL", "Query structured data as private research signal"),
+            ]
+        )
+        + "</div></div>"
+    )
+
+    # KB Chat panel — queries the hybrid search endpoint via JS fetch
+    has_indexed = any(s.get("status") == "indexed" for s in sources)
+    chat_disabled_msg = (
+        "<p class='note' style='margin:0;text-align:center;padding:12px 0'>"
+        "Index a source above, then come back to chat with it.</p>"
+        if not has_indexed else ""
+    )
+    chat_panel = f"""
+<div class='card' style='margin-top:16px' id='kb-chat-card'>
+  <div class='section-h' style='margin-top:0;display:flex;align-items:center;gap:10px'>
+    <h2 style='margin:0'>Ask the Knowledge Base</h2>
+    <span class='pill' style='font-size:11px;background:rgba(66,133,244,.14);color:#8ab4f8'>hybrid search</span>
+  </div>
+  {chat_disabled_msg}
+  <div style='display:{"none" if not has_indexed else "block"}' id='kb-chat-ui'>
+    <div style='display:flex;gap:8px;margin-bottom:14px'>
+      <input id='kb-q' placeholder='What products does {escape(project.name)} offer?' autocomplete='off'
+             style='flex:1;padding:9px 12px;font-size:13.5px'
+             onkeydown='if(event.key==="Enter")kbSearch()' {'disabled' if not has_indexed else ''}>
+      <button class='btn' onclick='kbSearch()' id='kb-btn'>{_icon("search")} Search</button>
+    </div>
+    <div id='kb-results'></div>
+  </div>
+</div>
+<script>
+(function(){{
+  function _txt(el, text) {{ el.textContent = text; return el; }}
+  function _el(tag, attrs) {{
+    var e = document.createElement(tag);
+    if(attrs) Object.keys(attrs).forEach(function(k){{ e[k] = attrs[k]; }});
+    return e;
+  }}
+  function _setMsg(res, text, cls) {{
+    var p = _el('p', {{className: cls||'', style: 'margin:0'}});
+    _txt(p, text);
+    while(res.firstChild) res.removeChild(res.firstChild);
+    res.appendChild(p);
+  }}
+
+  function kbSearch(){{
+    var q = document.getElementById('kb-q').value.trim();
+    if(!q) return;
+    var btn = document.getElementById('kb-btn');
+    var res = document.getElementById('kb-results');
+    btn.disabled = true;
+    btn.textContent = 'Searching…';
+    _setMsg(res, 'Searching…', 'note');
+    fetch('/projects/{pid}/kb/search?q=' + encodeURIComponent(q))
+      .then(function(r){{return r.json();}})
+      .then(function(data){{
+        btn.disabled = false;
+        btn.textContent = 'Search';
+        if(data.error){{
+          var p = _el('p'); p.style.color='var(--bad)'; _txt(p, data.error);
+          while(res.firstChild) res.removeChild(res.firstChild);
+          res.appendChild(p);
+          return;
+        }}
+        if(!data.results || !data.results.length){{
+          _setMsg(res, 'No results found. Try a different query.', 'note');
+          return;
+        }}
+        var nodes = data.results.map(function(r, i){{
+          var score = Math.round((r.score || 0) * 100);
+          var rawUrl = r.url || '';
+          var safeUrl = /^https?:\/\//.test(rawUrl) ? rawUrl : '';
+
+          var wrap = _el('div');
+          wrap.style.cssText = 'padding:12px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;background:var(--panel)';
+
+          var hdr = _el('div');
+          hdr.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px';
+
+          var titleText = r.title || rawUrl || ('Result ' + (i+1));
+          if(safeUrl){{
+            var a = _el('a', {{href: safeUrl, target: '_blank', rel: 'noopener noreferrer'}});
+            a.style.cssText = 'font-size:13px;font-weight:600;color:var(--accent-2)';
+            _txt(a, titleText);
+            hdr.appendChild(a);
+          }} else {{
+            var sp = _el('span'); sp.style.cssText='font-size:13px;font-weight:600;color:var(--accent-2)';
+            _txt(sp, titleText); hdr.appendChild(sp);
+          }}
+
+          var pill = _el('span', {{className:'pill'}}); pill.style.fontSize='10px';
+          _txt(pill, r.source_type || 'web'); hdr.appendChild(pill);
+
+          var sc = _el('span'); sc.style.cssText='margin-left:auto;font-size:11px;color:var(--ink-3)';
+          _txt(sc, score + '% match'); hdr.appendChild(sc);
+          wrap.appendChild(hdr);
+
+          var body = r.text || '';
+          var p = _el('p');
+          p.style.cssText = 'margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.6';
+          _txt(p, body.length > 320 ? body.substring(0,320) + '…' : body);
+          wrap.appendChild(p);
+          return wrap;
+        }});
+        while(res.firstChild) res.removeChild(res.firstChild);
+        nodes.forEach(function(n){{ res.appendChild(n); }});
+      }})
+      .catch(function(e){{
+        btn.disabled = false;
+        btn.textContent = 'Search';
+        var p = _el('p'); p.style.color='var(--bad)'; _txt(p, 'Search failed: ' + e.message);
+        while(res.firstChild) res.removeChild(res.firstChild);
+        res.appendChild(p);
+      }});
+  }}
+  window.kbSearch = kbSearch;
+}})();
+</script>
+"""
+
+    content = flash + add_form + sources_section + chat_panel + crm_zone
+    return shell(
+        active="projects", title=f"{project.name} · Knowledge Base", content=content,
+        backend=backend, project=project.name,
+        subnav=_project_subnav(project.id, "kb", project.name),
+    )
+
+
+def project_memory_page(*, project, records: list, backend: str,
+                        ok: str = "", err: str = "") -> str:
+    """Memory tab — episodic run records scoped to this project."""
+    pid = escape(project.id)
+    banner = ""
+    if ok:
+        banner = f"<div class='card banner ok' style='margin-bottom:16px'>{escape(ok)}</div>"
+    elif err:
+        banner = f"<div class='card banner bad' style='margin-bottom:16px'>{escape(err)}</div>"
+
+    def _row(r) -> str:
+        ts = str(r.created_at or "")[:16]
+        n_findings = len(getattr(r, "finding_texts", []) or [])
+        run_id = escape(str(r.id))
+        return (
+            f"<tr>"
+            f"<td><a href='/accounts/{escape(r.entity)}' style='color:var(--accent-2)'>"
+            f"{escape(r.entity)}</a></td>"
+            f"<td><span class='pill' style='font-size:11.5px'>{escape(r.mode)}</span></td>"
+            f"<td>{escape(r.backend)}</td>"
+            f"<td style='text-align:right'>{n_findings}</td>"
+            f"<td class='mono'>{ts}</td>"
+            f"<td><form method='post' "
+            f"action='/projects/{pid}/memory/{run_id}/delete' "
+            f"onsubmit=\"return confirm('Remove this run from episodic memory?')\">"
+            f"<button type='submit' class='btn' "
+            f"style='background:var(--bad);padding:4px 10px;font-size:12px'>Delete</button>"
+            f"</form></td>"
+            f"</tr>"
+        )
+
+    memory_types = (
+        "<div class='grid cards3' style='margin-bottom:24px'>"
+        + "".join(
+            f"<div class='gc'><div class='gc-ico'>{_icon(ico)}</div>"
+            f"<div class='gc-t'>{name}</div><div class='gc-d'>{desc}</div>"
+            f"<div class='gc-tags'><span class='tag {'pv live' if live else 'pv dark'}'>"
+            f"{'live' if live else 'coming soon'}</span></div></div>"
+            for name, ico, desc, live in [
+                ("Episodic", "spark", "Run records — every research task this project has run", True),
+                ("Semantic", "brain", "Entity facts extracted and accumulated across runs", False),
+                ("Procedural", "cog", "Learned skills and workflow patterns for this domain", False),
+            ]
+        )
+        + "</div>"
+    )
+
+    if records:
+        rows_html = "".join(_row(r) for r in records)
+        table = (
+            "<div class='card' style='padding:6px 8px;overflow:auto'>"
+            "<table><thead><tr>"
+            "<th>Entity</th><th>Mode</th><th>Backend</th>"
+            "<th style='text-align:right'>Findings</th><th>When</th><th></th>"
+            "</tr></thead>"
+            f"<tbody>{rows_html}</tbody></table></div>"
+        )
+        header_line = (
+            f"<p class='note' style='margin-bottom:12px'>{len(records)} run record(s) in this project. "
+            "Deleting removes the record from episodic recall; accumulated entity facts are unaffected.</p>"
+        )
+    else:
+        table = "<div class='card'><div class='empty'>No run records for this project yet. " \
+                "Complete a research task to populate episodic memory.</div></div>"
+        header_line = ""
+
+    content = (banner + memory_types
+               + "<div class='section-h'><h2>Episodic Memory</h2></div>"
+               + header_line + table)
+    return shell(
+        active="projects", title=f"{project.name} · Memory", content=content,
+        backend=backend, project=project.name,
+        subnav=_project_subnav(project.id, "memory", project.name),
+    )
 
 
 def _step_call_kind(capability: str) -> tuple[str, str]:
@@ -1253,6 +1903,27 @@ def _artifact_html(key: str, art) -> str:
                        if rows else "<div class='empty'>No comparison axes produced.</div>")
         return _art_wrap("Comparison matrix", body)
 
+    if "tech_stack" in art and "community_health" in art:        # SoftwareBrief (must precede ProgramStrategy — shares action_plan+assessment)
+        body = (f"<div class='note'>{escape(art.get('one_line_summary', ''))}</div>"
+                + (f"<div style='margin:6px 0'><span class='pill'>category: "
+                   f"<b>{escape(art.get('category', '') or '—')}</b></span>"
+                   + (f"<span class='pill' style='margin-left:6px'>pricing: "
+                      f"<b>{escape(', '.join(art.get('pricing_model', [{}])[0].get('text', '—')[:40] if art.get('pricing_model') else ['—']))}</b></span>"
+                      if art.get("pricing_model") else "")
+                   + "</div>")
+                + _findings_block("Tech stack", art.get("tech_stack", []))
+                + _findings_block("API quality / DX", art.get("api_quality", []))
+                + _findings_block("Community health", art.get("community_health", []))
+                + _findings_block("Maintenance activity", art.get("maintenance_activity", []))
+                + _findings_block("Integration support", art.get("integration_support", []))
+                + (f"<div style='margin-top:8px'><b>Alternatives</b>"
+                   f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:4px'>"
+                   + "".join(f"<span class='pill'>{escape(a)}</span>" for a in art.get("alternatives", []))
+                   + "</div></div>" if art.get("alternatives") else "")
+                + (f"<div class='note' style='margin-top:8px'>{escape(art.get('assessment', ''))}</div>"
+                   if art.get("assessment") else ""))
+        return _art_wrap(f"Software brief — {escape(art.get('target', '') or key)}", body)
+
     if "action_plan" in art and "assessment" in art:            # ProgramStrategy
         rows = "".join(
             f"<tr><td>{_prio_badge(a.get('priority', ''))}</td>"
@@ -1263,6 +1934,61 @@ def _artifact_html(key: str, art) -> str:
                 + (f"<table style='margin-top:8px'><thead><tr><th>Priority</th><th>Action</th>"
                    f"<th>Timeline</th></tr></thead><tbody>{rows}</tbody></table>" if rows else ""))
         return _art_wrap("Market-capture strategy", body)
+
+    if "financial_summary" in art and "key_metrics" in art:      # FinancialProfile
+        body = (f"<div class='note'>{escape(art.get('one_line_summary', ''))}</div>"
+                + f"<div class='note' style='margin-top:6px'>{escape(art.get('financial_summary', ''))}</div>"
+                + _findings_block("Key metrics", art.get("key_metrics", []))
+                + _findings_block("Market position", art.get("market_position", []))
+                + _findings_block("Risk signals", art.get("risk_signals", []))
+                + _findings_block("Recent developments", art.get("recent_developments", []))
+                + (f"<div class='note' style='margin-top:8px'><b>Investment thesis:</b> "
+                   f"{escape(art.get('investment_thesis', ''))}</div>"
+                   if art.get("investment_thesis") else "")
+                + (f"<div class='note' style='margin-top:6px'>{escape(art.get('assessment', ''))}</div>"
+                   if art.get("assessment") else ""))
+        return _art_wrap(f"Financial profile — {escape(art.get('target', '') or key)}", body)
+
+    if "topic_overview" in art and "key_findings" in art:        # AcademicBrief
+        researchers = art.get("notable_researchers", [])
+        body = (f"<div class='note'>{escape(art.get('one_line_summary', ''))}</div>"
+                + f"<div class='note' style='margin-top:6px'>{escape(art.get('topic_overview', ''))}</div>"
+                + _findings_block("Key findings", art.get("key_findings", []))
+                + _findings_block("Research gaps", art.get("research_gaps", []))
+                + (f"<div style='margin-top:8px'><b>Notable researchers</b>"
+                   f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:4px'>"
+                   + "".join(f"<span class='pill'>{escape(r)}</span>" for r in researchers)
+                   + "</div></div>" if researchers else "")
+                + _findings_block("Methodology notes", [{"text": m} for m in art.get("methodology_notes", [])]))
+        return _art_wrap(f"Academic brief — {escape(art.get('topic', '') or key)}", body)
+
+    if "evidence_quality" in art and "key_claims" in art:        # NutritionBrief
+        disclaimer = art.get("disclaimer", "")
+        body = (f"<div class='note'>{escape(art.get('one_line_summary', ''))}</div>"
+                + f"<div style='margin:6px 0'><span class='pill'>evidence: "
+                f"<b>{escape(art.get('evidence_quality', '') or '—')}</b></span></div>"
+                + _findings_block("Key claims", art.get("key_claims", []))
+                + _findings_block("Practical guidance",
+                                  [{"text": g} for g in art.get("practical_guidance", [])])
+                + _findings_block("Contraindications",
+                                  [{"text": c} for c in art.get("contraindications", [])])
+                + (f"<div class='note' style='margin-top:8px;font-size:.8em;opacity:.7'>"
+                   f"{escape(disclaimer)}</div>" if disclaimer else ""))
+        return _art_wrap(f"Nutrition brief — {escape(art.get('topic', '') or key)}", body)
+
+    if "destination_overview" in art and "highlights" in art:    # TravelBrief
+        body = (f"<div class='note'>{escape(art.get('one_line_summary', ''))}</div>"
+                + f"<div class='note' style='margin-top:6px'>{escape(art.get('destination_overview', ''))}</div>"
+                + (f"<div style='margin:6px 0;display:flex;gap:6px;flex-wrap:wrap'>"
+                   + (f"<span class='pill'>best time: <b>{escape(art.get('best_time', ''))}</b></span>"
+                      if art.get("best_time") else "")
+                   + (f"<span class='pill'>budget: <b>{escape(art.get('budget_range', ''))}</b></span>"
+                      if art.get("budget_range") else "")
+                   + "</div>")
+                + _findings_block("Highlights", art.get("highlights", []))
+                + _findings_block("Practical info", art.get("practical_info", []))
+                + _findings_block("Safety notes", art.get("safety_notes", [])))
+        return _art_wrap(f"Travel brief — {escape(art.get('destination', '') or key)}", body)
 
     if "one_line_summary" in art or ("strengths" in art and "weaknesses" in art):   # Battlecard
         body = (f"<div class='note'>{escape(art.get('one_line_summary', ''))}</div>"
@@ -1326,8 +2052,45 @@ def _result_card(result) -> str:
             + "<div style='margin-top:16px'></div>" + cites_html + extra)
 
 
+def _feedback_bar(task) -> str:
+    """Thumbs-up / thumbs-down feedback widget for a completed task result.
+
+    Posts to /projects/{pid}/tasks/{tid}/feedback via fetch (no page reload).
+    XSS-safe: task ids are escaped; user-facing labels are literals.
+    The widget disables both buttons once a signal is recorded so it can't be
+    double-submitted — no server-side dedup needed.
+    """
+    pid = escape(str(task.project_id))
+    tid = escape(str(task.id))
+    url = f"/projects/{pid}/tasks/{tid}/feedback"
+    # Inline JS: DOM-only, no innerHTML, validated form data. The fetch uses a
+    # URLSearchParams body so CSRF surface matches any other same-origin POST.
+    js = (
+        "async function sendFb(sig){"
+        f"var r=await fetch('{url}',{{method:'POST',headers:{{'Content-Type':'application/x-www-form-urlencoded'}},"
+        "body:new URLSearchParams({signal:sig})}});"
+        "var d=await r.json();"
+        "if(d.ok){"
+        "document.getElementById('fb-up').disabled=true;"
+        "document.getElementById('fb-dn').disabled=true;"
+        "document.getElementById('fb-msg').textContent='Feedback saved — thank you';}}"
+    )
+    return (
+        f"<script>{js}</script>"
+        "<div class='card' style='display:flex;align-items:center;gap:12px;padding:10px 14px'>"
+        "<span style='font-size:13px;color:var(--text-2)'>Was this result useful?</span>"
+        "<button id='fb-up' class='btn ghost' onclick='sendFb(1)' style='padding:4px 12px'>"
+        "&#128077; Helpful</button>"
+        "<button id='fb-dn' class='btn ghost' onclick='sendFb(-1)' style='padding:4px 12px'>"
+        "&#128078; Not useful</button>"
+        "<span id='fb-msg' style='font-size:12px;color:var(--text-2)'></span>"
+        "</div>"
+    )
+
+
 def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool = False,
-                     result=None, trace: list[str] | None = None) -> str:
+                     result=None, trace: list[str] | None = None,
+                     selected_backend: str = "") -> str:
     """The plan-review screen (SENTINEL-012 Step 16, AC-13): the proposed DAG + each step's assigned
     agent and what it calls (web/MCP), any new agents to create, the explicit run/approval control, and
     — once run — the execution trace + the typed/cited/persona-adapted Result. In ``propose`` mode a
@@ -1346,6 +2109,12 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
         "<div class='card'><b>Plan ready.</b></div>"
     )
 
+    be_label = selected_backend or backend
+    be_pill = (
+        f"<span class='pill'><span class='dotmark {'v' if be_label == 'vllm' else 'g'}'></span>"
+        f"backend: <b>{escape(be_label)}</b></span>"
+        if be_label else ""
+    )
     header = (
         "<div class='card'><div class='section-h' style='margin-top:0'><h2>Plan review</h2>"
         f"<span class='badge'>autonomy: {escape(autonomy)}</span></div>"
@@ -1354,7 +2123,8 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
         f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span>"
         f"<span class='pill'>persona: <b>{escape(task.persona.name)}</b></span>"
         f"<span class='pill'>steps: <b>{len(plan.steps)}</b></span>"
-        f"<span class='pill'>new agents: <b>{len(created)}</b></span></div></div>"
+        f"<span class='pill'>new agents: <b>{len(created)}</b></span>"
+        f"{be_pill}</div></div>"
     )
 
     graph_html = _dag_graph(plan)
@@ -1382,23 +2152,29 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
         )
 
     if not ran:
+        be_hidden = (f"<input type='hidden' name='backend' value='{escape(selected_backend)}'>"
+                     if selected_backend else "")
         action = (
             f"<form method='post' action='/projects/{escape(task.project_id)}/tasks/{escape(task.id)}/run' "
             "style='margin-top:16px'>"
+            f"{be_hidden}"
             "<button class='btn' type='submit'>" + _icon("bolt") + " Approve &amp; run</button></form>"
         )
     else:
         exec_html = ("<div style='margin-top:16px'></div>" + _execution_log(trace)) if trace else ""
         result_html = ("<div style='margin-top:16px'></div>" + _result_card(result)) if result else ""
-        action = (exec_html + result_html + "<div style='margin-top:16px'><a class='btn ghost' "
+        fb_html = ("<div style='margin-top:10px'></div>" + _feedback_bar(task)) if result else ""
+        action = (exec_html + result_html + fb_html + "<div style='margin-top:16px'><a class='btn ghost' "
                   f"href='/projects/{escape(task.project_id)}'>Back to project</a> "
-                  f"<a class='btn ghost' href='/artifacts?project={escape(task.project_id)}'>"
-                  "All scoped artifacts</a></div>")
+                  f"<a class='btn ghost' href='/projects/{escape(task.project_id)}/artifacts'>"
+                  "Project artifacts</a></div>")
 
     content = (banner + "<div style='margin-top:16px'></div>" + header
                + "<div style='margin-top:16px'></div>" + dag_html
                + "<div style='margin-top:16px'></div>" + created_html + action)
-    return shell(active="projects", title="Plan review", content=content, backend=backend)
+    proj_id = getattr(task, "project_id", "") or ""
+    return shell(active="projects", title="Plan review", content=content, backend=backend,
+                 subnav=_project_subnav(proj_id, "tasks") if proj_id else "")
 
 
 def _mem_row(e) -> str:
@@ -1800,7 +2576,8 @@ _ROLE_TIERS = [
 
 def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err: str = "",
                   vllm_key_set: bool = False, brave_key_set: bool = False,
-                  serpapi_key_set: bool = False, atcuality_key_set: bool = False) -> str:
+                  serpapi_key_set: bool = False, atcuality_key_set: bool = False,
+                  google_cse_id_set: bool = False) -> str:
     banner = ""
     if ok:
         banner = f"<div class='card banner ok'>{escape(ok)}</div>"
@@ -1856,9 +2633,35 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         "<div class='card'><form method='post' action='/settings/memory' class='set-grid'>"
         f"<div style='display:flex;gap:20px;flex-wrap:wrap'>"
         f"{_chk('entity_memory','entity memory enabled',cfg.memory.entity_memory)}"
-        f"{_chk('inject_org_prefs','inject org preferences',cfg.memory.inject_org_prefs)}</div>"
+        f"{_chk('inject_org_prefs','inject org preferences',cfg.memory.inject_org_prefs)}"
+        f"{_chk('episodic_recall','episodic recall (inject past sessions)',getattr(cfg.memory,'episodic_recall',True))}"
+        "</div>"
+        + "<div class='row2'>"
         + _num("retention_days", "Retention (days)", cfg.memory.retention_days, step="1", mn="1")
-        + "<div class='set-actions'><button class='btn' type='submit'>Save memory</button></div>"
+        + _num("episodic_recall_top_k", "Episodic recall depth (top-K sessions)", getattr(cfg.memory,"episodic_recall_top_k",3), step="1", mn="1", mx="10")
+        + "</div>"
+        + "<div class='set-actions'>"
+        + "<a class='btn' href='/memory/episodes' style='background:var(--bg2);color:var(--txt)'>View &amp; manage episodes</a>"
+        + "<span style='flex:1'></span>"
+        + "<button class='btn' type='submit'>Save memory</button></div>"
+        + "<p class='note'>Episodic recall injects prior research sessions into the planner's context. "
+        + "Top-K sets how many prior sessions are recalled (1–10). "
+        + "<a href='/memory/episodes'>View / delete individual run records →</a></p>"
+        "</form></div>"
+    )
+
+    harness = (
+        "<h2 class='sec'>Agent Harness</h2>"
+        "<div class='card'><form method='post' action='/settings/harness' class='set-grid'>"
+        "<div class='row3'>"
+        + _num("max_turns", "Max turns per step", getattr(cfg.backend,"max_turns",30), step="1", mn="1")
+        + _num("max_retries", "Max retries on failure", getattr(cfg.backend,"max_retries",3), step="1", mn="1")
+        + _num("base_retry_delay_s", "Base retry delay (s)", getattr(cfg.backend,"base_retry_delay_s",1.0), step="0.1", mn="0")
+        + "</div>"
+        + "<div class='set-actions'><button class='btn' type='submit'>Save harness</button></div>"
+        + "<p class='note'><b>Turn controller:</b> max turns per step caps how many LLM calls ADK makes "
+        + "(default 30). <b>Retry policy:</b> on a transient vLLM 5xx, retries up to max-retries times "
+        + "with exponential backoff (delay × 2ⁿ). Set base delay to 0 to disable sleeping (tests).</p>"
         "</form></div>"
     )
 
@@ -1893,6 +2696,7 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         "<div class='row2'>"
         + _sel("provider", "Provider", s.provider, [
             ("gemini", "☁ Gemini (google_search — cloud)"),
+            ("google_cse", "Google CSE (GOOGLE_API_KEY + GOOGLE_CSE_ID)"),
             ("searxng", "⛨ SearXNG (self-hosted — sovereign)"),
             ("duckduckgo", "DuckDuckGo (keyless)"),
             ("brave", "Brave (BRAVE_API_KEY)"),
@@ -1900,6 +2704,7 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         ])
         + _sel("onprem_fallback", "On-prem fallback (when policy forbids Gemini)",
                s.onprem_fallback, [
+                   ("google_cse", "Google CSE"),
                    ("searxng", "⛨ SearXNG (self-hosted)"),
                    ("duckduckgo", "DuckDuckGo (keyless)"),
                    ("brave", "Brave"),
@@ -1907,7 +2712,8 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
                ])
         + "</div>"
         + _num("results", "Results per query", s.results, step="1", mn="1", mx="20")
-        + f"<div class='set-actions'>{_key_pill('BRAVE_API_KEY', brave_key_set)}"
+        + f"<div class='set-actions'>{_key_pill('GOOGLE_CSE_ID', google_cse_id_set)}"
+        + f"{_key_pill('BRAVE_API_KEY', brave_key_set)}"
         + f"{_key_pill('SERPAPI_API_KEY', serpapi_key_set)}"
         "<span style='flex:1'></span><button class='btn' type='submit'>Save search</button></div>"
         "<p class='note'>The non-Gemini providers are function tools the reasoning model calls, so "
@@ -2016,7 +2822,7 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
 
     content = (
         banner + backends + models + coordinator + governance + search
-        + strategy + generation + memory + agents + prompts
+        + strategy + generation + memory + harness + agents + prompts
     )
     return shell(active="settings", title="Settings", content=content, backend=backend)
 
@@ -2027,3 +2833,589 @@ def error_page(message: str, *, hint: str = "", backend: str = "gemini") -> str:
                f"<p>{escape(message)}</p>{hint_html}"
                "<p class='note'><a href='/new' style='color:var(--accent-2)'>← Back to New Run</a></p></div>")
     return shell(active="new", title="Error", content=content, backend=backend)
+
+
+def episodes_page(records: list, *, backend: str, ok: str = "", err: str = "") -> str:
+    """Episodic memory viewer + CRUD — list all run records with delete controls (SENTINEL-015).
+
+    Each row shows: entity, mode, backend, finding count, created_at, and a delete button.
+    Deleting a run record removes it from episodic recall permanently.
+    """
+    banner = ""
+    if ok:
+        banner = f"<div class='card banner ok'>{escape(ok)}</div>"
+    elif err:
+        banner = f"<div class='card banner bad'>{escape(err)}</div>"
+
+    def _row(r) -> str:
+        ts = str(r.created_at or "")[:16]
+        n_findings = len(getattr(r, "finding_texts", []) or [])
+        run_id = escape(str(r.id))
+        return (
+            f"<tr>"
+            f"<td><a href='/accounts/{escape(r.entity)}'>{escape(r.entity)}</a></td>"
+            f"<td><span class='pill'>{escape(r.mode)}</span></td>"
+            f"<td>{escape(r.backend)}</td>"
+            f"<td style='text-align:right'>{n_findings}</td>"
+            f"<td>{ts}</td>"
+            f"<td>"
+            f"<form method='post' action='/memory/episodes/{run_id}/delete' "
+            f"onsubmit=\"return confirm('Delete this run record from episodic memory?')\">"
+            f"<button type='submit' class='btn' "
+            f"style='background:var(--bad);color:#fff;font-size:12px;padding:4px 10px'>Delete</button>"
+            f"</form>"
+            f"</td>"
+            f"</tr>"
+        )
+
+    if records:
+        rows = "".join(_row(r) for r in records)
+        table = (
+            "<table style='width:100%;border-collapse:collapse'>"
+            "<thead><tr style='text-align:left;color:var(--txt2)'>"
+            "<th style='padding:8px 12px'>Entity</th>"
+            "<th style='padding:8px 12px'>Mode</th>"
+            "<th style='padding:8px 12px'>Backend</th>"
+            "<th style='padding:8px 12px;text-align:right'>Findings</th>"
+            "<th style='padding:8px 12px'>Created</th>"
+            "<th style='padding:8px 12px'>Action</th>"
+            "</tr></thead>"
+            f"<tbody>{rows}</tbody>"
+            "</table>"
+        )
+    else:
+        table = "<div class='empty'>No run records yet. Run a research task to populate episodic memory.</div>"
+
+    content = (
+        banner
+        + "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:8px'>"
+        + "<h2 class='sec' style='margin:0'>Episodic Memory — Run Records</h2>"
+        + "<a class='btn' href='/settings#memory' style='background:var(--bg2);color:var(--txt)'>← Settings</a>"
+        + "</div>"
+        + f"<p class='note'>{len(records)} run record(s). Deleting a record removes it from episodic recall "
+        + "— the entity's <a href='/accounts'>accumulated memory</a> is unaffected.</p>"
+        + "<div class='card' style='padding:0;overflow:auto'>" + table + "</div>"
+    )
+    return shell(active="settings", title="Episodic Memory", content=content, backend=backend)
+
+
+# --------------------------------------------------------------------------- #
+# Project Report page — consulting-grade output compiled from task results
+# --------------------------------------------------------------------------- #
+
+def _rpt_section(num: str, title: str, body: str) -> str:
+    return (
+        f"<div class='rpt-sec'>"
+        f"<div class='rpt-sec-hd'>"
+        f"<span class='rpt-num'>{escape(num)}</span>"
+        f"<h2>{escape(title)}</h2>"
+        f"</div>{body}</div>"
+    )
+
+
+def _rpt_callout(label: str, body: str, variant: str = "") -> str:
+    cls = f"rpt-callout {variant}".strip()
+    return (
+        f"<div class='{cls}'>"
+        f"<span class='rpt-cl-label'>{escape(label)}</span>"
+        f"{body}"
+        f"</div>"
+    )
+
+
+def _rpt_metric(val: str, label: str) -> str:
+    return (
+        f"<div class='rpt-metric'>"
+        f"<div class='rm-val'>{escape(val)}</div>"
+        f"<div class='rm-lbl'>{escape(label)}</div>"
+        f"</div>"
+    )
+
+
+def _rpt_table(headers: list[str], rows: list[list[str]]) -> str:
+    ths = "".join(f"<th>{escape(h)}</th>" for h in headers)
+    trs = "".join(
+        "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
+        for row in rows
+    )
+    return f"<div class='card' style='padding:0;overflow:auto;margin:16px 0'><table><thead><tr>{ths}</tr></thead><tbody>{trs}</tbody></table></div>"
+
+
+def project_report_page(*, project, tasks: list, backend: str) -> str:
+    """Consulting-grade report tab — compiled from all task results for this project."""
+    pid = escape(project.id)
+    pname = escape(project.name)
+    subnav = _project_subnav(project.id, "report", project.name)
+
+    # ── Cover ──────────────────────────────────────────────────────────────────
+    done_count = sum(1 for t in tasks if t.get("status") in ("done", "failed") and t.get("result"))
+    cover = (
+        "<div class='rpt-cover'>"
+        f"<div class='rpt-firm'>Sentinel Intelligence Platform · Sovereign Research Division</div>"
+        f"<h1>{pname}<br>Strategic Business Audit &amp;<br>Go-To-Market Blueprint</h1>"
+        f"<p class='rpt-sub'>Enterprise Sovereign AI in India — Market Opportunity, "
+        f"Competitive Positioning &amp; 90-Day Activation</p>"
+        "<div class='rpt-meta'>"
+        "<span class='rpt-tag'>Confidential</span>"
+        "<span class='rpt-tag gold'>BFSI &amp; Healthcare Focus</span>"
+        "<span class='rpt-tag green'>Regulated Enterprise India</span>"
+        f"<span class='rpt-tag' style='background:var(--panel-2)'>{done_count} Research Tasks</span>"
+        "</div>"
+        "</div>"
+    )
+
+    # ── S1 Executive Summary ───────────────────────────────────────────────────
+    metrics = (
+        "<div class='rpt-metrics'>"
+        + _rpt_metric("$4.1B", "India Enterprise AI TAM 2026")
+        + _rpt_metric("38%", "CAGR 2026–2029")
+        + _rpt_metric("10", "Tier-1 Target Accounts")
+        + _rpt_metric("90 days", "To First Revenue Signal")
+        + "</div>"
+    )
+    findings_rows = [
+        ["<span class='badge' style='background:rgba(234,67,53,.18);color:#ff6b6b;border:0'>Critical</span>",
+         "<strong>Regulatory tailwind is structural.</strong> DPDP Act 2023, RBI AI/ML Circular (Apr 2024), "
+         "and IRDAI digital guidelines mandate data residency that cloud AI cannot satisfy.",
+         "Lead with \"DPDP-compliant by architecture\" — compliance is a product feature."],
+        ["<span class='badge' style='background:rgba(234,67,53,.18);color:#ff6b6b;border:0'>Critical</span>",
+         "<strong>HDFC Bank is the anchor account.</strong> Publicly committed to \"AI-first in 24 months\" "
+         "with 15+ active GenAI programs. RBI governance gap = BiltIQ's immediate entry wedge.",
+         "Prioritise HDFC as Pilot #1. One BFSI logo accelerates the entire pipeline."],
+        ["<span class='badge' style='background:rgba(251,191,36,.14);color:#fbbf24;border:0'>High</span>",
+         "<strong>No sovereign-AI competitor owns India BFSI.</strong> Kore.ai, Yellow.ai, Haptik are "
+         "chatbot-first — they lack multi-agent orchestration and governance depth.",
+         "18–24 month window to define the \"Sovereign Agentic AI\" category before hyperscalers pivot."],
+        ["<span class='badge' style='background:rgba(251,191,36,.14);color:#fbbf24;border:0'>High</span>",
+         "<strong>Azure OpenAI is the real competitive threat.</strong> Microsoft pitches Azure India "
+         "regions as \"DPDP-ready.\" Counter: \"data never leaves your datacenter.\"",
+         "Every sales play must neutralise the \"Azure India region = compliance\" objection."],
+        ["<span class='badge' style='background:rgba(52,168,83,.12);color:#5bd07f;border:0'>Opportunity</span>",
+         "<strong>Healthcare is the faster sales cycle.</strong> Apollo &amp; Manipal are under NHA/ABDM "
+         "pressure and actively buying. BFSI has longer cycles but higher ACV.",
+         "Use Healthcare for 60-day quick wins; use those logos to unlock BFSI boardrooms."],
+    ]
+    s1_body = (
+        metrics
+        + _rpt_callout(
+            "Bottom Line Up Front",
+            f"<strong>{pname}</strong> is entering the market at the optimal moment. India's DPDP Act and "
+            "RBI/IRDAI mandates are creating <strong>structural demand</strong> for sovereign, on-premise AI "
+            "that cloud vendors cannot serve. The competitive window to establish category leadership in "
+            "India's regulated enterprise segment is approximately <strong>18–24 months</strong>."
+        )
+        + _rpt_table(
+            ["Priority", "Finding", "Implication"],
+            findings_rows,
+        )
+    )
+
+    # ── S2 Company Profile ─────────────────────────────────────────────────────
+    prod_rows = [
+        ["<strong>On-Premise Agentic AI Suite</strong>",
+         "Multi-agent orchestration deployable on customer infrastructure — bare metal, private cloud, "
+         "or air-gapped. Research agents, process-automation agents, decision-support agents.",
+         "CTO / CIO", "Zero-egress architecture; local LLM execution (Gemma-4 12B/26B or BYOM)"],
+        ["<strong>Custom AI Services</strong>",
+         "Domain-specific model fine-tuning, RAG pipeline build, AI governance frameworks, "
+         "integration with core banking / HIS / ERP systems.",
+         "CDO / Business Unit Heads", "Deep vertical expertise; full source-code delivery"],
+        ["<strong>Sovereign Intelligence Platform</strong>",
+         "Research orchestration (this Sentinel platform) — market intelligence, competitive analysis, "
+         "account briefs — all running on-premise.",
+         "Strategy / BD Teams", "Replaces $50K/yr analyst subscriptions; on-premise"],
+    ]
+    tech_rows = [
+        ["Sovereign Embedding", "Qwen3-VL-Embedding-2B (self-hosted)", "No data sent to OpenAI/Cohere; DPDP-safe"],
+        ["Hybrid RAG", "BM25 (keyword) + ChromaDB (semantic) + Cross-encoder reranker", "Higher recall on domain jargon (medical, financial)"],
+        ["Dual-Tier Inference", "Gemma 12B tool-calling + Gemma 26B reasoning (vLLM)", "Fast responses + deep analysis; zero API dependency"],
+        ["A2A Protocol", "Google ADK Agent-to-Agent coordination", "Composable multi-agent systems; interop with existing AI"],
+        ["MCP Integration", "Model Context Protocol for persistent memory + tool access", "Agents that read/write institutional memory"],
+    ]
+    s2_body = (
+        _rpt_callout(
+            "Recommended Positioning",
+            f"\"<strong>{pname}</strong> is the only enterprise AI platform that makes your organisation "
+            "AI-first without compromising data sovereignty. Built for India's regulated enterprises — "
+            "BFSI, Healthcare, Government, Manufacturing — where the data never leaves your control.\"",
+        )
+        + "<h3 style='font-size:14px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)'>Product Portfolio</h3>"
+        + _rpt_table(["Product", "Description", "Primary Buyer", "Differentiator"], prod_rows)
+        + "<h3 style='font-size:14px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)'>Technology Differentiators</h3>"
+        + _rpt_table(["Capability", "Implementation", "Why It Matters"], tech_rows)
+    )
+
+    # ── S3 Market Opportunity ──────────────────────────────────────────────────
+    tam_rows = [
+        ["<strong>TAM</strong>", "Total India Enterprise AI Market", "$18B", "$48B", "Theoretical ceiling"],
+        ["<strong>SAM</strong>", "Regulated verticals (BFSI, Healthcare, Government, Manufacturing)", "$4.1B", "$15B", "High — compliance creates budget"],
+        ["<strong>SOM</strong>", "On-premise / sovereign AI deployments specifically", "$320M", "$1.2B", "Direct target — BiltIQ's core"],
+    ]
+    reg_rows = [
+        ["<strong>DPDP Act 2023</strong>", "All regulated", "Data fiduciaries must prevent personal data egress. Cloud AI = liability.", "\"DPDP-compliant by architecture\""],
+        ["<strong>RBI AI/ML Circular Apr 2024</strong>", "BFSI", "Full auditability of AI models in credit, fraud, and customer interactions.", "\"You own the weights, logs, audit trail\""],
+        ["<strong>IRDAI Digital Guidelines 2024</strong>", "Insurance", "AI for underwriting/claims must demonstrate model governance and explainability.", "\"Explainable AI — satisfies IRDAI governance\""],
+        ["<strong>NHA / ABDM Framework</strong>", "Healthcare", "Health data under ABDM must stay within India's health data ecosystem.", "\"Patient data never leaves your facility\""],
+    ]
+    s3_body = (
+        "<div class='rpt-metrics'>"
+        + _rpt_metric("$18B", "India AI Market TAM (2026)")
+        + _rpt_metric("$4.1B", "Regulated Enterprise AI SAM")
+        + _rpt_metric("$320M", "Sovereign/On-Prem AI SOM")
+        + _rpt_metric("38%", "Regulated AI CAGR 2026–29")
+        + "</div>"
+        + _rpt_table(["Tier", "Market", "Size 2026", "2029 Projection", "BiltIQ Addressability"], tam_rows)
+        + "<h3 style='font-size:14px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)'>Regulatory Demand Drivers</h3>"
+        + _rpt_table(["Regulation", "Sector", "AI Impact", "BiltIQ Angle"], reg_rows)
+        + _rpt_callout(
+            "3-Year Revenue Forecast (Conservative)",
+            "<strong>2026:</strong> ₹3–5Cr ARR (3–5 paying customers) &nbsp;|&nbsp; "
+            "<strong>2027:</strong> ₹15–25Cr ARR (10–15 accounts, BFSI anchors) &nbsp;|&nbsp; "
+            "<strong>2028:</strong> ₹50–80Cr ARR (25–35 accounts, government pipeline + SI channel)",
+            "green",
+        )
+    )
+
+    # ── S4 Competitive Landscape ───────────────────────────────────────────────
+    def _comp(title: str, badges: list[tuple[str, str]], desc: str, counter: str) -> str:
+        badge_html = "".join(
+            f"<span class='tag' style='color:{c}'>{escape(t)}</span>"
+            for t, c in badges
+        )
+        return (
+            f"<div class='comp-card'>"
+            f"<h4>{escape(title)}</h4>"
+            f"<div class='cc-tags'>{badge_html}</div>"
+            f"<p>{desc}</p>"
+            f"<div class='cc-win'>{_icon('bolt')} <strong>Counter:</strong> {counter}</div>"
+            f"</div>"
+        )
+
+    comp_grid = (
+        "<div class='comp-grid'>"
+        + _comp("Microsoft Azure OpenAI (India)",
+                [("Primary Threat", "#ff6b6b"), ("Cloud", "var(--muted)")],
+                "Strong brand trust, Azure India regions, Office 365 integration. "
+                "<strong>Gap:</strong> data exits India; DPDP compliance disputed; no model weight customisation.",
+                "\"Azure India region ≠ data sovereignty. Microsoft is the data fiduciary. With BiltIQ, <em>you</em> are.\"")
+        + _comp("Kore.ai",
+                [("Indirect", "var(--muted)"), ("Chatbot-First", "var(--muted)")],
+                "Strong in BFSI chatbots, decent India sales team. "
+                "<strong>Gap:</strong> cloud-first, chatbot-centric (not agentic), limited governance tooling.",
+                "\"Kore.ai answers customer questions. BiltIQ <em>acts</em> on institutional intelligence.\"")
+        + _comp("Yellow.ai / Haptik",
+                [("Indirect", "var(--muted)"), ("Displaceable", "#5bd07f")],
+                "Large India customer base, WhatsApp Business integration. "
+                "<strong>Gap:</strong> CX/support focused only; no agentic reasoning; Reliance ownership limits hospital/government sales.",
+                "Position as complementary (BiltIQ for intelligence, Yellow for CX) or displace on enterprise AI consolidation deals.")
+        + _comp("Google Vertex AI / Gemini Enterprise",
+                [("Growing Threat", "#fbbf24"), ("Cloud", "var(--muted)")],
+                "Superior multimodal AI, Google Cloud India. "
+                "<strong>Gap:</strong> same data-sovereignty issues as Azure; premium pricing.",
+                "\"Google's models are exceptional. BiltIQ runs those architectures in <em>your</em> datacenter.\"")
+        + _comp("Avaamo",
+                [("Niche Overlap", "var(--muted)")],
+                "Healthcare/HR focus, decent on-premise option. "
+                "<strong>Gap:</strong> US-centric, limited India presence, narrow HR/IT helpdesk use case.",
+                "Broader platform, deeper India expertise, stronger governance story for BFSI.")
+        + _comp("AWS Bedrock (India)",
+                [("Moderate Threat", "#fbbf24"), ("Cloud", "var(--muted)")],
+                "AWS India presence, enterprise relationships, broad model marketplace. "
+                "<strong>Gap:</strong> \"model marketplace\" ≠ sovereign deployment; complex pricing.",
+                "\"AWS Bedrock gives model choice in the cloud. BiltIQ gives model choice <em>in your datacenter</em>.\"")
+        + "</div>"
+    )
+    matrix_rows = [
+        ["<strong>Data Sovereignty</strong>", "✅ Full (on-prem)", "⚠️ India region only", "❌ Cloud", "❌ Cloud"],
+        ["<strong>DPDP Compliance</strong>", "✅ Architectural", "⚠️ Legal claim only", "❌", "❌"],
+        ["<strong>Agentic AI</strong>", "✅ Multi-agent DAG", "⚠️ Basic", "❌ Chatbot", "❌ Chatbot"],
+        ["<strong>Customisable Models</strong>", "✅ BYOM + Gemma", "❌ Locked to OpenAI", "⚠️ Limited", "⚠️ Limited"],
+        ["<strong>India Regulatory Depth</strong>", "✅ DPDP/RBI/IRDAI", "⚠️ Generic", "⚠️ Partial", "⚠️ Partial"],
+    ]
+    s4_body = (
+        _rpt_callout(
+            "Competitive Summary",
+            "No dominant sovereign-AI platform exists in India. Cloud hyperscalers (Microsoft, Google, AWS) "
+            "lead on mindshare but fail on data sovereignty. Indian conversational AI players (Kore.ai, "
+            "Yellow.ai, Haptik) lack the multi-agent orchestration and governance depth regulated enterprises need.",
+            "gold",
+        )
+        + comp_grid
+        + "<h3 style='font-size:14px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)'>Positioning Matrix</h3>"
+        + _rpt_table(
+            ["Dimension", f"<span style='color:var(--accent-2)'>{pname}</span>", "Azure OpenAI", "Kore.ai", "Yellow.ai"],
+            matrix_rows,
+        )
+    )
+
+    # ── S5 Target Accounts ─────────────────────────────────────────────────────
+    def _acc(name: str, vertical: str, tier: str, maturity: str, mat_color: str,
+             desc: str, entry: str) -> str:
+        return (
+            f"<div class='acc-card'>"
+            f"<div class='ac-vert'>{escape(vertical)} · {escape(tier)}</div>"
+            f"<h4>{escape(name)}</h4>"
+            f"<span class='tag' style='color:{mat_color};margin-bottom:8px;display:inline-block'>{escape(maturity)}</span>"
+            f"<p>{desc}</p>"
+            f"<div class='ac-entry'>{_icon('bolt')} {escape(entry)}</div>"
+            f"</div>"
+        )
+
+    accounts = (
+        "<div class='acc-grid'>"
+        + _acc("HDFC Bank", "BFSI", "Tier 1", "Advanced AI Adopter", "#5bd07f",
+               "\"AI-first in 24 months\" goal. 15+ active GenAI programs. Dedicated AI Academy. RBI governance gap = BiltIQ's wedge.",
+               "AI Governance layer for GenAI programs. Champion: CDO / Head of AI CoE.")
+        + _acc("ICICI Bank", "BFSI", "Tier 1", "Advanced AI Adopter", "#5bd07f",
+               "Heavy ML investment in credit scoring, fraud detection. iMobile Pay AI features. Needs explainable AI for RBI audits.",
+               "Explainable AI for credit/fraud models. Champion: CTO / Head of Risk Technology.")
+        + _acc("Apollo Hospitals", "Healthcare", "Tier 1", "Advanced AI Adopter", "#5bd07f",
+               "Apollo.ai platform active. ABDM integration in progress. Patient data sovereignty critical.",
+               "Sovereign clinical AI — patient data never leaves Apollo's network. Champion: CIO / CDHO.")
+        + _acc("Manipal Health", "Healthcare", "Tier 1", "Growing Adoption", "#fbbf24",
+               "Pan-India hospital network expanding digital. NHA compliance required. Less AI-mature = faster land.",
+               "Clinical documentation AI (reduces physician burnout). Champion: CIO / VP Operations.")
+        + _acc("Infosys", "IT Services", "Tier 2", "Advanced AI Adopter", "#5bd07f",
+               "Topaz AI platform, aggressive AI practice. Serves regulated clients globally. Partnership = distribution multiplier.",
+               "OEM/reseller: \"Infosys Topaz powered by BiltIQ sovereign engine.\" Access to 300+ regulated clients.")
+        + _acc("Wipro", "IT Services", "Tier 2", "Advanced AI Adopter", "#5bd07f",
+               "ai360 platform, strong BFSI vertical. Deep HDFC/ICICI relationships = warm introductions.",
+               "Joint GTM for sovereign AI in BFSI. Wipro brings relationships; BiltIQ brings the engine.")
+        + _acc("TCS", "IT Services", "Tier 2", "Advanced AI Adopter", "#5bd07f",
+               "ignio AI platform. Government IT partner (Passport Seva, etc.). Unlocks public sector pipeline.",
+               "Sovereign AI for government projects — TCS integrates; BiltIQ is the intelligence layer.")
+        + _acc("IRCTC", "Government", "Tier 2", "Growing Adoption", "#fbbf24",
+               "900M+ transactions/year. Customer service AI demand is massive. Data sovereignty non-negotiable.",
+               "Passenger query + ops AI. Start with customer resolution; expand to revenue optimisation.")
+        + _acc("AIIMS Delhi", "Healthcare / Gov", "Tier 3", "Early Stage", "#c084fc",
+               "India's premier medical institution. Government procurement = slow but prestigious logo.",
+               "Clinical research intelligence + ABDM integration. Academic pilot → national NHA rollout.")
+        + _acc("MeitY", "Government", "Tier 3", "Growing Adoption", "#fbbf24",
+               "India.AI Mission home. Owns IndiaAI compute infrastructure. Strategic for government channel.",
+               "Sovereign AI for India.AI mission use cases. MeitY endorsement = credibility multiplier.")
+        + "</div>"
+    )
+    s5_body = accounts
+
+    # ── S6 90-Day GTM ──────────────────────────────────────────────────────────
+    icp_rows = [
+        ["<strong>Industry</strong>", "BFSI (private banks, NBFCs, insurers)", "Healthcare (chains &gt;500 beds)"],
+        ["<strong>Size</strong>", "₹5,000Cr+ revenue, 5,000+ employees", "₹500Cr+ revenue, multi-city"],
+        ["<strong>AI Maturity</strong>", "Active AI/GenAI programs, data team 20+", "CDO/CDAO appointed in last 2 years"],
+        ["<strong>Regulatory</strong>", "RBI-regulated, IRDAI, or DPDP Significant Data Fiduciary", "ABDM-enrolled, NHA partner"],
+        ["<strong>Pain State</strong>", "\"We're scaling GenAI but compliance is blocking us\"", "\"AI needed but patient data can't go to cloud\""],
+        ["<strong>Champion</strong>", "CDO, Head of AI CoE, or CTO with compliance mandate", "CIO + CMO alignment needed"],
+    ]
+
+    def _tl(phase: str, days: str, title: str, items: list[str], dot: str = "") -> str:
+        li = "".join(f"<li>{escape(i)}</li>" for i in items)
+        return (
+            f"<div class='tl-item'>"
+            f"<div class='tl-left'>"
+            f"<span class='tl-phase'>{escape(days)}</span>"
+            f"<div class='tl-dot {dot}'></div>"
+            f"</div>"
+            f"<div class='tl-right'>"
+            f"<span class='tl-phase'>{escape(phase)}</span>"
+            f"<h4>{escape(title)}</h4>"
+            f"<ul>{li}</ul>"
+            f"</div>"
+            f"</div>"
+        )
+
+    timeline = (
+        "<div class='tl'>"
+        + _tl("Foundation", "Days 1–15",
+              "Build the Credibility Infrastructure",
+              ["Publish DPDP Act + Enterprise AI whitepaper — gate with email capture",
+               "Create 3 vertical-specific case study templates (BFSI, Healthcare, Government)",
+               "Register for BFSI Technology Summit India and Healthcareinfo India",
+               "Set up sales intelligence stack: LinkedIn Sales Navigator + Sentinel for account research",
+               "Build RBI Circular explainer content for BFSI outreach"])
+        + _tl("Outreach", "Days 15–45",
+              "Activate Tier 1 Accounts + SI Partnerships",
+              ["Warm outreach to HDFC Bank CDO — reference their AI-first 24-month announcement",
+               "Apollo Hospitals CIO — reach via Healthcare IT Roundtable or Apollo.ai team",
+               "Approach Wipro AI Practice with joint GTM proposal (engine + delivery)",
+               "Submit to IndiaAI Mission sovereign AI vendor registry",
+               "KPI: 10 discovery calls, 3 formal pilots scoped by Day 45"],
+              "gold")
+        + _tl("Pilots", "Days 45–90",
+              "Run Pilots → Convert to Annual Contracts",
+              ["Pilot design: 30-day focused use case (HDFC: AI governance trail; Apollo: clinical doc summarisation)",
+               "Weekly pilot check-in with champion + steering committee member",
+               "Day 60: success metrics review → present full platform proposal",
+               "Target: 2 pilots live, 1 conversion to ₹80L+ annual contract",
+               "Begin reference-able customer story (case study + testimonial)"],
+              "green")
+        + "</div>"
+    )
+
+    kpi_rows = [
+        ["Discovery calls completed", "5", "15", "25"],
+        ["Pilots scoped (SOW signed)", "1", "3", "5"],
+        ["Pilots live (deployed)", "0", "2", "4"],
+        ["Signed contracts / LOIs (ARR)", "₹0", "₹80L", "₹2.5Cr"],
+        ["SI partnership agreements", "1 in discussion", "1 signed MOU", "1 active joint deal"],
+        ["Whitepaper downloads", "50", "200", "500"],
+    ]
+    s6_body = (
+        _rpt_callout(
+            "GTM Philosophy",
+            "<strong>Land &amp; Expand in regulated verticals.</strong> First sale is a governance/compliance "
+            "pilot (low risk, fast procurement). Second sale is platform expansion (high ACV). "
+            "Land with compliance, expand with intelligence.",
+            "gold",
+        )
+        + "<h3 style='font-size:14px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)'>Ideal Customer Profile</h3>"
+        + _rpt_table(["Dimension", "Primary ICP", "Secondary ICP"], icp_rows)
+        + "<h3 style='font-size:14px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)'>90-Day Timeline</h3>"
+        + timeline
+        + "<h3 style='font-size:14px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)'>KPI Dashboard</h3>"
+        + _rpt_table(["KPI", "Day 30", "Day 60", "Day 90"], kpi_rows)
+    )
+
+    # ── S7 Pricing ─────────────────────────────────────────────────────────────
+    tiers = (
+        "<div class='tier-grid'>"
+        + (
+            "<div class='tier-card'>"
+            "<div class='tc-name'>Sovereign Starter</div>"
+            "<div class='tc-price'>₹40L</div>"
+            "<div class='tc-period'>per year · up to 50 users</div>"
+            "<ul>"
+            "<li>On-premise deployment (single site)</li>"
+            "<li>1 agentic AI workflow</li>"
+            "<li>Hybrid RAG knowledge base</li>"
+            "<li>Standard compliance reporting</li>"
+            "<li>Email support</li>"
+            "</ul></div>"
+        )
+        + (
+            "<div class='tier-card featured'>"
+            "<div class='tc-name'>✦ Enterprise Core</div>"
+            "<div class='tc-price'>₹1.2Cr</div>"
+            "<div class='tc-period'>per year · unlimited users</div>"
+            "<ul>"
+            "<li>Multi-site deployment</li>"
+            "<li>Unlimited agentic workflows</li>"
+            "<li>Full sovereign RAG + memory stack</li>"
+            "<li>RBI / IRDAI / DPDP audit reports</li>"
+            "<li>Dedicated success manager</li>"
+            "<li>Custom model fine-tuning (1/yr)</li>"
+            "</ul></div>"
+        )
+        + (
+            "<div class='tier-card'>"
+            "<div class='tc-name'>National Sovereign</div>"
+            "<div class='tc-price'>Custom</div>"
+            "<div class='tc-period'>government / multi-entity</div>"
+            "<ul>"
+            "<li>Air-gapped deployment</li>"
+            "<li>Multi-agency federation</li>"
+            "<li>Full source code escrow</li>"
+            "<li>IndiaAI mission alignment</li>"
+            "<li>24×7 on-site SLA</li>"
+            "<li>Unlimited fine-tuning</li>"
+            "</ul></div>"
+        )
+        + "</div>"
+    )
+    s7_body = (
+        tiers
+        + _rpt_callout(
+            "Pricing Reframe",
+            "Lead with ROI, not price. A single DPDP compliance fine can be ₹250Cr. A single RBI audit "
+            "failure costs ₹10–50Cr in remediation. Frame BiltIQ as "
+            "<strong>\"₹1.2Cr/year to de-risk ₹50Cr+ in regulatory exposure.\"</strong>",
+            "green",
+        )
+    )
+
+    # ── S8 Risks ───────────────────────────────────────────────────────────────
+    risk_rows = [
+        ["Azure/Google launch India sovereign offering",
+         "<span style='color:#ff6b6b'>High</span>", "<span style='color:#ff6b6b'>Critical</span>",
+         "Accelerate lighthouse logo acquisition. Build BYOM + model customisation moat now."],
+        ["Long BFSI procurement cycles (9+ months)",
+         "<span style='color:#fbbf24'>Certain</span>", "<span style='color:#fbbf24'>High</span>",
+         "Healthcare first (3–5 month cycles). Use healthcare ARR to bridge BFSI cycles."],
+        ["Open-source model capability gap vs GPT-4",
+         "<span style='color:#fbbf24'>Medium</span>", "<span style='color:#fbbf24'>High</span>",
+         "Benchmark on regulated use cases (audit trail, policy Q&amp;A) where fine-tuned sovereign models excel."],
+        ["Customer GPU/hardware readiness",
+         "<span style='color:#fbbf24'>High</span>", "<span style='color:#5bd07f'>Medium</span>",
+         "Partner with NxtGen/Sify for managed sovereign hosting. Offer Jetson Orin option for smaller deployments."],
+        ["DPDP enforcement timeline slips",
+         "<span style='color:#fbbf24'>Medium</span>", "<span style='color:#5bd07f'>Medium</span>",
+         "Multi-regulation pitch (DPDP + RBI + IRDAI + NHA). Compliance is one of five value props — not the only one."],
+    ]
+    s8_body = _rpt_table(["Risk", "Probability", "Impact", "Mitigation"], risk_rows)
+
+    # ── S9 Immediate Actions ───────────────────────────────────────────────────
+    def _action(priority: str, p_cls: str, title: str, desc: str, owner: str, deadline: str) -> str:
+        return (
+            f"<div class='action-row'>"
+            f"<div class='ar-p {p_cls}'>{escape(priority)}</div>"
+            f"<div><h4>{escape(title)}</h4><p>{escape(desc)}</p></div>"
+            f"<div class='ar-owner'>{escape(owner)}</div>"
+            f"<div class='ar-deadline'>{escape(deadline)}</div>"
+            f"</div>"
+        )
+
+    actions = (
+        "<div class='action-grid'>"
+        + _action("🔴 P0", "p0",
+                  "Draft HDFC Bank outreach",
+                  "Reference their 'AI-first in 24 months' announcement. Position BiltIQ as the RBI-compliant governance layer. Request 30-min discovery call with CDO office.",
+                  "Founder / BD", "Day 3")
+        + _action("🔴 P0", "p0",
+                  "Publish DPDP + GenAI whitepaper",
+                  "4-page PDF: 'Why DPDP 2023 Changes Everything for BFSI AI Adoption.' Gate on LinkedIn or direct outreach.",
+                  "Founder + Marketing", "Day 7")
+        + _action("🟠 P1", "p1",
+                  "Contact Wipro AI Practice",
+                  "Propose SI partnership. Wipro has HDFC/ICICI relationships. Pitch: 'We bring the sovereign engine; you bring delivery and relationships.'",
+                  "BD Lead", "Day 10")
+        + _action("🟠 P1", "p1",
+                  "Register for BFSI Technology Summit",
+                  "Speaking slot if possible. These are the exact events where CIOs and CDOs attend. Presence = credibility.",
+                  "Marketing", "Day 7")
+        + _action("🟡 P2", "p2",
+                  "Build Apollo Hospitals case narrative",
+                  "Develop a detailed 'how BiltIQ transforms Apollo's clinical AI' story. Use as sales collateral.",
+                  "Product + BD", "Day 14")
+        + _action("🟡 P2", "p2",
+                  "Submit to IndiaAI Mission vendor registry",
+                  "MeitY is awarding Sovereign AI contracts under India.AI mission. Being listed = multiplier for all government sales.",
+                  "BD + Legal", "Day 21")
+        + "</div>"
+    )
+    s9_body = (
+        _rpt_callout("This Week (Next 7 Days)", "Execute P0 actions before anything else. "
+                     "HDFC outreach and the DPDP whitepaper are the two highest-leverage items.", "gold")
+        + actions
+    )
+
+    # ── Assemble page ──────────────────────────────────────────────────────────
+    content = (
+        cover
+        + _rpt_section("01", "Executive Summary & Key Findings", s1_body)
+        + _rpt_section("02", f"Company Profile: {project.name}", s2_body)
+        + _rpt_section("03", "Market Opportunity: TAM / SAM / SOM", s3_body)
+        + _rpt_section("04", "Competitive Landscape Analysis", s4_body)
+        + _rpt_section("05", "Target Account Intelligence: Top 10", s5_body)
+        + _rpt_section("06", "90-Day Go-To-Market Strategy", s6_body)
+        + _rpt_section("07", "Pricing Architecture & Revenue Model", s7_body)
+        + _rpt_section("08", "Risk Factors & Mitigation", s8_body)
+        + _rpt_section("09", "Recommended Immediate Actions", s9_body)
+    )
+
+    return shell(
+        active="projects",
+        title=f"{project.name} · Report",
+        content=content,
+        backend=backend,
+        subnav=subnav,
+        project=project.name,
+    )

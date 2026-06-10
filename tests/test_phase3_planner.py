@@ -219,7 +219,12 @@ def test_template_plan_profile_only_and_fallback():
     from sentinel.agent.orchestrator_planner import _template_plan
     only = _template_plan(_task(objective="Profile BiltIQ AI and list its strengths"))
     assert [s.capability for s in only.steps] == ["self_profile"]
-    assert _template_plan(_task(objective="Find a recipe for biryani", domain="nutrition")) is None  # novel → LLM
+    # SENTINEL-014: single-step domains get a deterministic 1-step plan (not LLM).
+    nutrition_plan = _template_plan(_task(objective="Find a recipe for biryani", domain="nutrition"))
+    assert nutrition_plan is not None
+    assert [s.capability for s in nutrition_plan.steps] == ["nutrition"]
+    # Truly novel domain (no registered template) → falls through to LLM planner.
+    assert _template_plan(_task(objective="Random query", domain="custom_novel_xyz")) is None
 
 
 def test_plan_task_uses_template_without_calling_llm(monkeypatch, tmp_path):

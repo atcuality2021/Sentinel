@@ -191,13 +191,40 @@ def apply_memory(
     entity_memory: bool,
     retention_days: str | int,
     inject_org_prefs: bool,
+    episodic_recall: bool = True,
+    episodic_recall_top_k: str | int = 3,
 ) -> SentinelConfig:
-    """Return a copy with memory settings updated (spec AC-8)."""
+    """Return a copy with memory settings updated (spec AC-8 + SENTINEL-015)."""
     days = _as_int(str(retention_days), "retention_days", 1)
+    top_k = _as_int(str(episodic_recall_top_k), "episodic_recall_top_k", 1, 10)
     new = cfg.model_copy(deep=True)
     new.memory.entity_memory = entity_memory
     new.memory.retention_days = days
     new.memory.inject_org_prefs = inject_org_prefs
+    new.memory.episodic_recall = episodic_recall
+    new.memory.episodic_recall_top_k = top_k
+    return new
+
+
+def apply_harness(
+    cfg: SentinelConfig,
+    *,
+    max_turns: str | int,
+    max_retries: str | int,
+    base_retry_delay_s: str | float,
+) -> SentinelConfig:
+    """Return a copy with agent harness settings updated (SENTINEL-015 FR-06/FR-07).
+
+    ``max_turns`` caps LLM calls per step (turn controller).
+    ``max_retries`` + ``base_retry_delay_s`` configure the exponential-backoff retry policy.
+    """
+    turns = _as_int(str(max_turns), "max_turns", 1)
+    retries = _as_int(str(max_retries), "max_retries", 1)
+    delay = _as_float(str(base_retry_delay_s), "base_retry_delay_s", 0.0, 60.0)
+    new = cfg.model_copy(deep=True)
+    new.backend.max_turns = turns
+    new.backend.max_retries = retries
+    new.backend.base_retry_delay_s = delay
     return new
 
 

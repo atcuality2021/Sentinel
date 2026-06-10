@@ -78,6 +78,15 @@ def _configured_max_concurrency() -> int:
         return 3
 
 
+def _configured_max_turns() -> int:
+    """Turn-controller ceiling from the *global* config (SENTINEL-015 FR-06). Mirrors
+    ``_configured_max_concurrency`` — fail-soft, never 0."""
+    try:
+        return max(1, int(get_config().backend.max_turns))
+    except Exception:
+        return 30
+
+
 @dataclass
 class RunResult:
     mode: str
@@ -116,6 +125,29 @@ def _render_memory_context(entries: list[MemoryEntry]) -> str:
         "Use this prior context where it is still relevant; prefer fresh findings on conflict, "
         "and never let PRIVATE memory leak into a public-only field."
     )
+    return "\n".join(lines)
+
+
+def _render_episodic_context(episodes: list) -> str:
+    """Compact episodic recall block prepended to the synthesizer instruction (SENTINEL-015 FR-01).
+
+    Returns "" for empty episodes so the instruction is byte-identical to pre-015 (AC-10 parity).
+    Top 5 findings per episode, capped at 150 chars each.
+    The injected text warns the LLM not to re-present these as fresh findings.
+    """
+    if not episodes:
+        return ""
+    lines = [
+        "\n\n## Episodic Memory: Prior Research Sessions",
+        "(These are recalled from previous runs. Do not present them as freshly discovered "
+        "findings — use them only as background context to avoid redundancy.)",
+    ]
+    for ep in episodes:
+        label = f"{ep.target} ({ep.mode})" if getattr(ep, "target", None) else ep.entity
+        lines.append(f"\n### {label}")
+        texts = getattr(ep, "finding_texts", []) or []
+        for txt in texts[:5]:
+            lines.append(f"- {str(txt)[:150]}")
     return "\n".join(lines)
 
 
@@ -247,24 +279,50 @@ def _merge_extraction_gaps(artifact, state) -> str:
     return f"extractions: {len(es.extractions)} sources, {len(es.gaps)} gaps (+{added} merged)"
 
 
-def _recall_memory(target: str, mode: Mode, cfg) -> tuple[str, object | None]:
-    """Fetch the prior run (for the delta) + a boundary-filtered memory block (if enabled).
+def _recall_memory(
+    target: str, mode: Mode, cfg, *, project_id: str | None = None
+) -> tuple[str, object | None, int, int]:
+    """Fetch the prior run + boundary-filtered entity memory + episodic episodes (SENTINEL-015).
 
-    Fail-soft (NFR-5): any storage error degrades to ("", prior-or-None) and never breaks a run.
-    Memory injection is gated by ``cfg.memory.entity_memory``; when off, ``memory_context`` is ""
-    so the synthesizer instruction is byte-identical to SENTINEL-001 (AC-10).
+    Returns ``(memory_context, prior_run, entity_count, episode_count)``.
+    Fail-soft (NFR-5): any storage error degrades to ("", None, 0, 0) — never breaks a run.
+
+    - Entity memory is gated by ``cfg.memory.entity_memory`` (pre-015).
+    - Episodic injection is gated by ``cfg.memory.episodic_recall`` (SENTINEL-015 FR-01).
+    - ``project_id`` is threaded to ``recall_episodes`` so KB semantic search supplements
+      the keyword LIKE search when the project has indexed KB content (gap 5).
+    - When both are off, ``memory_context`` is "" → byte-identical to SENTINEL-001 (AC-10).
     """
     prior = None
+    entity_count = 0
+    episode_count = 0
     try:
         from sentinel.memory import MemoryStore, RunStore
 
-        prior = RunStore().latest_for(target)
+        store = RunStore()
+        prior = store.latest_for(target)
+        ctx_parts: list[str] = []
+
         if getattr(cfg.memory, "entity_memory", True):
             recalled = MemoryStore().recall(target, allowed_boundaries(mode))
-            return _render_memory_context(recalled), prior
+            entity_count = len(recalled)
+            entity_ctx = _render_memory_context(recalled)
+            if entity_ctx:
+                ctx_parts.append(entity_ctx)
+
+        if getattr(cfg.memory, "episodic_recall", True):
+            top_k = int(getattr(cfg.memory, "episodic_recall_top_k", 3))
+            episodes = store.recall_episodes(
+                target, top_k=top_k, mode=mode, project_id=project_id
+            )
+            episode_count = len(episodes)
+            ep_ctx = _render_episodic_context(episodes)
+            if ep_ctx:
+                ctx_parts.append(ep_ctx)
+
+        return "".join(ctx_parts), prior, entity_count, episode_count
     except Exception:  # storage must never break a run
-        return "", prior
-    return "", prior
+        return "", prior, entity_count, episode_count
 
 
 def _persist_run(
@@ -400,52 +458,90 @@ def _build_subagents(
 
 
 async def run_step(
-    agent, *, message_text, seed_state, streaming, trace, max_concurrency: int | None = None
+    agent,
+    *,
+    message_text,
+    seed_state,
+    streaming,
+    trace,
+    max_concurrency: int | None = None,
+    max_turns: int | None = None,
+    max_retries: int = 3,
+    base_retry_delay_s: float = 1.0,
 ) -> dict:
-    """Run one built agent (a SequentialAgent pass, the coordinator, or — later — a DAG step) to
-    completion and return its final session state. **Generic, mode-free executor (SENTINEL-012 Phase 0):**
-    the caller supplies the seed ``message_text``, so this same function drives the legacy two-pass
-    pipeline today and arbitrary orchestrated steps in Phase 3.
+    """Run one built agent to completion and return its final session state.
 
-    ``seed_state`` initialises the session — Pass 1 seeds ``{target, vertical_context}``; Pass 2 seeds
-    Pass-1's *final* state so the reasoner's ``{public_findings}`` / ``{extractions}`` instruction
-    placeholders resolve from state. ``streaming`` is the per-step ``StreamingMode`` (reasoner steps →
-    SSE to clear the 26B 524 wall; tool-callers → NONE). Only *complete* events feed the trace —
-    streamed partial token deltas are skipped; ADK still saves each agent's output_key from its final
-    aggregated response.
+    **Generic, mode-free executor (SENTINEL-012 Phase 0):** the caller supplies the seed
+    ``message_text``, so this same function drives the legacy two-pass pipeline today and
+    arbitrary orchestrated steps in Phase 3.
 
-    ``max_concurrency`` is the leaf-run ceiling (SENTINEL-013 Step 7). The DAG threads its per-run
-    ``cfg.backend.max_concurrency`` here; ``None`` falls back to the global config. The whole body runs
-    under a single permit of the loop-bound :func:`_leaf_semaphore`, so a fan-out of waves can hold at
-    most ``max_concurrency`` ADK runners open at once. This is the only acquire on the path — run_step
-    never calls run_step — so a permit-holder never waits on a permit, and no plan can deadlock.
+    **Turn controller (SENTINEL-015 FR-06):** ``max_turns`` caps the number of LLM calls ADK
+    will make per step. Passed as ``RunConfig.max_llm_calls``; guarded with ``try/except TypeError``
+    for ADK versions that don't yet have this field. ``None`` falls back to
+    :func:`_configured_max_turns` (default 30 from config).
+
+    **Retry policy (SENTINEL-015 FR-07):** transient 5xx errors from the 26B vLLM endpoint
+    are retried up to ``max_retries`` times with exponential backoff
+    ``delay = base_retry_delay_s * 2^attempt`` (1s, 2s, 4s by default). Pass
+    ``base_retry_delay_s=0.0`` in tests for instant retries. All callers keep working —
+    new params have defaults.
+
+    The concurrency semaphore wraps the entire retry loop — a retry is still the same leaf
+    run occupying one concurrency slot. Sub-agent model labels are logged once before the
+    first attempt to avoid trace flooding on retries.
     """
     limit = max_concurrency if max_concurrency is not None else _configured_max_concurrency()
+    turns = max_turns if max_turns is not None else _configured_max_turns()
+
     async with _leaf_semaphore(limit):
-        runner = InMemoryRunner(agent=agent, app_name=APP_NAME)
-        session = await runner.session_service.create_session(
-            app_name=APP_NAME, user_id=_USER_ID, state=dict(seed_state),
-        )
+        # Log sub-agent labels once before any attempt (trace flooding guard on retry).
         for sub in getattr(agent, "sub_agents", []) or []:
             trace.append(f"agent {sub.name} model={_model_label(sub)}")
-        message = types.Content(role="user", parts=[types.Part(text=message_text)])
-        run_config = RunConfig(streaming_mode=streaming)
-        async for event in runner.run_async(
-            user_id=_USER_ID, session_id=session.id, new_message=message, run_config=run_config
-        ):
-            if getattr(event, "partial", False):
-                continue  # streaming delta — wait for the aggregated event to avoid trace flooding
-            author = getattr(event, "author", "?")
-            if getattr(event, "content", None) and event.content.parts:
-                for p in event.content.parts:
-                    if getattr(p, "function_call", None):
-                        trace.append(f"{author} → tool:{p.function_call.name}")
-                    elif getattr(p, "text", None) and p.text.strip():
-                        trace.append(f"{author} · {p.text.strip()[:80]}")
-        final = await runner.session_service.get_session(
-            app_name=APP_NAME, user_id=_USER_ID, session_id=session.id
-        )
-        return dict(final.state)
+
+        last_exc: Exception | None = None
+        for attempt in range(max(1, max_retries)):
+            try:
+                runner = InMemoryRunner(agent=agent, app_name=APP_NAME)
+                session = await runner.session_service.create_session(
+                    app_name=APP_NAME, user_id=_USER_ID, state=dict(seed_state),
+                )
+                message = types.Content(role="user", parts=[types.Part(text=message_text)])
+                # Guard: max_llm_calls may not exist on all installed ADK versions.
+                try:
+                    run_config = RunConfig(streaming_mode=streaming, max_llm_calls=turns)
+                except TypeError:
+                    run_config = RunConfig(streaming_mode=streaming)
+                async for event in runner.run_async(
+                    user_id=_USER_ID, session_id=session.id,
+                    new_message=message, run_config=run_config,
+                ):
+                    if getattr(event, "partial", False):
+                        continue  # streaming delta — wait for the aggregated event
+                    author = getattr(event, "author", "?")
+                    if getattr(event, "content", None) and event.content.parts:
+                        for p in event.content.parts:
+                            if getattr(p, "function_call", None):
+                                trace.append(f"{author} → tool:{p.function_call.name}")
+                            elif getattr(p, "text", None) and p.text.strip():
+                                trace.append(f"{author} · {p.text.strip()[:80]}")
+                final = await runner.session_service.get_session(
+                    app_name=APP_NAME, user_id=_USER_ID, session_id=session.id
+                )
+                return dict(final.state)
+            except Exception as exc:
+                last_exc = exc
+                if attempt < max(1, max_retries) - 1:
+                    delay = base_retry_delay_s * (2 ** attempt)
+                    trace.append(
+                        f"run_step: attempt {attempt + 1}/{max_retries} failed "
+                        f"({type(exc).__name__}); retry in {delay:.1f}s"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    trace.append(
+                        f"run_step: all {max_retries} attempts failed ({type(exc).__name__})"
+                    )
+        raise last_exc  # type: ignore[misc]
 
 
 def _artifact_from_state(state: dict, mode: Mode):
@@ -469,6 +565,9 @@ async def _execute_pipeline(
     memory_context: str,
     vertical_context: str | None,
     trace: list[str],
+    max_turns: int | None = None,
+    max_retries: int = 3,
+    base_retry_delay_s: float = 1.0,
 ):
     """Build the agent(s), run the ADK runner, and return ``(artifact, final_state)``.
 
@@ -504,6 +603,8 @@ async def _execute_pipeline(
             final_state = await run_step(
                 agent, message_text=seed_msg, seed_state=base_state,
                 streaming=StreamingMode.NONE, trace=trace, max_concurrency=mc,
+                max_turns=max_turns, max_retries=max_retries,
+                base_retry_delay_s=base_retry_delay_s,
             )
             return _artifact_from_state(final_state, mode), final_state
         except Exception as exc:  # never let a coordinator misconfig break the run
@@ -527,6 +628,8 @@ async def _execute_pipeline(
             SequentialAgent(name=f"{mode}_research", sub_agents=pass1),
             message_text=seed_msg, seed_state=base_state,
             streaming=StreamingMode.NONE, trace=trace, max_concurrency=mc,
+            max_turns=max_turns, max_retries=max_retries,
+            base_retry_delay_s=base_retry_delay_s,
         )
 
     # Pass 2 — reasoning on the slow 26B, SSE-streamed, seeded with Pass-1 state so the synthesizer
@@ -538,6 +641,8 @@ async def _execute_pipeline(
             SequentialAgent(name=f"{mode}_reason", sub_agents=pass2),
             message_text=seed_msg, seed_state=state,
             streaming=StreamingMode.SSE, trace=trace, max_concurrency=mc,
+            max_turns=max_turns, max_retries=max_retries,
+            base_retry_delay_s=base_retry_delay_s,
         )
 
     return _artifact_from_state(state, mode), state
@@ -551,6 +656,7 @@ async def run_async(
     writer: ArtifactWriter | None = None,
     backend: str | None = None,
     config=None,
+    project_id: str | None = None,
 ) -> RunResult:
     cfg = config or get_config()
 
@@ -559,11 +665,13 @@ async def run_async(
     private = mode == "client" and private_boundary_configured()
     cloud_ok = cloud_allowed(cfg) and not (private and cfg.governance.block_cloud_on_private)
     eff_backend = effective_backend(cfg, backend, private=private)
-    provider = effective_search_provider(cfg, allow_cloud=cloud_ok)
+    provider = effective_search_provider(cfg, allow_cloud=cloud_ok, backend=eff_backend)
 
-    # --- Memory recall (boundary-filtered) BEFORE the run -------------------------------- #
+    # --- Memory recall (boundary-filtered + episodic) BEFORE the run -------------------- #
     # The allowed set is fixed by mode: a competitor run can only ever recall PUBLIC memory.
-    memory_context, prior_run = _recall_memory(target, mode, cfg)
+    memory_context, prior_run, entity_count, episode_count = _recall_memory(
+        target, mode, cfg, project_id=project_id
+    )
 
     # Label the run with what the agents ACTUALLY used: governance may have forced on-prem,
     # so the trace shows the effective backend + the resolved public-search provider (AC-10).
@@ -572,14 +680,20 @@ async def run_async(
         f"backend={resolved_backend}", f"mode={mode}", f"target={target}",
         f"compliance={cfg.governance.compliance_mode}", f"cloud_allowed={cloud_ok}",
         f"search={provider}",
+        f"memory: {entity_count} entity facts + {episode_count} episodes recalled",
     ]
 
     writer = writer or get_writer("markdown")
     two_tier = getattr(cfg.research, "two_tier", False)
+    # Harness params resolved once here, forwarded to every _execute_pipeline call below.
+    _max_turns = getattr(cfg.backend, "max_turns", None)
+    _max_retries = int(getattr(cfg.backend, "max_retries", 3))
+    _retry_delay = float(getattr(cfg.backend, "base_retry_delay_s", 1.0))
     try:
         artifact, state = await _execute_pipeline(
             target, mode, cfg=cfg, backend=backend, cloud_ok=cloud_ok, provider=provider,
             memory_context=memory_context, vertical_context=vertical_context, trace=trace,
+            max_turns=_max_turns, max_retries=_max_retries, base_retry_delay_s=_retry_delay,
         )
     except Exception as exc:
         # Two-tier is a pure enhancement (SENTINEL-008.1): any extractor failure — JSON truncation,
@@ -596,6 +710,7 @@ async def run_async(
         artifact, state = await _execute_pipeline(
             target, mode, cfg=single, backend=backend, cloud_ok=cloud_ok, provider=provider,
             memory_context=memory_context, vertical_context=vertical_context, trace=trace,
+            max_turns=_max_turns, max_retries=_max_retries, base_retry_delay_s=_retry_delay,
         )
 
     # Strategy overlay (SENTINEL-009): deterministically merge before writing. Guarded — when

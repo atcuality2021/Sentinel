@@ -130,7 +130,12 @@ def test_plan_is_stale_unit():
     t = _task(obj="Profile us vs Crayon")
     assert _plan_is_stale(t, _plan(caps=("competitor", "competitor"))) is True
     assert _plan_is_stale(t, _plan(caps=("self_profile", "competitor", "compare"))) is False
-    # novel objective the template doesn't recognise → never second-guessed (returns None → not stale).
+    # novel domain (no template at all) → _template_plan returns None → never second-guessed → not stale.
     novel = Task(id="n", project_id="p", objective="Find a biryani recipe",
-                 domain=Domain(name="nutrition"), persona=Persona(), created_at=_NOW)
+                 domain=Domain(name="custom_novel_xyz"), persona=Persona(), created_at=_NOW)
     assert _plan_is_stale(novel, _plan(caps=("anything",))) is False
+    # SENTINEL-014: nutrition IS a known single-step domain; a plan with a wrong capability IS stale.
+    nutrition_task = Task(id="nt", project_id="p", objective="Research omega-3",
+                          domain=Domain(name="nutrition"), persona=Persona(), created_at=_NOW)
+    assert _plan_is_stale(nutrition_task, _plan(caps=("anything",))) is True
+    assert _plan_is_stale(nutrition_task, _plan(caps=("nutrition",))) is False

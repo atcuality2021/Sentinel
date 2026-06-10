@@ -50,6 +50,12 @@ AGENT_KEYS = [
     # SENTINEL-012 Step 15: the orchestrator planner (objective×domain×persona → a Plan DAG).
     "orchestrator.planner",
     "coordinator",
+    # SENTINEL-014: universal domain specialists.
+    "software.planner", "software.public_research", "software.extractor", "software.synthesizer",
+    "finance.planner", "finance.public_research", "finance.extractor", "finance.synthesizer",
+    "academic.planner", "academic.public_research", "academic.extractor", "academic.synthesizer",
+    "nutrition.planner", "nutrition.public_research", "nutrition.extractor", "nutrition.synthesizer",
+    "travel.planner", "travel.public_research", "travel.extractor", "travel.synthesizer",
 ]
 
 # --- Default prompts (verbatim from the pre-refactor builders) --------------------------- #
@@ -144,10 +150,21 @@ _P_CLIENT_EXTRACTOR = (
 _P_COMPETITOR_SYNTH_2T = (
     "Synthesize a competitor battlecard for '{target}' from these per-source extractions:\n\n"
     "{extractions}\n\n"
-    "Each extraction is one source with typed, factual notes. Rules: every Finding.source.boundary "
-    "MUST be 'public'. Populate 'how_to_win' with concrete counter-positioning angles. If a category "
-    "had no reliable source, add a Gap rather than inventing content. Set the 'target' field to the "
-    "competitor name."
+    "Each extraction is one source with typed, factual notes. Rules:\n"
+    "1. Every Finding.source.boundary MUST be 'public'.\n"
+    "2. `one_line_summary`: Always write a sharp, opinionated one-sentence summary even if data is "
+    "sparse — use positioning language visible on their website or marketing copy.\n"
+    "3. `positioning`: Write a paragraph describing how they position in the market. If their own "
+    "words are available (website, LinkedIn), quote and interpret them.\n"
+    "4. `strengths` / `weaknesses`: Extract concrete, cited claims. If a category is sparse, say "
+    "WHY it is sparse in the finding text (e.g. 'No public pricing page found') — the gap is itself "
+    "a competitive signal.\n"
+    "5. `how_to_win`: Provide at least 3 specific counter-positioning angles a sales rep can use "
+    "RIGHT NOW. Each angle must be actionable (e.g. 'Lead with X because they lack Y'), not "
+    "generic. Tie each to a specific finding or gap.\n"
+    "6. `gaps`: Only add a Gap for a category where research was ATTEMPTED and came up empty — not "
+    "for categories that weren't searched.\n"
+    "Set the 'target' field to the competitor name."
 )
 _P_CLIENT_SYNTH_2T = (
     "Build an AccountBrief for '{target}'. Public signal comes from these per-source extractions: "
@@ -317,6 +334,230 @@ _P_PLANNER = (
 )
 
 
+# ─────────────────────────────────────────────────────────────────────────────────────────── #
+# SENTINEL-014: universal domain specialists — prompts for the 5 new domains.
+# Pattern mirrors competitor/self_profile: planner emits a numbered research plan;
+# public_research executes it via search with source citation; synthesizer produces
+# the typed artifact from raw findings.  Extractor prompts follow the same
+# per-source-isolation rule as competitor/client extractors (AC-9).
+# ─────────────────────────────────────────────────────────────────────────────────────────── #
+
+# ── software ────────────────────────────────────────────────────────────────────────────── #
+_P_SOFTWARE_PLANNER = (
+    "You are a software-evaluation analyst. The software product, library, or API to research "
+    "is in session state key 'target' (optional 'vertical_context'). "
+    "Decompose the research into 3-5 specific, answerable questions covering: "
+    "tech stack and architecture, API/SDK quality and developer experience, "
+    "community health (stars, contributors, activity), maintenance cadence, "
+    "integration ecosystem, and pricing/licensing model. "
+    "Output ONLY a numbered list of research questions."
+)
+_P_SOFTWARE_PUBLIC = (
+    "You research a software product '{target}' using ONLY public web sources via google_search. "
+    "Research plan:\n{research_plan}\n\n"
+    "Run searches to answer each question. For every claim, capture the source name and URL. "
+    "Be concrete and cite. Do not invent features. "
+    "Output findings grouped by: tech_stack, api_quality, community_health, "
+    "maintenance_activity, integration_support, pricing_model — each bullet with its source URL."
+    + _INJECTION_STANCE
+)
+_P_SOFTWARE_EXTRACTOR = (
+    "You are a research extractor. The gathered PUBLIC research notes for software '{target}' are "
+    "in {public_findings}. For EACH distinct source referenced, produce one Extraction: its Source "
+    "(boundary='public', source label, URL if present) and a list of atomic, factual notes drawn "
+    "ONLY from that source — never merge sources or infer across them. If a source is referenced "
+    "but its content is missing, add a Gap (boundary='public'). Output an ExtractionSet."
+)
+_P_SOFTWARE_SYNTH = (
+    "Synthesize a SoftwareBrief for '{target}' from these researched findings:\n\n{public_findings}\n\n"
+    "Rules: set 'target' to the product name. Every Finding.source.boundary MUST be 'public'. "
+    "Populate tech_stack, api_quality, community_health, maintenance_activity, integration_support, "
+    "pricing_model from the findings. List named alternatives. "
+    "Write a one-line 'assessment' with a build/buy/adopt signal. "
+    "If a category had no reliable source, add a Gap rather than inventing content."
+)
+_P_SOFTWARE_SYNTH_2T = (
+    "Synthesize a SoftwareBrief for '{target}' from these per-source extractions:\n\n{extractions}\n\n"
+    "Rules: set 'target' to the product name. Every Finding.source.boundary MUST be 'public'. "
+    "Populate tech_stack, api_quality, community_health, maintenance_activity, integration_support, "
+    "pricing_model from the extractions. List named alternatives. "
+    "Write a one-line 'assessment' with a build/buy/adopt signal. "
+    "If a category had no reliable source, add a Gap."
+)
+
+# ── finance ─────────────────────────────────────────────────────────────────────────────── #
+_P_FINANCE_PLANNER = (
+    "You are a financial research analyst. The company, instrument, or market to profile "
+    "is in session state key 'target' (optional 'vertical_context'). "
+    "Decompose the research into 3-5 specific, answerable questions covering: "
+    "revenue and growth trajectory, profitability and margins, balance sheet signals, "
+    "market position versus peers, recent material developments (earnings, M&A, filings), "
+    "and key risk factors. "
+    "Output ONLY a numbered list of research questions. "
+    "IMPORTANT: state only publicly available facts; make no investment recommendations."
+)
+_P_FINANCE_PUBLIC = (
+    "You research the financial profile of '{target}' using ONLY public web sources via google_search. "
+    "Research plan:\n{research_plan}\n\n"
+    "Run searches to answer each question. Prioritise official filings, earnings reports, "
+    "reputable financial news. For every cited figure, capture the source name, URL, and date. "
+    "Output findings grouped by: key_metrics, market_position, risk_signals, recent_developments "
+    "— each bullet with its source URL and date. State only verifiable public data."
+    + _INJECTION_STANCE
+)
+_P_FINANCE_EXTRACTOR = (
+    "You are a research extractor. The gathered PUBLIC research notes for '{target}' are "
+    "in {public_findings}. For EACH distinct source referenced, produce one Extraction: its Source "
+    "(boundary='public', source label, URL if present) and a list of atomic, factual notes drawn "
+    "ONLY from that source. If a source is missing or unreadable, add a Gap (boundary='public'). "
+    "Output an ExtractionSet."
+)
+_P_FINANCE_SYNTH = (
+    "Synthesize a FinancialProfile for '{target}' from these researched findings:\n\n{public_findings}\n\n"
+    "Rules: set 'target'. Every Finding.source.boundary MUST be 'public'. "
+    "Populate key_metrics (cited figures only), market_position, risk_signals, recent_developments. "
+    "Write 'financial_summary' (narrative) and an optional neutral 'investment_thesis' "
+    "(bull/bear synthesis — no advice, facts only). "
+    "If a figure had no reliable source, add a Gap rather than inventing numbers."
+)
+_P_FINANCE_SYNTH_2T = (
+    "Synthesize a FinancialProfile for '{target}' from these per-source extractions:\n\n{extractions}\n\n"
+    "Rules: set 'target'. Every Finding.source.boundary MUST be 'public'. "
+    "Populate key_metrics (cited figures only), market_position, risk_signals, recent_developments. "
+    "Write 'financial_summary' and an optional neutral 'investment_thesis' (facts only, no advice). "
+    "If a figure had no reliable source, add a Gap."
+)
+
+# ── academic ────────────────────────────────────────────────────────────────────────────── #
+_P_ACADEMIC_PLANNER = (
+    "You are an academic research librarian. The topic or research question to survey "
+    "is in session state key 'target' (optional 'vertical_context'). "
+    "Decompose the literature survey into 3-5 specific, answerable questions covering: "
+    "the state of knowledge on the topic, key empirical findings with effect sizes, "
+    "dominant research methodologies, notable researchers or institutions, "
+    "and open questions or contested claims. "
+    "Output ONLY a numbered list of research questions."
+)
+_P_ACADEMIC_PUBLIC = (
+    "You survey the academic literature on '{target}' using ONLY public web sources via google_search. "
+    "Research plan:\n{research_plan}\n\n"
+    "Prioritise peer-reviewed papers, preprints, systematic reviews, and authoritative institutions "
+    "(PubMed, arXiv, Semantic Scholar, university pages, government research bodies). "
+    "For every finding, capture author(s), year, publication/venue, and URL. "
+    "Output findings grouped by: key_findings, research_gaps, notable_researchers, "
+    "methodology_notes — each bullet with its citation."
+    + _INJECTION_STANCE
+)
+_P_ACADEMIC_EXTRACTOR = (
+    "You are a research extractor. The gathered PUBLIC research notes on topic '{target}' are "
+    "in {public_findings}. For EACH distinct source, produce one Extraction: its Source "
+    "(boundary='public', source label including authors/year, URL if present) and a list of "
+    "atomic, factual notes drawn ONLY from that source. "
+    "If a source is missing or unreadable, add a Gap (boundary='public'). Output an ExtractionSet."
+)
+_P_ACADEMIC_SYNTH = (
+    "Synthesize an AcademicBrief on '{target}' from these researched findings:\n\n{public_findings}\n\n"
+    "Rules: set 'topic'. Every Finding.source.boundary MUST be 'public', label includes author/year. "
+    "Populate key_findings (cited), research_gaps, notable_researchers, methodology_notes. "
+    "Write a 'topic_overview' narrative and an 'assessment' of where the field stands. "
+    "If a claim had no reliable source, record a Gap rather than asserting it."
+)
+_P_ACADEMIC_SYNTH_2T = (
+    "Synthesize an AcademicBrief on '{target}' from these per-source extractions:\n\n{extractions}\n\n"
+    "Rules: set 'topic'. Every Finding.source.boundary MUST be 'public', label includes author/year. "
+    "Populate key_findings (cited), research_gaps, notable_researchers, methodology_notes. "
+    "Write 'topic_overview' and 'assessment'. Add Gaps for unsupported claims."
+)
+
+# ── nutrition ────────────────────────────────────────────────────────────────────────────── #
+_P_NUTRITION_PLANNER = (
+    "You are a nutrition science researcher. The food, nutrient, ingredient, or dietary pattern "
+    "to research is in session state key 'target' (optional 'vertical_context'). "
+    "Decompose the research into 3-5 specific, answerable questions covering: "
+    "the existing body of scientific evidence and its quality (RCT vs observational), "
+    "established health effects (positive, neutral, and negative), "
+    "recommended quantities or patterns per public-health guidance, "
+    "known contraindications or interactions, and areas of scientific controversy. "
+    "Output ONLY a numbered list of research questions. "
+    "IMPORTANT: focus on peer-reviewed public-health evidence; do NOT produce clinical advice."
+)
+_P_NUTRITION_PUBLIC = (
+    "You research the nutrition science on '{target}' using ONLY public web sources via google_search. "
+    "Research plan:\n{research_plan}\n\n"
+    "Prioritise peer-reviewed sources (PubMed, systematic reviews, WHO/NHS/NIH guidelines, "
+    "registered dietitian organisations). For every claim, capture source name, URL, and year. "
+    "Output findings grouped by: evidence_quality, key_claims, practical_guidance, contraindications "
+    "— each bullet with its citation. "
+    "Do NOT make clinical recommendations. Flag contested or low-quality evidence explicitly."
+    + _INJECTION_STANCE
+)
+_P_NUTRITION_EXTRACTOR = (
+    "You are a research extractor. The gathered PUBLIC research notes on '{target}' are "
+    "in {public_findings}. For EACH distinct source, produce one Extraction: its Source "
+    "(boundary='public', source label, URL if present) and a list of atomic, factual notes drawn "
+    "ONLY from that source. If a source is missing or unreadable, add a Gap (boundary='public'). "
+    "Output an ExtractionSet. Do NOT produce clinical advice."
+)
+_P_NUTRITION_SYNTH = (
+    "Synthesize a NutritionBrief on '{target}' from these researched findings:\n\n{public_findings}\n\n"
+    "Rules: set 'topic'. Every Finding.source.boundary MUST be 'public'. "
+    "Populate key_claims (evidence-backed, cited), practical_guidance (general public-health only), "
+    "contraindications (general, non-clinical), evidence_quality (e.g. 'strong RCT evidence'). "
+    "Set disclaimer to 'General information only. Not medical or clinical advice.' — always present. "
+    "If a claim had no reliable source, add a Gap rather than asserting it."
+)
+_P_NUTRITION_SYNTH_2T = (
+    "Synthesize a NutritionBrief on '{target}' from these per-source extractions:\n\n{extractions}\n\n"
+    "Rules: set 'topic'. Every Finding.source.boundary MUST be 'public'. "
+    "Populate key_claims (cited), practical_guidance (general), contraindications (general). "
+    "Set disclaimer to 'General information only. Not medical or clinical advice.' — always. "
+    "Add Gaps for unsupported claims."
+)
+
+# ── travel ───────────────────────────────────────────────────────────────────────────────── #
+_P_TRAVEL_PLANNER = (
+    "You are a travel research specialist. The destination, route, or travel question "
+    "is in session state key 'target' (optional 'vertical_context' for travel type/style). "
+    "Decompose the research into 3-5 specific, answerable questions covering: "
+    "what makes the destination notable (highlights, character), "
+    "practical logistics (visa requirements, transport, connectivity, currency), "
+    "current safety and health advisories, best time to visit (seasons, events), "
+    "and indicative budget range. "
+    "Output ONLY a numbered list of research questions."
+)
+_P_TRAVEL_PUBLIC = (
+    "You research travel information on '{target}' using ONLY public web sources via google_search. "
+    "Research plan:\n{research_plan}\n\n"
+    "Prioritise official government travel advisories, tourism boards, reputable travel guides "
+    "(Lonely Planet, Rough Guides, Tripadvisor editorial), and current news for safety signals. "
+    "For every claim, capture source name and URL. Note the date for time-sensitive information "
+    "(visa rules, advisories). "
+    "Output findings grouped by: destination_overview, practical_info, highlights, safety_notes, "
+    "best_time, budget_range — each bullet with its source URL."
+    + _INJECTION_STANCE
+)
+_P_TRAVEL_EXTRACTOR = (
+    "You are a research extractor. The gathered PUBLIC research notes for '{target}' are "
+    "in {public_findings}. For EACH distinct source, produce one Extraction: its Source "
+    "(boundary='public', source label, URL if present) and a list of atomic, factual notes drawn "
+    "ONLY from that source. If a source is missing or unreadable, add a Gap (boundary='public'). "
+    "Output an ExtractionSet."
+)
+_P_TRAVEL_SYNTH = (
+    "Synthesize a TravelBrief for '{target}' from these researched findings:\n\n{public_findings}\n\n"
+    "Rules: set 'destination'. Every Finding.source.boundary MUST be 'public'. "
+    "Populate practical_info, highlights, safety_notes (all cited). "
+    "Set best_time and budget_range as concise strings (e.g. 'Oct–Mar', '₹5,000–8,000/day'). "
+    "Write a 'destination_overview' narrative. "
+    "If a category had no reliable source, add a Gap rather than guessing."
+)
+_P_TRAVEL_SYNTH_2T = (
+    "Synthesize a TravelBrief for '{target}' from these per-source extractions:\n\n{extractions}\n\n"
+    "Rules: set 'destination'. Every Finding.source.boundary MUST be 'public'. "
+    "Populate practical_info, highlights, safety_notes (cited). "
+    "Set best_time and budget_range. Write 'destination_overview'. Add Gaps for missing categories."
+)
+
 # --- Coordinator (SENTINEL-011): Goal→Plan→Delegate→Merge over specialist tools ---------- #
 _P_COORDINATOR = (
     "You are the Sentinel coordinator for intelligence on '{target}'. You do NOT research or "
@@ -438,6 +679,35 @@ def build_default() -> SentinelConfig:
         # Coordinator (SENTINEL-011): tool-caller (12B) that delegates to specialists. Inert until
         # coordinator.enabled is turned on — present so its model/prompt are configurable from day one.
         "coordinator": AgentConfig(role="coordinator", generation=_gen(0.2, 2048)),
+        # SENTINEL-014: universal domain specialists — same role-tiering as competitor/self_profile.
+        # planner + public_research are tool-callers (→ 12B under tiering). pin_gemini=False so
+        # these agents use vLLM (Gemma-4-12B) with DDG lite for search; Gemini key unavailable.
+        # extractor is a cheap tool-caller (→ 12B). synthesizer is a reasoner (→ 26B, tool-free).
+        "software.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
+        "software.public_research": AgentConfig(
+            role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
+        "software.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
+        "software.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "finance.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
+        "finance.public_research": AgentConfig(
+            role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
+        "finance.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
+        "finance.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "academic.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
+        "academic.public_research": AgentConfig(
+            role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
+        "academic.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
+        "academic.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "nutrition.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
+        "nutrition.public_research": AgentConfig(
+            role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
+        "nutrition.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
+        "nutrition.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "travel.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
+        "travel.public_research": AgentConfig(
+            role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
+        "travel.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
+        "travel.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
     }
     prompts = {
         "competitor.planner": _prompt(_P_COMPETITOR_PLANNER, []),
@@ -470,6 +740,32 @@ def build_default() -> SentinelConfig:
         # builder-substituted notes for the {private_note} slot
         "client.private_note_connected": _prompt(_NOTE_CONNECTED, []),
         "client.private_note_absent": _prompt(_NOTE_ABSENT, []),
+        # SENTINEL-014: universal domain specialists
+        "software.planner": _prompt(_P_SOFTWARE_PLANNER, []),
+        "software.public_research": _prompt(_P_SOFTWARE_PUBLIC, ["target", "research_plan"]),
+        "software.extractor": _prompt(_P_SOFTWARE_EXTRACTOR, ["target", "public_findings"]),
+        "software.synthesizer": _prompt(_P_SOFTWARE_SYNTH, ["target", "public_findings"]),
+        "software.synthesizer_2t": _prompt(_P_SOFTWARE_SYNTH_2T, ["target", "extractions"]),
+        "finance.planner": _prompt(_P_FINANCE_PLANNER, []),
+        "finance.public_research": _prompt(_P_FINANCE_PUBLIC, ["target", "research_plan"]),
+        "finance.extractor": _prompt(_P_FINANCE_EXTRACTOR, ["target", "public_findings"]),
+        "finance.synthesizer": _prompt(_P_FINANCE_SYNTH, ["target", "public_findings"]),
+        "finance.synthesizer_2t": _prompt(_P_FINANCE_SYNTH_2T, ["target", "extractions"]),
+        "academic.planner": _prompt(_P_ACADEMIC_PLANNER, []),
+        "academic.public_research": _prompt(_P_ACADEMIC_PUBLIC, ["target", "research_plan"]),
+        "academic.extractor": _prompt(_P_ACADEMIC_EXTRACTOR, ["target", "public_findings"]),
+        "academic.synthesizer": _prompt(_P_ACADEMIC_SYNTH, ["target", "public_findings"]),
+        "academic.synthesizer_2t": _prompt(_P_ACADEMIC_SYNTH_2T, ["target", "extractions"]),
+        "nutrition.planner": _prompt(_P_NUTRITION_PLANNER, []),
+        "nutrition.public_research": _prompt(_P_NUTRITION_PUBLIC, ["target", "research_plan"]),
+        "nutrition.extractor": _prompt(_P_NUTRITION_EXTRACTOR, ["target", "public_findings"]),
+        "nutrition.synthesizer": _prompt(_P_NUTRITION_SYNTH, ["target", "public_findings"]),
+        "nutrition.synthesizer_2t": _prompt(_P_NUTRITION_SYNTH_2T, ["target", "extractions"]),
+        "travel.planner": _prompt(_P_TRAVEL_PLANNER, []),
+        "travel.public_research": _prompt(_P_TRAVEL_PUBLIC, ["target", "research_plan"]),
+        "travel.extractor": _prompt(_P_TRAVEL_EXTRACTOR, ["target", "public_findings"]),
+        "travel.synthesizer": _prompt(_P_TRAVEL_SYNTH, ["target", "public_findings"]),
+        "travel.synthesizer_2t": _prompt(_P_TRAVEL_SYNTH_2T, ["target", "extractions"]),
     }
     return SentinelConfig(
         backend=_default_backend(), agents=agents, prompts=prompts,

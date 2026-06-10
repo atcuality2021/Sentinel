@@ -75,8 +75,28 @@ def test_effective_search_provider_keeps_noncloud_provider():
 
 
 def test_effective_search_provider_keeps_gemini_when_cloud_ok():
+    # cloud_ok + gemini backend → gemini search is fine (google_search works with Gemini models)
     assert G.effective_search_provider(_cfg("cloud_ok", provider="gemini"),
                                        allow_cloud=True) == "gemini"
+
+
+def test_effective_search_provider_falls_back_when_backend_vllm():
+    # cloud_ok + vllm backend → google_search (ADK builtin) won't work with LiteLlm;
+    # must fall back to onprem_fallback even though cloud is allowed.
+    cfg = _cfg("cloud_ok", provider="gemini")
+    cfg.backend.default = "vllm"  # type: ignore[assignment]
+    cfg.search.onprem_fallback = "duckduckgo"  # type: ignore[assignment]
+    assert G.effective_search_provider(cfg, allow_cloud=True) == "duckduckgo"
+
+
+def test_effective_search_provider_explicit_backend_wins_over_cfg_default():
+    # When an already-resolved backend is passed explicitly, it takes precedence
+    # over cfg.backend.default — so a sovereign run forced to vllm by governance
+    # gets the right fallback even if config says default=gemini.
+    cfg = _cfg("cloud_ok", provider="gemini")  # cfg.backend.default = "gemini"
+    cfg.search.onprem_fallback = "duckduckgo"  # type: ignore[assignment]
+    assert G.effective_search_provider(cfg, allow_cloud=True, backend="vllm") == "duckduckgo"
+    assert G.effective_search_provider(cfg, allow_cloud=True, backend="gemini") == "gemini"
 
 
 # --------------------------------------------------------------------------- #
@@ -249,6 +269,47 @@ def test_searxng_requires_env_url(monkeypatch):
     monkeypatch.delenv("SEARXNG_URL", raising=False)
     out = web_search.get_search_tool("searxng")("acme")
     assert out["status"] == "error" and "SEARXNG_URL" in out["message"] and out["results"] == []
+
+
+# --- google_cse provider (GOOGLE_API_KEY + GOOGLE_CSE_ID) ------------------------------------ #
+
+
+def test_google_cse_requires_api_key(monkeypatch):
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_CSE_ID", "cx-abc")
+    out = web_search.get_search_tool("google_cse")("openai")
+    assert out["status"] == "error" and "GOOGLE_API_KEY" in out["message"]
+
+
+def test_google_cse_requires_cx_id(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "gkey")
+    monkeypatch.delenv("GOOGLE_CSE_ID", raising=False)
+    out = web_search.get_search_tool("google_cse")("openai")
+    assert out["status"] == "error" and "GOOGLE_CSE_ID" in out["message"]
+
+
+def test_google_cse_parses_items_and_key_never_in_output(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "gkey-secret")
+    monkeypatch.setenv("GOOGLE_CSE_ID", "cx-abc123")
+    captured: dict = {}
+
+    def fake_get(url, **kw):
+        captured.update(kw)
+        captured["url"] = url
+        return _FakeResp({"items": [
+            {"title": "biltiq.ai", "link": "https://biltiq.ai/", "snippet": "AI platform."},
+        ]})
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    out = web_search.get_search_tool("google_cse", results=5)("biltiq")
+    assert out["status"] == "success"
+    assert out["results"][0]["url"] == "https://biltiq.ai/"
+    assert out["results"][0]["title"] == "biltiq.ai"
+    # API key travels in query params (captured); must never appear in the result dict.
+    assert "gkey-secret" not in str(out)
+    assert captured["params"]["key"] == "gkey-secret"
+    assert captured["params"]["cx"] == "cx-abc123"
+    assert captured["timeout"] == web_search._TIMEOUT_S
 
 
 def test_duckduckgo_parses_lite_serp(monkeypatch):

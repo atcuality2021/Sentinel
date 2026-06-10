@@ -15,7 +15,7 @@ import os
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import FastAPI, Form, Request
+from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 try:  # load .env (GOOGLE_API_KEY, backend config) if python-dotenv is present
@@ -33,7 +33,9 @@ from sentinel.artifacts.schemas import Domain, Persona, Project, Task
 from sentinel.config import get_config, set_config
 from sentinel.memory import DataBoundary, MemoryStore, RunStore, normalize_entity
 from sentinel.memory.schema import utcnow
-from sentinel.memory.store import ProjectStore
+from sentinel.kb import KBManager, KBSource, SourceType
+from sentinel.kb.url_guard import validate_crawl_url
+from sentinel.memory.store import KBStore, ProjectStore
 from sentinel.priority import PriorityStore, compute_account_priority
 from sentinel.tools.private.workspace_mcp import private_boundary_configured
 from sentinel.web import render
@@ -362,10 +364,14 @@ async def projects(ok: str = "") -> str:
 
 
 @app.post("/projects")
-async def create_project(name: str = Form(...), website: str = Form(""),
-                         objective: str = Form("")) -> RedirectResponse:
+async def create_project(
+    background_tasks: BackgroundTasks,
+    name: str = Form(...),
+    website: str = Form(""),
+    objective: str = Form(""),
+) -> RedirectResponse:
     name = name.strip()
-    if not name:  # reject a blank name; re-GET the list (no row created)
+    if not name:
         return RedirectResponse(url="/projects", status_code=303)
     proj = Project(
         id=uuid4().hex, name=name, website=website.strip() or None,
@@ -375,8 +381,26 @@ async def create_project(name: str = Form(...), website: str = Form(""),
         ProjectStore().save_project(proj)
     except Exception:
         return RedirectResponse(url="/projects?ok=Could+not+save+project.", status_code=303)
-    # 303 → browser re-GETs the next page; a refresh can't re-POST. If the dev gave a first objective,
-    # flow straight into planning that task; otherwise land on the project workspace.
+
+    # Auto-seed KB with the project website so crawl starts immediately
+    if proj.website:
+        try:
+            crawl_url = validate_crawl_url(proj.website)
+            source = KBSource(project_id=proj.id, url=crawl_url, source_type=SourceType.WEB)
+            KBStore().save({
+                "id": source.id, "project_id": source.project_id, "url": source.url,
+                "source_type": source.source_type.value, "status": "pending",
+                "chunk_count": 0, "error": None,
+            })
+
+            async def _auto_crawl(src_id: str, pid: str, u: str) -> None:
+                result = await KBManager(_kb_data_dir()).add_source(pid, u, SourceType.WEB)
+                KBStore().update_status(src_id, result.status.value, result.chunk_count, result.error)
+
+            background_tasks.add_task(_auto_crawl, source.id, proj.id, crawl_url)
+        except Exception:
+            pass  # invalid URL or store error — don't block project creation
+
     objective = objective.strip()
     if objective:
         return RedirectResponse(
@@ -397,7 +421,221 @@ async def project_detail(project_id: str) -> str:
         tasks = store.tasks_for_project(project_id)
     except Exception:
         tasks = []
-    return render.project_detail_page(project=proj, tasks=tasks, backend=_active())
+    return render.project_detail_page(
+        project=proj, tasks=tasks, backend=_active(),
+        vllm_model=_vllm_model(),
+        sovereign=get_config().governance.compliance_mode == "on_prem_required",
+    )
+
+
+@app.post("/projects/{project_id}/delete")
+async def delete_project_route(project_id: str) -> RedirectResponse:
+    """Delete a project and all its tasks/plans. Redirects to the projects list."""
+    try:
+        ProjectStore().delete_project(project_id)
+    except Exception:
+        pass
+    return RedirectResponse(url="/projects?ok=Project+deleted.", status_code=303)
+
+
+@app.get("/projects/{project_id}/tasks", response_class=HTMLResponse)
+async def project_tasks(project_id: str) -> str:
+    """Research tab — task creation form + full task list for this project."""
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return render.not_found_page(what=f"project {project_id}", backend=_active())
+    try:
+        tasks = store.tasks_for_project(project_id)
+    except Exception:
+        tasks = []
+    return render.project_tasks_page(
+        project=proj, tasks=tasks, backend=_active(),
+        vllm_model=_vllm_model(),
+        sovereign=get_config().governance.compliance_mode == "on_prem_required",
+    )
+
+
+def _kb_data_dir():
+    from pathlib import Path
+    import os
+    return Path(os.getenv("SENTINEL_DATA_DIR", "data"))
+
+
+@app.get("/projects/{project_id}/kb", response_class=HTMLResponse)
+async def project_kb(project_id: str, ok: str = "", err: str = "") -> str:
+    """Knowledge Base tab — shows indexed sources and crawl form."""
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return render.not_found_page(what=f"project {project_id}", backend=_active())
+    sources = KBStore().list_for_project(project_id)
+    return render.project_kb_page(project=proj, sources=sources, backend=_active(), ok=ok, err=err)
+
+
+@app.post("/projects/{project_id}/kb/sources")
+async def project_kb_add_source(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    url: str = Form(...),
+    source_type: str = Form("web"),
+) -> RedirectResponse:
+    """Start a background crawl + index job for the given URL."""
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return RedirectResponse(f"/projects/{project_id}/kb?err=Project+not+found", status_code=303)
+
+    # SSRF guard — validate scheme and resolve hostname before storing or crawling
+    try:
+        url = validate_crawl_url(url)
+    except ValueError as exc:
+        return RedirectResponse(
+            f"/projects/{project_id}/kb?err={quote(str(exc), safe='')}",
+            status_code=303,
+        )
+
+    kb_store = KBStore()
+    source = KBSource(
+        project_id=project_id,
+        url=url,
+        source_type=SourceType(source_type) if source_type in ("web", "social", "document") else SourceType.WEB,
+    )
+    kb_store.save({
+        "id": source.id,
+        "project_id": source.project_id,
+        "url": source.url,
+        "source_type": source.source_type.value,
+        "status": "pending",
+        "chunk_count": 0,
+        "error": None,
+    })
+
+    async def _run_crawl(src_id: str, pid: str, crawl_url: str, stype: str) -> None:
+        manager = KBManager(_kb_data_dir())
+        result = await manager.add_source(
+            pid, crawl_url, SourceType(stype),
+        )
+        KBStore().update_status(
+            src_id, result.status.value, result.chunk_count, result.error,
+        )
+
+    background_tasks.add_task(_run_crawl, source.id, project_id, url, source.source_type.value)
+    return RedirectResponse(
+        f"/projects/{project_id}/kb?ok=Crawl+started+for+{quote(url, safe='')}",
+        status_code=303,
+    )
+
+
+@app.post("/projects/{project_id}/kb/sources/{source_id}/delete")
+async def project_kb_delete_source(project_id: str, source_id: str) -> RedirectResponse:
+    """Remove a KB source record (does not delete vector data for now)."""
+    KBStore().delete(source_id, project_id)
+    return RedirectResponse(f"/projects/{project_id}/kb?ok=Source+removed", status_code=303)
+
+
+from fastapi.responses import JSONResponse  # noqa: E402
+
+@app.get("/projects/{project_id}/kb/search")
+async def kb_search(project_id: str, q: str = "") -> JSONResponse:
+    """Hybrid KB search — BM25 + vector + rerank. Returns top-5 chunks as JSON."""
+    if not q.strip():
+        return JSONResponse({"results": []})
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return JSONResponse({"error": "project not found"}, status_code=404)
+    try:
+        from sentinel.kb.search import hybrid_search
+        hits = hybrid_search(project_id, _kb_data_dir(), q.strip(), rerank_top_k=5)
+        return JSONResponse({"results": [r.to_dict() for r in hits]})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc), "results": []})
+
+
+@app.get("/projects/{project_id}/memory", response_class=HTMLResponse)
+async def project_memory(project_id: str, ok: str = "", err: str = "") -> str:
+    """Memory tab — episodic run records scoped to this project."""
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return render.not_found_page(what=f"project {project_id}", backend=_active())
+    try:
+        records = RunStore().all(project_id=project_id)
+    except Exception:
+        records = []
+    return render.project_memory_page(
+        project=proj, records=records, backend=_active(), ok=ok, err=err,
+    )
+
+
+@app.post("/projects/{project_id}/memory/{run_id}/delete")
+async def project_memory_delete(project_id: str, run_id: str) -> RedirectResponse:
+    """Delete a single episodic run record from project memory.
+
+    project_id is passed to the store so only runs belonging to this project can be deleted
+    (IDOR guard — a crafted URL using another project's run_id returns not-found, not a delete).
+    """
+    try:
+        deleted = RunStore().delete_run(run_id, project_id=project_id)
+        msg = f"ok=Run+{run_id[:8]}…+deleted." if deleted else f"err=Run+{run_id[:8]}+not+found."
+    except Exception as exc:
+        msg = f"err={type(exc).__name__}"
+    return RedirectResponse(url=f"/projects/{project_id}/memory?{msg}", status_code=303)
+
+
+@app.get("/projects/{project_id}/report", response_class=HTMLResponse)
+async def project_report(project_id: str) -> str:
+    """Report tab — consulting-grade output compiled from all task results for this project."""
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return render.not_found_page(what=f"project {project_id}", backend=_active())
+    tasks = [
+        {"id": t.id, "objective": t.objective, "status": t.status,
+         "result": t.result.model_dump() if t.result else None}
+        for t in store.tasks_for_project(project_id)
+    ]
+    return render.project_report_page(project=proj, tasks=tasks, backend=_active())
+
+
+@app.get("/projects/{project_id}/artifacts", response_class=HTMLResponse)
+async def project_artifacts(project_id: str) -> str:
+    """Artifacts tab — all run outputs scoped to this project."""
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return render.not_found_page(what=f"project {project_id}", backend=_active())
+    items = [
+        {"target": r.target, "entity": r.entity, "kind": r.kind, "public": r.public,
+         "private": r.private, "backend": r.backend, "reference": r.reference, "when": _when(r)}
+        for r in _runs(project_id=project_id)
+    ]
+    return render.artifacts_page(
+        artifacts=items, backend=_active(),
+        project=proj.name, project_id=project_id,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -419,9 +657,10 @@ def _run_policy(cloud_allowed: bool) -> dict:
     from sentinel.agent.governance import effective_backend, effective_search_provider
 
     cfg = get_config()
+    resolved_backend = effective_backend(cfg) if cloud_allowed else "vllm"
     return {
-        "backend": effective_backend(cfg) if cloud_allowed else "vllm",
-        "search_provider": effective_search_provider(cfg, allow_cloud=cloud_allowed),
+        "backend": resolved_backend,
+        "search_provider": effective_search_provider(cfg, allow_cloud=cloud_allowed, backend=resolved_backend),
     }
 
 
@@ -462,6 +701,19 @@ def _plan_seeds(task, plan, project=None) -> dict:
         [r"\b(?:against|vs\.?|versus|compared?\s+(?:to|with)|competitor[s]?:?)\s+(.+?)(?:\s+(?:and|,|\.)|$)"],
         obj,
     )
+    # inject_org_prefs: when the config flag is on, enrich every step's vertical_context with
+    # the project name and website so the synthesizer knows WHO we are researching FOR.
+    # The existing prompt templates already surface vertical_context — no prompt edits needed.
+    cfg_mem = getattr(get_config(), "memory", None)
+    inject_prefs = getattr(cfg_mem, "inject_org_prefs", True) if cfg_mem else True
+    org_ctx = ""
+    if inject_prefs and project is not None:
+        proj_name = getattr(project, "name", "") or ""
+        if proj_name:
+            org_ctx = f"\n\nProject context: researching on behalf of '{proj_name}'"
+            if site:
+                org_ctx += f" ({site})"
+
     out = {}
     for s in plan.steps:
         if s.capability == "self_profile":
@@ -469,10 +721,10 @@ def _plan_seeds(task, plan, project=None) -> dict:
         elif s.capability in ("competitor", "client"):
             target = rival
         else:
-            target = obj                         # reasoners read upstream artifacts, not a target
-        seed = {"target": target, "vertical_context": obj}
+            target = obj
+        seed = {"target": target, "vertical_context": obj + org_ctx}
         if site:
-            seed["website"] = site               # the project's own site, available to the self side
+            seed["website"] = site
         out[s.id] = seed
     return out
 
@@ -526,7 +778,7 @@ def _persona_for(name: str) -> Persona:
 
 @app.get("/projects/{project_id}/plan", response_class=HTMLResponse)
 async def plan_review(project_id: str, objective: str = "", domain: str = "market",
-                      persona: str = "enterprise") -> str:
+                      persona: str = "enterprise", backend: str = "") -> str:
     proj = ProjectStore().get_project(project_id)
     if proj is None:
         return render.not_found_page(what=f"project {project_id}", backend=_active())
@@ -546,6 +798,12 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
     else:
         task.persona = _persona_for(persona)
     cloud_allowed = _cloud_allowed_for(proj)
+    # Validate and apply user-chosen backend, honouring sovereignty (never allow cloud when blocked).
+    backend = backend.strip().lower()
+    if backend not in ("gemini", "vllm"):
+        backend = ""
+    if backend == "gemini" and not cloud_allowed:
+        backend = "vllm"  # governance override: can't allow cloud when project is on_prem_required
     try:
         proposal = await plan_task(task, AgentRegistry(), cloud_allowed=cloud_allowed)
         task.status = "planned"             # the plan exists now (reflected in the Tasks list)
@@ -553,26 +811,30 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
         store.save_task(task)
         store.save_plan(proposal.plan)  # persist so Approve can reload the exact plan (no re-plan)
         trace: list[str] = []           # the execution log: which step ran on which agent, fail-soft notes
+        policy = _run_policy(cloud_allowed)
+        if backend:
+            policy["backend"] = backend
         outcome = await gate_proposal(
             proposal, autonomy=proj.settings.autonomy, seeds=_plan_seeds(task, proposal.plan, proj),
-            cfg=get_config(), cloud_allowed=cloud_allowed, trace=trace, **_run_policy(cloud_allowed),
+            cfg=get_config(), cloud_allowed=cloud_allowed, trace=trace, **policy,
             persona=task.persona, grade=_grade_sample(), grade_objective=task.objective,
         )
         if outcome.ran and outcome.result is not None:
             task.status = "failed" if outcome.result.degraded else "done"   # honest run state
             task.result = outcome.result    # persist on the task so it lives at the task's own URL
             store.save_task(task)
-            _persist_run(task, outcome.result, _run_policy(cloud_allowed)["backend"])
+            _persist_run(task, outcome.result, policy["backend"])
     except Exception as exc:  # a live demo surfaces the failure rather than a blank 500
         return render.error_page(f"{type(exc).__name__}: {exc}", backend=_active())
-    # PRG: land on the task's own URL so the plan + result are bookmarkable/refresh-safe, not stuck on
-    # the shared /plan querystring. The execution trace is ephemeral (in-memory only); it re-renders
-    # from the persisted result on the task page.
-    return RedirectResponse(url=f"/projects/{project_id}/tasks/{quote(task.id)}", status_code=303)
+    # PRG: carry the backend choice in the redirect so task_detail can pre-fill the approve form.
+    be_qs = f"&backend={quote(backend)}" if backend else ""
+    return RedirectResponse(
+        url=f"/projects/{project_id}/tasks/{quote(task.id)}?from_plan=1{be_qs}", status_code=303)
 
 
 @app.get("/projects/{project_id}/tasks/{task_id}", response_class=HTMLResponse)
-async def task_detail(project_id: str, task_id: str) -> str:
+async def task_detail(project_id: str, task_id: str, backend: str = "",
+                      from_plan: str = "") -> str:
     """The canonical per-task page (PRG target): its plan DAG + assigned agents + call boundaries,
     the Approve & run control, and — once run — the persisted Result + execution trace. Both planning
     (GET /plan) and running (POST .../run) redirect here, so each task's output lives at its own URL
@@ -595,22 +857,57 @@ async def task_detail(project_id: str, task_id: str) -> str:
     proj = store.get_project(project_id)
     autonomy = proj.settings.autonomy if proj is not None else "propose"
     result = task.result
+    # Sanitise backend: only carry forward a valid choice from the plan redirect.
+    selected_be = backend.strip().lower() if backend.strip().lower() in ("gemini", "vllm") else ""
     return render.plan_review_page(task=task, proposal=PlanProposal(plan=plan, created_specs=[]),
                                    autonomy=autonomy, backend=_active(),
-                                   ran=result is not None, result=result)
+                                   ran=result is not None, result=result,
+                                   selected_backend=selected_be)
 
 
 @app.post("/projects/{project_id}/tasks/{task_id}/delete")
 async def delete_task_route(project_id: str, task_id: str) -> RedirectResponse:
-    """Tidy the Tasks list: drop a task (and its plan). Always 303 back to the project workspace."""
+    """Tidy the Tasks list: drop a task (and its plan). Always 303 back to the Research tab."""
     try:
         ProjectStore().delete_task(task_id)
     except Exception:
         pass  # fail-soft: a bad delete still returns to the page, never a 500
-    return RedirectResponse(url=f"/projects/{project_id}", status_code=303)
+    return RedirectResponse(url=f"/projects/{project_id}/tasks", status_code=303)
 
 
-async def _approve_and_run(task_id: str) -> RedirectResponse | str:
+@app.post("/projects/{project_id}/tasks/{task_id}/feedback")
+async def task_feedback_route(
+    project_id: str,
+    task_id: str,
+    signal: int = Form(...),
+    note: str = Form(""),
+) -> JSONResponse:
+    """Record a thumbs-up (+1) or thumbs-down (-1) on a task result.
+
+    The signal is persisted in ``user_feedback`` and immediately applied to the entity's
+    SM-2 memory entries: +1 reinforces, -1 weakens. Returns JSON so the fetch-based UI
+    can update the button state without a full page reload.
+    """
+    if signal not in (1, -1):
+        return JSONResponse({"ok": False, "error": "signal must be +1 or -1"}, status_code=400)
+    store = ProjectStore()
+    task = store.get_task(task_id)
+    if task is None or task.project_id != project_id:
+        return JSONResponse({"ok": False, "error": "task not found"}, status_code=404)
+    from sentinel.memory.store import FeedbackStore
+
+    FeedbackStore().save(
+        project_id=project_id,
+        task_id=task_id,
+        run_id=task_id,          # task_id is a stable per-task surrogate for the latest run
+        entity=task.objective,
+        signal=signal,
+        note=note.strip() or None,
+    )
+    return JSONResponse({"ok": True, "signal": signal})
+
+
+async def _approve_and_run(task_id: str, override_backend: str = "") -> RedirectResponse | str:
     """Human approval of a proposed plan: reload the persisted plan, run it autonomously, persist the
     Result onto the task, then (PRG) redirect to the task's own URL where the output is rendered. The
     created specs are already persisted (Step 15), so the proposal is rebuilt from the stored plan."""
@@ -626,31 +923,37 @@ async def _approve_and_run(task_id: str) -> RedirectResponse | str:
     proposal = PlanProposal(plan=plan, created_specs=[])
     try:
         trace: list[str] = []
+        policy = _run_policy(cloud_allowed)
+        # Apply user's explicit backend choice, honouring sovereignty.
+        if override_backend in ("gemini", "vllm") and (cloud_allowed or override_backend != "gemini"):
+            policy["backend"] = override_backend
         outcome = await gate_proposal(
             proposal, autonomy="autonomous", seeds=_plan_seeds(task, plan, proj),
-            cfg=get_config(), cloud_allowed=cloud_allowed, trace=trace, **_run_policy(cloud_allowed),
+            cfg=get_config(), cloud_allowed=cloud_allowed, trace=trace, **policy,
             persona=task.persona, grade=_grade_sample(), grade_objective=task.objective,
         )
         if outcome.ran and outcome.result is not None:
             task.status = "failed" if outcome.result.degraded else "done"   # reflect the run in the list
             task.result = outcome.result      # persist on the task so it lives at the task's own URL
             store.save_task(task)
-            _persist_run(task, outcome.result, _run_policy(cloud_allowed)["backend"])
+            _persist_run(task, outcome.result, policy["backend"])
     except Exception as exc:
         return render.error_page(f"{type(exc).__name__}: {exc}", backend=_active())
     return RedirectResponse(url=f"/projects/{task.project_id}/tasks/{quote(task.id)}", status_code=303)
 
 
 @app.post("/projects/{project_id}/tasks/{task_id}/run", response_model=None)
-async def run_task_route(project_id: str, task_id: str) -> RedirectResponse | str:
+async def run_task_route(project_id: str, task_id: str,
+                         backend: str = Form("")) -> RedirectResponse | str:
     """Per-task run route (the Approve & run control posts here) — each task runs at its own URL."""
-    return await _approve_and_run(task_id)
+    return await _approve_and_run(task_id, override_backend=backend.strip().lower())
 
 
 @app.post("/projects/run-plan", response_model=None)
-async def run_plan_route(task_id: str = Form(...)) -> RedirectResponse | str:
+async def run_plan_route(task_id: str = Form(...),
+                         backend: str = Form("")) -> RedirectResponse | str:
     """Back-compat alias for the per-task run route (kept so existing forms/links keep working)."""
-    return await _approve_and_run(task_id)
+    return await _approve_and_run(task_id, override_backend=backend.strip().lower())
 
 
 @app.post("/run", response_class=HTMLResponse)
@@ -704,6 +1007,7 @@ def _settings_html(*, ok: str = "", err: str = "") -> str:
         vllm_key_set=_key_set("VLLM_API_KEY"),
         brave_key_set=_key_set("BRAVE_API_KEY"),
         serpapi_key_set=_key_set("SERPAPI_API_KEY"),
+        google_cse_id_set=_key_set("GOOGLE_CSE_ID"),
         atcuality_key_set=_key_set("ATCUALITY_API_KEY"),
         ok=ok,
         err=err,
@@ -843,6 +1147,8 @@ async def settings_memory(
     entity_memory: str = Form(""),
     retention_days: str = Form(""),
     inject_org_prefs: str = Form(""),
+    episodic_recall: str = Form(""),
+    episodic_recall_top_k: str = Form("3"),
 ) -> str:
     try:
         cfg = settings_helpers.apply_memory(
@@ -850,11 +1156,55 @@ async def settings_memory(
             entity_memory=bool(entity_memory),
             retention_days=retention_days,
             inject_org_prefs=bool(inject_org_prefs),
+            episodic_recall=bool(episodic_recall),
+            episodic_recall_top_k=episodic_recall_top_k,
         )
         set_config(cfg, persist=True)
     except ValueError as exc:
         return _settings_html(err=str(exc))
     return _settings_html(ok="Memory settings saved.")
+
+
+@app.post("/settings/harness", response_class=HTMLResponse)
+async def settings_harness(
+    max_turns: str = Form("30"),
+    max_retries: str = Form("3"),
+    base_retry_delay_s: str = Form("1.0"),
+) -> str:
+    """Agent harness settings: turn controller + retry policy (SENTINEL-015 FR-06/FR-07)."""
+    try:
+        cfg = settings_helpers.apply_harness(
+            get_config(),
+            max_turns=max_turns,
+            max_retries=max_retries,
+            base_retry_delay_s=base_retry_delay_s,
+        )
+        set_config(cfg, persist=True)
+    except ValueError as exc:
+        return _settings_html(err=str(exc))
+    return _settings_html(ok="Harness settings saved. The next run uses them.")
+
+
+@app.get("/memory/episodes", response_class=HTMLResponse)
+async def memory_episodes(ok: str = "", err: str = "") -> str:
+    """Episodic memory viewer — list all run records with delete controls (SENTINEL-015 CRUD)."""
+    try:
+        records = RunStore().all()
+    except Exception:
+        records = []
+    return render.episodes_page(records=records, backend=_active(), ok=ok, err=err)
+
+
+@app.post("/memory/episodes/{run_id}/delete", response_class=HTMLResponse)
+async def memory_episode_delete(run_id: str) -> HTMLResponse:
+    """Delete a single run record from episodic memory (SENTINEL-015 CRUD)."""
+    from fastapi.responses import RedirectResponse
+    try:
+        deleted = RunStore().delete_run(run_id)
+        msg = f"ok=Run+{run_id[:8]}…+deleted." if deleted else f"err=Run+{run_id[:8]}+not+found."
+    except Exception as exc:
+        msg = f"err={type(exc).__name__}"
+    return RedirectResponse(url=f"/memory/episodes?{msg}", status_code=303)
 
 
 @app.post("/settings/agents/{key}", response_class=HTMLResponse)
