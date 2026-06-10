@@ -750,3 +750,49 @@ def test_handoff_priority_ordering(tmp_path):
     pending = store.pending()
     priorities = [p["priority"] for p in pending]
     assert priorities == sorted(priorities, reverse=True)
+
+
+# --- LOW-09: pending() project_id filter prevents cross-tenant leakage -------------------- #
+
+
+def test_handoff_pending_filters_by_project_id(tmp_path):
+    """pending(project_id=X) must only return handoffs for project X."""
+    from sentinel.memory.store import SessionHandoffStore
+    from sentinel.memory.schema import SessionHandoff
+    store = SessionHandoffStore(tmp_path / "sentinel.db")
+    store.post(SessionHandoff(entity="stripe", intent="competitor profile",
+                              priority=5, project_id="proj-A"))
+    store.post(SessionHandoff(entity="acme", intent="client brief",
+                              priority=7, project_id="proj-B"))
+    store.post(SessionHandoff(entity="glean", intent="market scan",
+                              priority=3, project_id="proj-A"))
+
+    a_pending = store.pending(project_id="proj-A")
+    b_pending = store.pending(project_id="proj-B")
+
+    assert all(p["project_id"] == "proj-A" for p in a_pending)
+    assert len(a_pending) == 2
+    assert all(p["project_id"] == "proj-B" for p in b_pending)
+    assert len(b_pending) == 1
+
+
+def test_handoff_pending_no_project_id_returns_all(tmp_path):
+    """pending() without project_id returns all tenants — backward-compat for admin callers."""
+    from sentinel.memory.store import SessionHandoffStore
+    from sentinel.memory.schema import SessionHandoff
+    store = SessionHandoffStore(tmp_path / "sentinel.db")
+    store.post(SessionHandoff(entity="x", intent="t1", priority=5, project_id="proj-X"))
+    store.post(SessionHandoff(entity="y", intent="t2", priority=5, project_id="proj-Y"))
+
+    all_pending = store.pending()
+    assert len(all_pending) == 2
+
+
+def test_handoff_pending_unknown_project_id_returns_empty(tmp_path):
+    """pending(project_id=Z) with no matching rows returns [] without error."""
+    from sentinel.memory.store import SessionHandoffStore
+    from sentinel.memory.schema import SessionHandoff
+    store = SessionHandoffStore(tmp_path / "sentinel.db")
+    store.post(SessionHandoff(entity="x", intent="t", priority=5, project_id="proj-X"))
+
+    assert store.pending(project_id="proj-UNKNOWN") == []

@@ -1769,16 +1769,30 @@ class SessionHandoffStore:
         except Exception:
             pass
 
-    def pending(self, limit: int = 20) -> list[dict]:
-        """Return up to *limit* unclaimed handoffs, highest priority first. Fail-soft → []."""
+    def pending(self, limit: int = 20, *, project_id: str | None = None) -> list[dict]:
+        """Return up to *limit* unclaimed handoffs, highest priority first.
+
+        When *project_id* is supplied only handoffs for that project are returned,
+        preventing cross-tenant leakage in multi-project deployments. Omitting it
+        returns all pending handoffs (backward-compat for internal/admin callers).
+        Fail-soft → [].
+        """
         try:
             with _connect(self.path) as conn:
-                rows = conn.execute(
-                    "SELECT id, entity, intent, mode, priority, reason, project_id, created_at "
-                    "FROM session_handoffs WHERE status='pending' "
-                    "ORDER BY priority DESC, created_at ASC LIMIT ?",
-                    (limit,),
-                ).fetchall()
+                if project_id:
+                    rows = conn.execute(
+                        "SELECT id, entity, intent, mode, priority, reason, project_id, created_at "
+                        "FROM session_handoffs WHERE status='pending' AND project_id=? "
+                        "ORDER BY priority DESC, created_at ASC LIMIT ?",
+                        (project_id, limit),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT id, entity, intent, mode, priority, reason, project_id, created_at "
+                        "FROM session_handoffs WHERE status='pending' "
+                        "ORDER BY priority DESC, created_at ASC LIMIT ?",
+                        (limit,),
+                    ).fetchall()
             return [
                 {
                     "id": r["id"],
