@@ -955,19 +955,59 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
     step's prompt receives the context block. Fail-soft: any recall error leaves kwargs unchanged.
     """
     cfg = kwargs.get("cfg") or get_config()
-    if getattr(getattr(cfg, "memory", None), "episodic_recall", True):
+    mem_cfg = getattr(cfg, "memory", None)
+    _entity_on = getattr(mem_cfg, "entity_memory", True)
+    _episodic_on = getattr(mem_cfg, "episodic_recall", True)
+    _kb_on = getattr(mem_cfg, "kb_context", True)
+    if _entity_on or _episodic_on or _kb_on:
         try:
             base = dict(kwargs.get("base_seed") or {})
-            target = str(base.get("target") or plan.task_id or "")
+            project_id = kwargs.get("project_id")
+            first_seed = next(iter((kwargs.get("seeds") or {}).values()), {})
+            raw_target = (
+                base.get("target")
+                or str(first_seed.get("vertical_context") or "").split("\n")[0]
+                or plan.task_id
+                or ""
+            )
+            target = str(raw_target).strip()
             if target:
-                top_k = int(getattr(cfg.memory, "episodic_recall_top_k", 3))
-                episodes = RunStore().recall_episodes(target, top_k=top_k)
-                ep_ctx = orch._render_episodic_context(episodes)
-                if ep_ctx:
-                    base["memory_context"] = base.get("memory_context", "") + ep_ctx
+                ctx_parts: list[str] = []
+                if _entity_on:
+                    from sentinel.memory import DataBoundary, MemoryStore
+                    recalled = MemoryStore().recall(target, {DataBoundary.PUBLIC})
+                    entity_ctx = orch._render_memory_context(recalled)
+                    if entity_ctx:
+                        ctx_parts.append(entity_ctx)
+                if _episodic_on:
+                    top_k = int(getattr(mem_cfg, "episodic_recall_top_k", 3))
+                    episodes = RunStore().recall_episodes(target, top_k=top_k, project_id=project_id)
+                    ep_ctx = orch._render_episodic_context(episodes)
+                    if ep_ctx:
+                        ctx_parts.append(ep_ctx)
+                if _kb_on and project_id:
+                    try:
+                        from sentinel.kb.search import hybrid_search
+                        kb_dir = str(data_dir() / "kb")
+                        hits = hybrid_search(project_id, kb_dir, target, rerank_top_k=5)
+                        if hits:
+                            kb_lines = [
+                                f"- [{h.url or 'kb'}] {h.text[:300]}"
+                                for h in hits[:5] if h.text
+                            ]
+                            if kb_lines:
+                                ctx_parts.insert(0,
+                                    "\n\n## Knowledge base context (indexed documents for this project)\n"
+                                    + "\n".join(kb_lines)
+                                    + "\nUse this to supplement and verify your research."
+                                )
+                    except Exception:
+                        pass  # KB unavailable → fail-soft, run continues without it
+                if ctx_parts:
+                    base["memory_context"] = base.get("memory_context", "") + "".join(ctx_parts)
                     kwargs = {**kwargs, "base_seed": base}
         except Exception:
-            pass  # fail-soft: never let episodic recall break a DAG run
+            pass  # fail-soft: never let memory injection break a DAG run
     return await run_plan(plan, assemble=assemble_generic, **kwargs)
 
 

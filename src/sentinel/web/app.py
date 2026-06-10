@@ -935,6 +935,7 @@ async def _approve_and_run(task_id: str, override_backend: str = "") -> Redirect
             proposal, autonomy="autonomous", seeds=_plan_seeds(task, plan, proj),
             cfg=get_config(), cloud_allowed=cloud_allowed, trace=trace, **policy,
             persona=task.persona, grade=_grade_sample(), grade_objective=task.objective,
+            project_id=task.project_id,
         )
         if outcome.ran and outcome.result is not None:
             task.status = "failed" if outcome.result.degraded else "done"   # reflect the run in the list

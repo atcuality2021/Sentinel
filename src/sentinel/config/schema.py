@@ -168,6 +168,9 @@ class MemoryConfig(BaseModel):  # stub — filled by SENTINEL-002
     # byte-identical to pre-015 (AC-10 parity).
     episodic_recall: bool = True
     episodic_recall_top_k: int = Field(default=3, ge=1, le=10)
+    # KB/ChromaDB context injection (SENTINEL-016 G-03): pull top-N indexed document chunks into
+    # base_seed["memory_context"] via hybrid_search before every DAG run.
+    kb_context: bool = True
 
 
 class GovernanceConfig(BaseModel):
