@@ -11,6 +11,7 @@ search + model output, so they are untrusted by default — no stored XSS via a 
 from __future__ import annotations
 
 import json
+import re as _re
 from html import escape
 from urllib.parse import quote
 
@@ -2002,6 +2003,32 @@ def _artifact_html(key: str, art) -> str:
                      f"{escape(json.dumps(art, indent=2, default=str))}</pre>")
 
 
+_FIND_UL_RE = _re.compile(r"<ul class='find'>.*?</ul>", _re.DOTALL)
+
+
+def _findings_to_table(html: str) -> str:
+    """Convert every <ul class='find'>…</ul> block to a compact <table> — preferred_format='table'."""
+    def _ul_to_table(m: _re.Match) -> str:
+        items = _re.findall(r"<li>(.*?)</li>", m.group(0), _re.DOTALL)
+        if not items:
+            return m.group(0)
+        rows = "".join(f"<tr><td style='padding:3px 6px;border-bottom:1px solid var(--border)'>"
+                       f"{item}</td></tr>" for item in items)
+        return (f"<table style='width:100%;border-collapse:collapse;margin-top:4px'>"
+                f"<tbody>{rows}</tbody></table>")
+    return _FIND_UL_RE.sub(_ul_to_table, html)
+
+
+def _findings_to_prose(html: str) -> str:
+    """Convert every <ul class='find'>…</ul> block to a paragraph — preferred_format='prose'."""
+    def _ul_to_p(m: _re.Match) -> str:
+        items = _re.findall(r"<li>(.*?)</li>", m.group(0), _re.DOTALL)
+        if not items:
+            return m.group(0)
+        return f"<p class='note' style='margin-top:4px'>{' '.join(items)}</p>"
+    return _FIND_UL_RE.sub(_ul_to_p, html)
+
+
 def _result_card(result) -> str:
     """Render an orchestrated Result inline (the deliverable): summary + honesty flags, each produced
     artifact, the cited sources by boundary, and any persona-adapted prose / model grade. This is what
@@ -2016,10 +2043,15 @@ def _result_card(result) -> str:
             f"{_provenance_bar(pub, prv)}</div>")
 
     arts = (result.dashboard_payload or {}).get("artifacts", {}) or {}
+    _fmt = getattr(result, "preferred_format", None) or "bullets"
     if arts:
-        blocks = [_artifact_html(key, art) for key, art in arts.items()]
+        raw_html = "".join(_artifact_html(key, art) for key, art in arts.items())
+        if _fmt == "table":
+            raw_html = _findings_to_table(raw_html)
+        elif _fmt == "prose":
+            raw_html = _findings_to_prose(raw_html)
         arts_html = ("<div class='section-h'><h2>Deliverables</h2></div>"
-                     "<div style='display:grid;gap:10px'>" + "".join(blocks) + "</div>")
+                     f"<div style='display:grid;gap:10px'>{raw_html}</div>")
     else:
         arts_html = ("<div class='section-h'><h2>Artifacts</h2></div>"
                      "<div class='card'><div class='empty'>No artifact content produced (the run "

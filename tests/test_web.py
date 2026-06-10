@@ -248,3 +248,151 @@ def test_render_escapes_untrusted_text():
     html = render.render_battlecard(bc, backend="g", reference="r", trace=[])
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;" in html
+
+
+# --- HIGH-04: preferred_format is a hard render-layer switch, not a soft prompt ----------- #
+
+
+def test_findings_to_table_converts_ul_to_table():
+    """_findings_to_table must replace <ul class='find'>…</ul> with a <table> element."""
+    html = ("<div><b>Strengths</b><ul class='find'>"
+            "<li>item A</li><li>item B</li></ul></div>")
+    out = render._findings_to_table(html)
+    assert "<table" in out
+    assert "<ul" not in out
+    assert "item A" in out
+    assert "item B" in out
+
+
+def test_findings_to_prose_converts_ul_to_paragraph():
+    """_findings_to_prose must replace <ul class='find'>…</ul> with a <p> element."""
+    html = ("<div><b>Weaknesses</b><ul class='find'>"
+            "<li>weak A</li><li>weak B</li></ul></div>")
+    out = render._findings_to_prose(html)
+    assert "<p" in out
+    assert "<ul" not in out
+    assert "weak A" in out
+
+
+def test_findings_to_table_leaves_non_find_ul_alone():
+    """Only <ul class='find'> blocks should be transformed; other ULs must be untouched."""
+    html = "<ul class='nav'><li>nav item</li></ul>"
+    out = render._findings_to_table(html)
+    assert "<ul class='nav'>" in out  # unchanged
+
+
+def test_result_card_applies_table_format(monkeypatch):
+    """_result_card must apply _findings_to_table when result.preferred_format='table'."""
+    from sentinel.artifacts.schemas import Result, Source, Boundary
+
+    art = {
+        "one_line_summary": "test",
+        "strengths": [{"text": "fast"}],
+        "weaknesses": [],
+        "pricing_signals": [],
+        "recent_developments": [],
+    }
+    result = Result(
+        task_id="t1",
+        summary="done",
+        artifacts=[],
+        citations=[],
+        dashboard_payload={"artifacts": {"battlecard": art}},
+        degraded=False,
+        preferred_format="table",
+    )
+    html = render._result_card(result)
+    assert "<table" in html
+    assert "<ul class='find'>" not in html
+
+
+def test_result_card_applies_prose_format(monkeypatch):
+    """_result_card must apply _findings_to_prose when result.preferred_format='prose'."""
+    from sentinel.artifacts.schemas import Result
+
+    art = {
+        "financial_summary": "strong",
+        "one_line_summary": "solid",
+        "key_metrics": [{"text": "revenue up 30%"}],
+        "market_position": [],
+        "risk_signals": [],
+        "recent_developments": [],
+    }
+    result = Result(
+        task_id="t1", summary="done", artifacts=[], citations=[],
+        dashboard_payload={"artifacts": {"finance": art}},
+        degraded=False,
+        preferred_format="prose",
+    )
+    html = render._result_card(result)
+    assert "<p class='note'" in html
+    assert "<ul class='find'>" not in html
+
+
+def test_result_card_default_bullets_unchanged():
+    """Without preferred_format, _result_card renders findings as <ul class='find'> bullets."""
+    from sentinel.artifacts.schemas import Result
+
+    art = {
+        "one_line_summary": "test",
+        "strengths": [{"text": "reliable"}],
+        "weaknesses": [],
+        "pricing_signals": [],
+        "recent_developments": [],
+    }
+    result = Result(
+        task_id="t1", summary="done", artifacts=[], citations=[],
+        dashboard_payload={"artifacts": {"battlecard": art}},
+        degraded=False,
+    )
+    html = render._result_card(result)
+    assert "<ul class='find'>" in html
+
+
+def test_result_preferred_format_round_trips():
+    """Result.preferred_format serialises and deserialises without loss."""
+    from sentinel.artifacts.schemas import Result
+    r = Result(task_id="t", summary="s", preferred_format="table")
+    r2 = Result.model_validate(r.model_dump())
+    assert r2.preferred_format == "table"
+
+
+def test_run_dag_stamps_preferred_format_on_result(tmp_path, monkeypatch):
+    """run_dag must set result.preferred_format when the user profile has a non-default format."""
+    import asyncio
+    from sentinel.memory.schema import UserProfile
+    from sentinel.memory.store import UserProfileStore
+
+    monkeypatch.setenv("SENTINEL_DATA_DIR", str(tmp_path))
+    UserProfileStore(tmp_path / "sentinel.db").upsert(UserProfile(
+        user_id="u1", verbosity=3, citation_density=3, domain_level="analyst",
+        preferred_format="table",
+    ))
+
+    from sentinel.agent import dag as _dag
+
+    async def _fake_run_plan(plan, *, assemble, **kw):
+        from sentinel.artifacts.schemas import Result
+        for s in plan.steps:
+            s.status = "done"
+        return Result(task_id=plan.task_id, summary="ok", artifacts=[], citations=[],
+                      dashboard_payload={}, degraded=False)
+
+    monkeypatch.setattr(_dag, "run_plan", _fake_run_plan)
+
+    from sentinel.artifacts.schemas import Plan, Step
+    plan = Plan(id="ph4", task_id="th4", steps=[
+        Step(id="finance", capability="finance", output_key="finance"),
+    ])
+    from sentinel.config.defaults import build_default
+    from sentinel.config.schema import BackendOption
+    cfg = build_default()
+    cfg.backend.default = "vllm"
+    cfg.backend.roles = {
+        "synthesizer": BackendOption(model="gemma", api_base="http://localhost/v1")
+    }
+    result = asyncio.run(_dag.run_dag(
+        plan, cfg=cfg, backend="vllm", cloud_allowed=False, use_cache=False,
+        user_id="u1",
+    ))
+    assert result.preferred_format == "table"

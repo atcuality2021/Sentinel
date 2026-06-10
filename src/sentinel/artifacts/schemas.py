@@ -423,6 +423,11 @@ class Result(BaseModel):
     )
     degraded: bool = False
     missing_inputs: list[str] = Field(default_factory=list)
+    preferred_format: str | None = Field(
+        default=None,
+        description="Hard render hint stamped from UserProfile.preferred_format: "
+                    "'bullets' | 'prose' | 'table'. None = default bullets.",
+    )
 
 
 # --------------------------------------------------------------------------- #

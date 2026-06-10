@@ -1136,6 +1136,17 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
                 SessionHandoffStore().complete(_hid)
         except Exception:
             pass
+    # G-14 render hint: stamp preferred_format from user profile so the render layer applies it
+    # deterministically (hard switch) rather than relying on the soft synthesizer instruction alone.
+    try:
+        _user_id = kwargs.get("user_id") or (kwargs.get("base_seed") or {}).get("user_id")
+        if _user_id:
+            from sentinel.memory.store import UserProfileStore
+            _pf = getattr(UserProfileStore().get(_user_id), "preferred_format", None)
+            if _pf and _pf != "bullets":
+                result.preferred_format = _pf
+    except Exception:
+        pass
     return result
 
 
