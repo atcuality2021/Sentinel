@@ -46,6 +46,48 @@ def test_create_project_then_detail_renders(client):
     assert "BiltIQ market-capture" in listing.text
 
 
+def test_create_project_with_context_saves_and_prefills(client):
+    """New Project form accepts a context/use-case prompt; it persists on the project and
+    prefills the New Task form so every research task inherits it (Assam/BiltIQ flow)."""
+    ctx = "Map BiltIQ services to Assam government needs: flood, border security, agriculture."
+    r = client.post("/projects", data={
+        "name": "Assam GTM", "website": "https://biltiq.ai", "context": ctx,
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    pid = r.headers["location"].rsplit("/", 1)[1]
+
+    from sentinel.memory.store import ProjectStore
+    proj = ProjectStore().get_project(pid)
+    assert proj is not None and proj.context == ctx
+
+    # The research/tasks page prefills the inherited context into the task form.
+    tasks_page = client.get(f"/projects/{pid}/tasks")
+    assert tasks_page.status_code == 200
+    assert "flood, border security, agriculture" in tasks_page.text
+    assert "Inherited from the project" in tasks_page.text
+
+
+def test_create_project_threads_context_to_plan_redirect(client):
+    """When an objective is supplied, context + client_url ride the PRG redirect to the
+    plan route (which owns task-context persistence and the client-site KB crawl)."""
+    r = client.post("/projects", data={
+        "name": "Assam GTM 2", "objective": "Research Assam departments",
+        "context": "vendor is BiltIQ", "client_url": "https://assam.gov.in",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    loc = r.headers["location"]
+    assert "/plan?objective=" in loc
+    assert "context=vendor%20is%20BiltIQ" in loc
+    assert "client_url=https%3A//assam.gov.in" in loc
+
+
+def test_new_project_form_has_context_fields(client):
+    page = client.get("/projects")
+    assert page.status_code == 200
+    assert "name='context'" in page.text
+    assert "name='client_url'" in page.text
+
+
 def test_blank_name_creates_nothing(client):
     before = client.get("/projects").text
     r = client.post("/projects", data={"name": "   ", "website": ""}, follow_redirects=False)

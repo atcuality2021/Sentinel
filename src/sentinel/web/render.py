@@ -459,7 +459,10 @@ _LOADER_HTML = (
 )
 _LOADER_JS = """
 (function(){var o=document.getElementById('ld');if(!o)return;
-document.querySelectorAll('form').forEach(function(f){f.addEventListener('submit',function(){
+document.querySelectorAll('form').forEach(function(f){
+var a=f.getAttribute('action')||'';
+if(a.indexOf('run-plan')>-1||/\\/run$/.test(a))return; // runs redirect to the live timeline — no popup
+f.addEventListener('submit',function(){
 var b=f.querySelector('button[type=submit],button:not([type])');var m=document.getElementById('ldmsg');
 if(m&&b&&b.textContent)m.textContent=b.textContent.trim()+'\\u2026';o.style.display='flex';});});})();
 """
@@ -1420,6 +1423,13 @@ def _project_form() -> str:
         "<input id='p-name' name='name' placeholder='e.g. BiltIQ market-capture' required></div>"
         "<div><label class='lbl' for='p-website'>Website (optional)</label>"
         "<input id='p-website' name='website' placeholder='https://biltiq.ai'></div>"
+        "<div><label class='lbl' for='p-client'>Target / client website (optional)</label>"
+        "<input id='p-client' name='client_url' placeholder='https://assam.gov.in'></div>"
+        "<div style='grid-column:1/-1'><label class='lbl' for='p-ctx'>Context &amp; use case (optional)</label>"
+        "<textarea id='p-ctx' name='context' rows='3' "
+        "placeholder='e.g. This is my website biltiq.ai and this is the Assam govt website — "
+        "understand their major works and issues (flood, border security, agriculture), then map "
+        "our services to an AI-based solution for better governance.'></textarea></div>"
         "<div><label class='lbl' for='p-obj'>First research objective (optional)</label>"
         "<input id='p-obj' name='objective' "
         "placeholder='e.g. Profile us and compare against a competitor'></div>"
@@ -1465,7 +1475,8 @@ _PERSONAS = ["enterprise", "developer", "consumer", "student", "doctor", "nurse"
 
 
 def _task_form(project_id: str, *, default_backend: str = "gemini",
-               vllm_model: str = "gemma-4-12b-it", sovereign: bool = False) -> str:
+               vllm_model: str = "gemma-4-12b-it", sovereign: bool = False,
+               project_context: str = "") -> str:
     """The objective → plan entry point (SENTINEL-012): a GET form that hands the objective, domain,
     persona, and reasoning backend to the planner route. The backend toggle mirrors the New Run form
     so users with both Gemini and vLLM can choose per-task."""
@@ -1493,7 +1504,10 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
         "border-radius:6px;color:var(--ink);font-size:13px;resize:vertical' "
         "placeholder='e.g. Vendor is BiltIQ AI — sovereign on-premise AI platform; "
         "buyer needs 16GB RAM + 1TB SSD under ₹1 lakh; target government is Assam state …'>"
-        "</textarea></div>"
+        f"{escape(project_context)}</textarea>"
+        + ("<div class='note' style='margin-top:4px'>Inherited from the project — edit to "
+           "override for this task.</div>" if project_context else "")
+        + "</div>"
         # Client/partner URL — crawled into KB before agents run
         "<div id='client-url-row'>"
         "<label class='lbl' for='t-curl'>Client / research website "
@@ -1549,6 +1563,15 @@ def _task_status_badge(status: str, degraded: bool = False) -> str:
     return f"<span class='badge' style='background:{bg};color:{color}'>{escape(label)}</span>"
 
 
+# Optional steering prompt that rides a re-run: lands in task.context → _plan_seeds →
+# every agent's vertical_context. Compact inline input so the task rows stay one-line.
+_RERUN_CTX = (
+    "<input name='context' placeholder='guidance for better results (optional)' "
+    "style='font-size:11px;padding:2px 6px;height:24px;width:210px;border-radius:4px;"
+    "border:1px solid var(--line);background:var(--surface2);color:var(--text);"
+    "vertical-align:middle;margin-right:4px'>"
+)
+
 _RERUN_SEL = (
     "<select name='backend' style='font-size:11px;padding:2px 4px;height:24px;"
     "border-radius:4px;border:1px solid var(--line);background:var(--surface2);"
@@ -1596,7 +1619,7 @@ def _task_row(task, pid: str, show_full_obj: bool = False) -> str:
         retry_btn = (
             f"<form method='post' action='/projects/run-plan' style='display:inline'>"
             f"<input type='hidden' name='task_id' value='{tid}'>"
-            f"{_RERUN_SEL}"
+            f"{_RERUN_CTX}{_RERUN_SEL}"
             f"<button class='btn-sm warn' type='submit' title='Re-run this task' style='margin-left:4px'>"
             f"{_icon('bolt')} Re-run</button></form>"
         )
@@ -1691,7 +1714,7 @@ def _result_brief_card(task, pid: str) -> str:
 
     rerun_btn = (
         f"<form method='post' action='/projects/{pid}/tasks/{tid}/run' style='display:inline'>"
-        f"{_RERUN_SEL}"
+        f"{_RERUN_CTX}{_RERUN_SEL}"
         f"<button class='btn-sm ghost' type='submit' title='Run this task again' style='margin-left:4px'>"
         f"{_icon('bolt')} Re-run</button></form>"
     )
@@ -1735,14 +1758,14 @@ def _pending_task_row(task, pid: str) -> str:
         run_btn = (
             f"<form method='post' action='/projects/run-plan' style='display:inline;margin-left:6px'>"
             f"<input type='hidden' name='task_id' value='{tid}'>"
-            f"{_RERUN_SEL}"
+            f"{_RERUN_CTX}{_RERUN_SEL}"
             f"<button class='btn-sm' type='submit' style='margin-left:4px'>{_icon('bolt')} Run</button></form>"
         )
     elif status == "failed":
         run_btn = (
             f"<form method='post' action='/projects/run-plan' style='display:inline;margin-left:6px'>"
             f"<input type='hidden' name='task_id' value='{tid}'>"
-            f"{_RERUN_SEL}"
+            f"{_RERUN_CTX}{_RERUN_SEL}"
             f"<button class='btn-sm warn' type='submit' style='margin-left:4px'>{_icon('bolt')} Retry</button></form>"
         )
     del_btn = (
@@ -1988,7 +2011,8 @@ def project_tasks_page(*, project, tasks: list, backend: str,
     """Research/Tasks tab — task creation form + full task list."""
     pid = escape(project.id)
     form_html = _task_form(project.id, default_backend=backend,
-                           vllm_model=vllm_model, sovereign=sovereign)
+                           vllm_model=vllm_model, sovereign=sovereign,
+                           project_context=getattr(project, "context", "") or "")
     failed_count = sum(1 for t in tasks if t.status == "failed")
 
     # When tasks already exist, collapse the form behind a toggle button so the
@@ -3351,6 +3375,122 @@ def _chat_panel(task) -> str:
         "</form></div></div>"
         + chat_js
     )
+
+
+def task_running_page(*, task, plan, backend: str, step_models: dict[str, str] | None = None) -> str:
+    """Live run view (replaces the blocking popup overlay): a per-step timeline that polls
+    ``status.json`` every 2s, spins the in-flight step(s), ticks completed ones, and reloads
+    into the persisted Result when the run lands. The page is the loader — no popup.
+
+    ``step_models`` (step id → model label, from app's ``_step_models``) feeds the active-agent
+    banner: which agent is working, on which model, with an animated hand-over when one agent
+    passes the baton to the next."""
+    pid, tid = escape(task.project_id), escape(task.id)
+    obj = escape(task.objective[:110] + ("…" if len(task.objective) > 110 else ""))
+    models = step_models or {}
+
+    rows = ""
+    for s in plan.steps:
+        status = s.status if s.status != "pending" else ("running" if s.started_at else "pending")
+        model = models.get(s.id, "")
+        model_html = f" · <span class='tl-model'>{escape(model)}</span>" if model else ""
+        rows += (
+            f"<div class='tl-step' data-step='{escape(s.id)}' data-status='{escape(status)}'>"
+            f"<div class='tl-dot'></div>"
+            f"<div><div class='tl-cap'>{escape(s.capability)}</div>"
+            f"<div class='tl-meta mono'>{escape(s.id)} · agent {escape(s.agent_spec_id or '—')}"
+            f"{model_html}</div></div>"
+            f"<div class='tl-state'>{escape(status)}</div></div>"
+        )
+
+    content = (
+        # timeline styles — dot states drive the whole visual (pending ring / running spinner /
+        # done tick / failed cross), so the poller only flips data-status.
+        "<style>"
+        ".tl-step{display:grid;grid-template-columns:28px 1fr auto;gap:12px;align-items:center;"
+        "padding:13px 6px;border-bottom:1px solid var(--line);position:relative}"
+        ".tl-step:last-child{border-bottom:0}"
+        ".tl-step:not(:last-child):before{content:'';position:absolute;left:19px;top:40px;bottom:-14px;"
+        "width:2px;background:var(--line)}"
+        ".tl-dot{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);"
+        "display:flex;align-items:center;justify-content:center;font-size:13px;background:var(--panel-2)}"
+        "@keyframes tlspin{to{transform:rotate(360deg)}}"
+        "[data-status=running] .tl-dot{border-color:transparent;border-top-color:#4285f4;"
+        "border-right-color:#4285f4;animation:tlspin .8s linear infinite}"
+        "[data-status=running] .tl-state{color:#8ab4f8}"
+        "[data-status=done] .tl-dot,[data-status=cached] .tl-dot{border-color:#34a853;color:#34a853}"
+        "[data-status=done] .tl-dot:after,[data-status=cached] .tl-dot:after{content:'✓'}"
+        "[data-status=done] .tl-state,[data-status=cached] .tl-state{color:#5bd07f}"
+        "[data-status=failed] .tl-dot{border-color:#ea4335;color:#ea4335}"
+        "[data-status=failed] .tl-dot:after{content:'✕'}"
+        "[data-status=failed] .tl-state{color:#ff6b6b}"
+        "[data-status=skipped] .tl-state{color:var(--muted)}"
+        ".tl-cap{font-weight:600;font-size:14px}"
+        ".tl-meta{font-size:11.5px;color:var(--muted);margin-top:2px}"
+        ".tl-model{color:#8ab4f8}"
+        ".tl-state{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}"
+        "@keyframes tlpulse{0%,100%{opacity:1}50%{opacity:.45}}"
+        # active-agent banner: who's working, on which model — slides in on every hand-over.
+        ".tl-agentbar{display:flex;align-items:center;gap:14px;margin-top:14px}"
+        ".tl-bot{font-size:26px;animation:tlpulse 2s ease-in-out infinite}"
+        "@keyframes tlslide{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}"
+        "#tl-agent{font-weight:600;font-size:14.5px}"
+        "#tl-agent.swap,#tl-amodel.swap{animation:tlslide .45s ease}"
+        "#tl-amodel{font-size:12px;color:#8ab4f8;margin-top:2px}"
+        # hand-over flash: "agent A → agent B", fades itself out.
+        "@keyframes tlhand{0%{opacity:0;transform:translateX(-8px)}12%{opacity:1;transform:none}"
+        "78%{opacity:1}100%{opacity:0}}"
+        "#tl-handover{margin-left:auto;font-size:12px;color:var(--muted);opacity:0;"
+        "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46%}"
+        "#tl-handover.show{animation:tlhand 3.2s ease forwards}"
+        "</style>"
+        # header
+        "<div class='card'><div class='section-h' style='margin-top:0'>"
+        "<h2 style='animation:tlpulse 2s ease-in-out infinite'>Agents running…</h2>"
+        f"<span class='badge' id='tl-count'>0/{len(plan.steps)} steps</span></div>"
+        f"<div style='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap'>"
+        f"<span class='pill' title='{escape(task.objective)}'>objective: <b>{obj}</b></span>"
+        f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span></div>"
+        "<div class='note' style='margin-top:10px'>The plan is executing on the engine — each step "
+        "ticks as its agent finishes. This page refreshes itself; the result replaces it when the "
+        "run lands.</div></div>"
+        # active-agent banner — the poller swaps in whoever is working + their model, and flashes
+        # the hand-over ("agent A → agent B") whenever the baton passes.
+        "<div class='card tl-agentbar'><span class='tl-bot'>🤖</span>"
+        "<div><div id='tl-agent'>Warming up the engine…</div>"
+        "<div id='tl-amodel' class='mono'></div></div>"
+        "<span id='tl-handover' class='mono'></span></div>"
+        # the timeline
+        f"<div class='card' style='margin-top:14px'>{rows}</div>"
+        # poller
+        "<script>(function(){"
+        f"var URL='/projects/{pid}/tasks/{tid}/status.json';"
+        "var done=['done','cached','failed','skipped'];var cur=null,curAgent=null;"
+        "function swap(el,txt){if(!el)return;el.classList.remove('swap');void el.offsetWidth;"
+        "el.textContent=txt;el.classList.add('swap');}"
+        "function tick(){fetch(URL).then(function(r){return r.json()}).then(function(d){"
+        "if(d.state!=='running'){location.reload();return}"
+        "var n=0,run=null;(d.steps||[]).forEach(function(s){"
+        "var el=document.querySelector('[data-step=\"'+s.id+'\"]');"
+        "if(el){el.dataset.status=s.status;var st=el.querySelector('.tl-state');"
+        "if(st)st.textContent=s.status;}"
+        "if(done.indexOf(s.status)>-1)n++;"
+        "if(s.status==='running'&&!run)run=s;});"
+        "var c=document.getElementById('tl-count');"
+        "if(c)c.textContent=n+'/'+(d.steps||[]).length+' steps';"
+        # hand-over: the running step changed → animate the banner + flash "prev → next".
+        "if(run&&run.id!==cur){"
+        "swap(document.getElementById('tl-agent'),(run.agent||run.id)+' is working\\u2026');"
+        "swap(document.getElementById('tl-amodel'),run.model||'');"
+        "if(curAgent){var h=document.getElementById('tl-handover');"
+        "if(h){h.textContent=curAgent+' \\u2192 '+(run.agent||run.id);"
+        "h.classList.remove('show');void h.offsetWidth;h.classList.add('show');}}"
+        "cur=run.id;curAgent=run.agent||run.id;}"
+        "setTimeout(tick,2000);}).catch(function(){setTimeout(tick,4000)});}"
+        "setTimeout(tick,2000);})();</script>"
+    )
+    return shell(active="projects", title="Running…", content=content, backend=backend,
+                 subnav=_project_subnav(task.project_id, "tasks"))
 
 
 def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool = False,

@@ -535,6 +535,8 @@ async def create_project(
     name: str = Form(...),
     website: str = Form(""),
     objective: str = Form(""),
+    context: str = Form(""),
+    client_url: str = Form(""),
 ) -> RedirectResponse:
     name = name.strip()
     if not name:
@@ -545,6 +547,7 @@ async def create_project(
         return RedirectResponse(url=f"/projects/{existing.id}", status_code=303)
     proj = Project(
         id=uuid4().hex, name=name, website=website.strip() or None,
+        context=context.strip(),
         created_at=utcnow().isoformat(),
     )
     try:
@@ -572,9 +575,35 @@ async def create_project(
             pass  # invalid URL or store error — don't block project creation
 
     objective = objective.strip()
+    client_url = client_url.strip()
     if objective:
-        return RedirectResponse(
-            url=f"/projects/{proj.id}/plan?objective={quote(objective)}", status_code=303)
+        # Thread context + client_url through to the plan route, which owns task-context
+        # persistence and the client-site KB crawl (PRG — no logic duplicated here).
+        url = f"/projects/{proj.id}/plan?objective={quote(objective)}"
+        if context.strip():
+            url += f"&context={quote(context.strip())}"
+        if client_url:
+            url += f"&client_url={quote(client_url)}"
+        return RedirectResponse(url=url, status_code=303)
+    # No objective: still seed the KB with the client/target site so it's ready for the
+    # first task (same fail-soft auto-crawl as the project website above).
+    if client_url:
+        try:
+            crawl_url = validate_crawl_url(client_url)
+            source = KBSource(project_id=proj.id, url=crawl_url, source_type=SourceType.WEB)
+            KBStore().save({
+                "id": source.id, "project_id": source.project_id, "url": source.url,
+                "source_type": source.source_type.value, "status": "pending",
+                "chunk_count": 0, "error": None,
+            })
+
+            async def _auto_crawl_client(src_id: str, pid: str, u: str) -> None:
+                result = await KBManager(_kb_data_dir()).add_source(pid, u, SourceType.WEB)
+                KBStore().update_status(src_id, result.status.value, result.chunk_count, result.error)
+
+            background_tasks.add_task(_auto_crawl_client, source.id, proj.id, crawl_url)
+        except Exception:
+            pass  # invalid URL or store error — don't block project creation
     return RedirectResponse(url=f"/projects/{proj.id}", status_code=303)
 
 
@@ -1726,6 +1755,14 @@ async def task_detail(project_id: str, task_id: str, backend: str = "",
     task = store.get_task(task_id)
     if task is None:
         return render.not_found_page(what=f"task {task_id}", backend=_active())
+    # A run is in flight for this task: render the live per-step timeline (polls status.json,
+    # reloads into the result when the run lands). Uses the in-memory plan the DAG is mutating.
+    entry = _ACTIVE_RUNS.get(task_id)
+    if entry is not None and entry.get("state") == "running":
+        _be = entry.get("backend") or "vllm"
+        return render.task_running_page(
+            task=task, plan=entry["plan"], backend=_active(),
+            step_models={s.id: _step_models(s.capability, _be) for s in entry["plan"].steps})
     plan = store.plan_for_task(task_id)
     replan = (f"/projects/{project_id}/plan?objective={quote(task.objective)}"
               f"&domain={quote(task.domain.name)}&persona={quote(task.persona.name)}")
@@ -1795,23 +1832,33 @@ async def task_feedback_route(
     return JSONResponse({"ok": True, "signal": signal})
 
 
-async def _approve_and_run(task_id: str, override_backend: str = "") -> RedirectResponse | str:
-    """Human approval of a proposed plan: reload the persisted plan, run it autonomously, persist the
-    Result onto the task, then (PRG) redirect to the task's own URL where the output is rendered. The
-    created specs are already persisted (Step 15), so the proposal is rebuilt from the stored plan."""
+# Live run registry: task_id → the in-memory Plan the DAG mutates (step.status/started_at) plus
+# the run state. Lets the status endpoint serve real per-step progress without touching dag.py.
+# In-process only (single-worker deploy); the status endpoint falls back to the DB task.status.
+_ACTIVE_RUNS: dict[str, dict] = {}
+
+
+def _step_models(capability: str, backend: str) -> str:
+    """Human label for the model(s) one capability step runs on — mirrors the two-pass split in
+    dag.py (``StepSpec.tool`` steps ride the 12B tools model; synthesis/strategy ride the 26B
+    reasoner) so the live timeline shows real agent→model handovers, not a generic spinner."""
+    if backend == "gemini":
+        return "Gemini"
+    try:
+        from sentinel.agent.modes.spec import SKILL_SPECS
+        spec = SKILL_SPECS.get(capability)
+    except Exception:                                              # never break the status poller
+        spec = None
+    if spec is not None and any(getattr(s, "tool", None) for s in spec.steps):
+        return "Gemma-12B tools → Gemma-26B reasoning"             # two-pass capability
+    return "Gemma-26B reasoning"                                   # synth-only (compare/strategy/minted)
+
+
+async def _execute_run(task, plan, proj, override_backend: str) -> None:
+    """The actual run (background task): gate → DAG → persist Result. Updates _ACTIVE_RUNS so the
+    live timeline on the task page can poll progress; never raises (state carries the error)."""
     store = ProjectStore()
-    task = store.get_task(task_id)
-    if task is None:
-        return render.not_found_page(what=f"task {task_id}", backend=_active())
-    plan = store.plan_for_task(task_id)
-    if plan is None:
-        return render.error_page("No plan found for this task — re-plan it first.", backend=_active())
-    # Reset step statuses so a re-run doesn't skip steps that completed on a prior attempt.
-    for _s in plan.steps:
-        _s.status = "pending"
-        _s.started_at = None
-        _s.finished_at = None
-    proj = store.get_project(task.project_id)
+    entry = _ACTIVE_RUNS[task.id]
     cloud_allowed = _cloud_allowed_for(proj) if proj is not None else True
     proposal = PlanProposal(plan=plan, created_specs=[])
     try:
@@ -1823,6 +1870,7 @@ async def _approve_and_run(task_id: str, override_backend: str = "") -> Redirect
             policy["vllm_model"] = "gemma-4-27b-it"
         elif override_backend in ("gemini", "vllm") and (cloud_allowed or override_backend != "gemini"):
             policy["backend"] = override_backend
+        entry["backend"] = policy["backend"]   # resolved truth — the timeline labels models off this
         outcome = await gate_proposal(
             proposal, autonomy="autonomous", seeds=_plan_seeds(task, plan, proj),
             cfg=get_config(), cloud_allowed=cloud_allowed, trace=trace, **policy,
@@ -1836,23 +1884,118 @@ async def _approve_and_run(task_id: str, override_backend: str = "") -> Redirect
             task.result = outcome.result      # persist on the task so it lives at the task's own URL
             store.save_task(task)
             _persist_run(task, outcome.result, policy["backend"])
+            entry["state"] = task.status
+        else:
+            task.status = "failed"
+            store.save_task(task)
+            entry["state"] = "failed"
+            entry["error"] = "Run was gated or produced no result."
     except Exception as exc:
-        return render.error_page(f"{type(exc).__name__}: {exc}", backend=_active())
+        task.status = "failed"
+        try:
+            store.save_task(task)
+        except Exception:
+            pass
+        entry["state"] = "failed"
+        entry["error"] = f"{type(exc).__name__}: {exc}"
+
+
+async def _approve_and_run(task_id: str, override_backend: str = "",
+                           extra_context: str = "",
+                           background_tasks: BackgroundTasks | None = None) -> RedirectResponse | str:
+    """Human approval of a proposed plan: reload the persisted plan, kick the run off in the
+    background (after the redirect is sent), then (PRG) land on the task's own URL — which renders
+    a live per-step timeline while the run is in flight and the persisted Result once it lands.
+    No blocking POST, no popup. BackgroundTasks (not asyncio.create_task) so the run also completes
+    deterministically under TestClient."""
+    store = ProjectStore()
+    task = store.get_task(task_id)
+    if task is None:
+        return render.not_found_page(what=f"task {task_id}", backend=_active())
+    plan = store.plan_for_task(task_id)
+    if plan is None:
+        return render.error_page("No plan found for this task — re-plan it first.", backend=_active())
+    if _ACTIVE_RUNS.get(task_id, {}).get("state") == "running":
+        # Double-submit guard: one run per task at a time — just land on the live timeline.
+        return RedirectResponse(url=f"/projects/{task.project_id}/tasks/{quote(task.id)}", status_code=303)
+    # Re-run steering prompt: persist onto task.context so _plan_seeds injects it into every
+    # agent's vertical_context. The marker block is REPLACED (not stacked) on repeated re-runs,
+    # so the original project/task context never snowballs.
+    if extra_context.strip():
+        _marker = "\n\n[Re-run guidance] "
+        base = (task.context or "").split(_marker, 1)[0]
+        task.context = (base + _marker + extra_context.strip()).strip()
+    # Reset step statuses so a re-run doesn't skip steps that completed on a prior attempt.
+    for _s in plan.steps:
+        _s.status = "pending"
+        _s.started_at = None
+        _s.finished_at = None
+    task.status = "running"
+    store.save_task(task)
+    proj = store.get_project(task.project_id)
+    # Initial backend guess (override wins, else the active default); _execute_run overwrites it
+    # with the governance-resolved policy backend once the background task starts.
+    _backend_guess = "vllm" if override_backend == "vllm-26b" else (
+        override_backend if override_backend in ("gemini", "vllm") else _active())
+    _ACTIVE_RUNS[task_id] = {"plan": plan, "state": "running", "error": None,
+                             "backend": _backend_guess}
+    if background_tasks is not None:
+        background_tasks.add_task(_execute_run, task, plan, proj, override_backend)
+    else:
+        await _execute_run(task, plan, proj, override_backend)   # no carrier — run inline (CLI/tests)
     return RedirectResponse(url=f"/projects/{task.project_id}/tasks/{quote(task.id)}", status_code=303)
+
+
+@app.get("/projects/{project_id}/tasks/{task_id}/status.json")
+async def task_run_status(project_id: str, task_id: str) -> JSONResponse:
+    """Live progress for the task-page timeline. Serves the in-memory plan the DAG is mutating
+    (real per-step statuses); falls back to the persisted task when this process holds no run
+    (e.g. after a restart) so the poller always terminates."""
+    entry = _ACTIVE_RUNS.get(task_id)
+    if entry is not None:
+        backend = entry.get("backend") or "vllm"
+        steps = [
+            {
+                "id": s.id, "capability": s.capability,
+                # dag.py stamps started_at but leaves status='pending' until done/failed —
+                # derive 'running' so the timeline can spin the in-flight step(s).
+                "status": (s.status if s.status != "pending"
+                           else ("running" if s.started_at else "pending")),
+                # Who's working and on what — drives the active-agent banner + handover animation.
+                "agent": s.agent_spec_id or s.capability,
+                "model": _step_models(s.capability, backend),
+            }
+            for s in entry["plan"].steps
+        ]
+        return JSONResponse({"state": entry["state"], "error": entry.get("error"),
+                             "backend": backend, "steps": steps})
+    task = ProjectStore().get_task(task_id)
+    if task is None:
+        return JSONResponse({"state": "unknown", "error": "task not found", "steps": []}, status_code=404)
+    # No live entry (restart mid-run leaves status='running' in the DB — report failed so the
+    # poller stops; the user can re-run).
+    state = "failed" if task.status == "running" else task.status
+    return JSONResponse({"state": state, "error": None, "steps": []})
 
 
 @app.post("/projects/{project_id}/tasks/{task_id}/run", response_model=None)
 async def run_task_route(project_id: str, task_id: str,
-                         backend: str = Form("")) -> RedirectResponse | str:
+                         background_tasks: BackgroundTasks,
+                         backend: str = Form(""),
+                         context: str = Form("")) -> RedirectResponse | str:
     """Per-task run route (the Approve & run control posts here) — each task runs at its own URL."""
-    return await _approve_and_run(task_id, override_backend=backend.strip().lower())
+    return await _approve_and_run(task_id, override_backend=backend.strip().lower(),
+                                  extra_context=context, background_tasks=background_tasks)
 
 
 @app.post("/projects/run-plan", response_model=None)
-async def run_plan_route(task_id: str = Form(...),
-                         backend: str = Form("")) -> RedirectResponse | str:
+async def run_plan_route(background_tasks: BackgroundTasks,
+                         task_id: str = Form(...),
+                         backend: str = Form(""),
+                         context: str = Form("")) -> RedirectResponse | str:
     """Back-compat alias for the per-task run route (kept so existing forms/links keep working)."""
-    return await _approve_and_run(task_id, override_backend=backend.strip().lower())
+    return await _approve_and_run(task_id, override_backend=backend.strip().lower(),
+                                  extra_context=context, background_tasks=background_tasks)
 
 
 @app.post("/projects/{project_id}/tasks/{task_id}/chat")

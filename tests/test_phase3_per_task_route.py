@@ -79,6 +79,100 @@ def test_run_plan_alias_also_redirects_to_task_url(monkeypatch):
     assert resp.headers["location"] == "/projects/p-pr/tasks/t-alias"
 
 
+def test_rerun_guidance_prompt_lands_in_task_context(monkeypatch):
+    """The re-run form's optional steering prompt persists onto task.context (where _plan_seeds
+    injects it into every agent's vertical_context) — and repeated re-runs REPLACE the guidance
+    block instead of stacking it."""
+    task = _task(tid="t-guide")
+    task.context = "vendor is BiltIQ"
+    _seed(task, _plan(tid="t-guide"))
+
+    async def fake_gate(proposal, **kw):
+        return GateOutcome(autonomy="autonomous", proposal=proposal, ran=True,
+                           result=Result(task_id="t-guide", summary="ok"))
+
+    monkeypatch.setattr(web_app, "gate_proposal", fake_gate)
+    c = _client(follow=False)
+
+    c.post("/projects/p-pr/tasks/t-guide/run", data={"context": "focus more on pricing"})
+    got = ProjectStore().get_task("t-guide").context
+    assert got == "vendor is BiltIQ\n\n[Re-run guidance] focus more on pricing"
+
+    # second re-run with new guidance: old guidance replaced, base context kept
+    c.post("/projects/p-pr/tasks/t-guide/run", data={"context": "add citations per claim"})
+    got = ProjectStore().get_task("t-guide").context
+    assert got == "vendor is BiltIQ\n\n[Re-run guidance] add citations per claim"
+
+    # blank guidance leaves context untouched
+    c.post("/projects/p-pr/tasks/t-guide/run", data={"context": "  "})
+    assert ProjectStore().get_task("t-guide").context == got
+
+
+def test_running_task_shows_live_timeline_not_popup(monkeypatch):
+    """While a run is in flight the task page IS the loader: a per-step timeline polling
+    status.json — not a blocking popup overlay."""
+    task = _task(tid="t-live", caps=("self_profile",))
+    plan = _plan(tid="t-live")
+    _seed(task, plan)
+    web_app._ACTIVE_RUNS["t-live"] = {"plan": plan, "state": "running", "error": None}
+    try:
+        page = _client().get("/projects/p-pr/tasks/t-live")
+        assert page.status_code == 200
+        assert "Agents running" in page.text
+        assert "status.json" in page.text                       # the poller is wired
+        assert "data-step='self_profile'" in page.text          # each plan step is a timeline row
+        assert "tl-agent" in page.text                          # active-agent banner present
+        assert "tl-handover" in page.text                       # hand-over flash element wired
+
+        st = _client().get("/projects/p-pr/tasks/t-live/status.json")
+        assert st.status_code == 200
+        body = st.json()
+        assert body["state"] == "running"
+        assert body["steps"][0]["status"] == "pending"          # not started → pending
+        # who's working + on what: agent spec id + a model label derived from the two-pass split
+        # (self_profile carries a search tool step → 12B tools pass then 26B reasoning).
+        assert body["steps"][0]["agent"] == "seed-self_profile-market"
+        assert "Gemma-12B" in body["steps"][0]["model"]
+        assert "Gemma-26B" in body["steps"][0]["model"]
+
+        # dag stamps started_at but leaves status='pending' → endpoint derives 'running'
+        plan.steps[0].started_at = _NOW
+        assert _client().get("/projects/p-pr/tasks/t-live/status.json").json()["steps"][0]["status"] == "running"
+    finally:
+        web_app._ACTIVE_RUNS.pop("t-live", None)
+
+
+def test_step_models_mirrors_two_pass_split():
+    """The timeline's model labels come from the same truth the DAG partitions on: tool-carrying
+    capabilities ride 12B→26B two-pass; synth-only ones (compare) ride the 26B reasoner alone;
+    a gemini run is labelled Gemini regardless of capability."""
+    from sentinel.web.app import _step_models
+    assert _step_models("self_profile", "vllm") == "Gemma-12B tools → Gemma-26B reasoning"
+    assert _step_models("compare", "vllm") == "Gemma-26B reasoning"            # no tool steps
+    assert _step_models("made_up_minted_cap", "vllm") == "Gemma-26B reasoning"  # planner-minted synth
+    assert _step_models("self_profile", "gemini") == "Gemini"
+
+
+def test_status_endpoint_terminates_after_run_completes(monkeypatch):
+    """After the background run lands, status.json reports the terminal state so the poller
+    reloads into the persisted Result."""
+    _seed(_task(tid="t-fin"), _plan(tid="t-fin"))
+
+    async def fake_gate(proposal, **kw):
+        return GateOutcome(autonomy="autonomous", proposal=proposal, ran=True,
+                           result=Result(task_id="t-fin", summary="done"))
+
+    monkeypatch.setattr(web_app, "gate_proposal", fake_gate)
+    resp = _client(follow=False).post("/projects/p-pr/tasks/t-fin/run")
+    assert resp.status_code == 303
+    # TestClient runs BackgroundTasks before returning — the run has landed.
+    assert ProjectStore().get_task("t-fin").status == "done"
+    assert _client().get("/projects/p-pr/tasks/t-fin/status.json").json()["state"] == "done"
+    # and the task page now renders the result, not the timeline
+    page = _client().get("/projects/p-pr/tasks/t-fin")
+    assert "Agents running" not in page.text
+
+
 def test_task_page_renders_persisted_result(monkeypatch):
     task = _task(tid="t-show")
     task.result = Result(task_id="t-show", summary="headline", artifacts=["self_profile"])
