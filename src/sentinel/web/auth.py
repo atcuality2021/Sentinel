@@ -63,6 +63,10 @@ def delete_session(token: str | None) -> None:
         _sessions.pop(token, None)
 
 
+def clear_all_sessions() -> None:
+    _sessions.clear()
+
+
 def check_rate_limit(ip: str) -> bool:
     """Return True (allowed) or False (too many attempts)."""
     now = time.time()

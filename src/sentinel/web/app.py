@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from typing import List
+from urllib.parse import urlparse
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 try:  # load .env (GOOGLE_API_KEY, backend config) if python-dotenv is present
@@ -49,6 +50,22 @@ app = FastAPI(title="Sentinel — Sovereign Intelligence Agent", docs_url="/api"
 _COOKIE = "sentinel_session"
 # Routes that bypass auth (login/setup/logout only)
 _PUBLIC_PATHS = {"/login", "/logout", "/setup"}
+
+
+def _safe_next(n: str) -> str:
+    """Validate a post-login redirect target to prevent open-redirect attacks.
+
+    Only local paths (starting with single '/') are accepted; anything that
+    looks like a scheme, netloc, or protocol-relative URL falls back to '/'.
+    """
+    if not n:
+        return "/"
+    if not n.startswith("/") or n.startswith("//") or n.startswith("/\\"):
+        return "/"
+    p = urlparse(n)
+    if p.scheme or p.netloc:
+        return "/"
+    return n
 
 # ---- Auth middleware: intercepts every request before routing ----
 @app.middleware("http")
@@ -106,7 +123,7 @@ async def setup_post(
 @app.get("/login", response_class=HTMLResponse)
 async def login_get(next: str = "", err: str = "") -> str:
     if _auth.is_valid_session(None):  # already logged in
-        return RedirectResponse(next or "/", status_code=307)
+        return RedirectResponse(_safe_next(next), status_code=307)
     return render.login_page(next_url=next, err=err)
 
 @app.post("/login", response_class=HTMLResponse)
@@ -124,7 +141,7 @@ async def login_post(
         return RedirectResponse("/setup", status_code=307)
     if not _auth.verify_password(password, cfg.auth.password_hash):
         return render.login_page(next_url=next, err="Incorrect password.")
-    resp = RedirectResponse(next or "/", status_code=303)
+    resp = RedirectResponse(_safe_next(next), status_code=303)
     token = _auth.create_session()
     resp.set_cookie(_COOKIE, token, httponly=True, samesite="strict", max_age=43200)
     return resp
@@ -2416,7 +2433,13 @@ async def settings_password(
     cfg = cfg.model_copy(deep=True)
     cfg.auth.password_hash = _auth.hash_password(new_password)
     set_config(cfg, persist=True)
-    return _settings_html(password_ok="Password changed. All existing sessions remain active.")
+    # Invalidate every session then re-issue one for the current admin so they
+    # stay logged in while any other concurrent sessions are signed out.
+    _auth.clear_all_sessions()
+    token = _auth.create_session()
+    resp = HTMLResponse(_settings_html(password_ok="Password changed. All other sessions have been signed out."))
+    resp.set_cookie(_COOKIE, token, httponly=True, samesite="strict", max_age=43200)
+    return resp
 
 
 def main() -> None:  # pragma: no cover - convenience entrypoint
