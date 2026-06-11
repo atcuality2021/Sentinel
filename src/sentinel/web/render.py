@@ -2943,7 +2943,7 @@ def _feedback_bar(task) -> str:
     js = (
         "async function sendFb(sig){"
         f"var r=await fetch('{url}',{{method:'POST',headers:{{'Content-Type':'application/x-www-form-urlencoded'}},"
-        "body:new URLSearchParams({signal:sig})}});"
+        "body:new URLSearchParams({signal:sig})});"
         "var d=await r.json();"
         "if(d.ok){"
         "document.getElementById('fb-up').disabled=true;"
