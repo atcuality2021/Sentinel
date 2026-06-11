@@ -396,6 +396,15 @@ def build_step_agents(
             # Append KB tool so agents can query indexed project documents mid-research.
             if kb_tool is not None:
                 tools.append(kb_tool)
+            # External MCP toolsets (Firecrawl, SearchAPI, …) — config-driven, domain-scoped,
+            # cloud-gated. The tool-calling model selects them per step from their descriptions.
+            try:
+                from sentinel.tools.mcp_registry import build_mcp_toolsets
+                tools.extend(build_mcp_toolsets(
+                    cfg, spec.domain, cloud_allowed=cloud_allowed,
+                ))
+            except Exception:
+                pass  # fail-soft: research runs even if the MCP layer is unavailable
         else:
             tools = None
 

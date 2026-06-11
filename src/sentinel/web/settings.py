@@ -382,6 +382,47 @@ def apply_strategy(
     return new
 
 
+def create_agent(cfg: SentinelConfig, key: str, role: str, model: str | None) -> SentinelConfig:
+    """Return a copy with a new custom agent key added.
+
+    Custom agents can be deleted; built-in keys (those already present) must be edited via
+    ``apply_agent``. Raises if key already exists or key is blank.
+    """
+    from sentinel.config.schema import Role
+    import typing
+    new = cfg.model_copy(deep=True)
+    key = key.strip().replace(" ", "_")
+    if not key:
+        raise ValueError("Agent key cannot be empty.")
+    if key in new.agents:
+        raise ValueError(f"Agent {key!r} already exists — use Save to update it.")
+    valid_roles: tuple[str, ...] = typing.get_args(Role)
+    if role not in valid_roles:
+        raise ValueError(f"Invalid role {role!r}. Valid: {', '.join(valid_roles)}")
+    new.agents[key] = AgentConfig(
+        enabled=True,
+        model=(model.strip() or None) if isinstance(model, str) else None,
+        role=role,  # type: ignore[arg-type]
+    )
+    return new
+
+
+def delete_agent(cfg: SentinelConfig, key: str) -> SentinelConfig:
+    """Return a copy with a custom agent removed.
+
+    Built-in agents (those present in the default config) cannot be deleted — disable them instead.
+    """
+    from sentinel.config.defaults import default_config
+    defaults = default_config()
+    new = cfg.model_copy(deep=True)
+    if key not in new.agents:
+        raise ValueError(f"Unknown agent {key!r}.")
+    if key in defaults.agents:
+        raise ValueError(f"Cannot delete built-in agent {key!r} — disable it instead.")
+    del new.agents[key]
+    return new
+
+
 def apply_coordinator(cfg: SentinelConfig, *, enabled: bool) -> SentinelConfig:
     """Return a copy with the A2A coordinator toggled (SENTINEL-011 AC-13).
 

@@ -282,6 +282,28 @@ class SearchConfig(BaseModel):
     stagger_s: float = 0.0
 
 
+class MCPServerConfig(BaseModel):
+    """One external MCP server agents may call (Firecrawl, SearchAPI, …).
+
+    Secrets never live here — ``api_key_env`` / ``url_env`` name the .env variables that
+    hold them. A server with its key/url unset is silently skipped (fail-soft, same as the
+    private boundary). ``domains`` scopes the toolset to matching research domains
+    (empty ⇒ offered to every domain); the tool-calling model then selects per step.
+    ``tool_filter`` is an allow-list of tool names (empty ⇒ expose all — keep it tight
+    for the 12B tool-caller, which degrades with very large tool menus).
+    """
+
+    enabled: bool = True
+    transport: Literal["stdio", "http"] = "stdio"
+    command: str = ""              # stdio: executable, e.g. "npx"
+    args: str = ""                 # stdio: argument string, e.g. "-y firecrawl-mcp"
+    api_key_env: str = ""          # stdio: env var passed through to the subprocess
+    url_env: str = ""              # http: env var holding the (secret-bearing) server URL
+    domains: list[str] = Field(default_factory=list)
+    tool_filter: list[str] = Field(default_factory=list)
+    description: str = ""
+
+
 class AuthConfig(BaseModel):
     """Login authentication (session-based, scrypt hash, httponly cookie).
 
@@ -313,6 +335,7 @@ class SentinelConfig(BaseModel):
     priority: PriorityConfig = Field(default_factory=PriorityConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
     @classmethod
     def default(cls) -> "SentinelConfig":

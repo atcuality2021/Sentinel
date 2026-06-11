@@ -403,7 +403,6 @@ _NAV_GROUPS = [
         ("agents", "Agents", "agent", "/agents"),
     ]),
     ("Govern", [
-        ("backends", "Backends", "chip", "/backends"),
         ("settings", "Settings", "cog", "/settings"),
         ("prompts", "Prompts", "doc", "/settings/prompts"),
     ]),
@@ -1014,16 +1013,298 @@ def _flow_node(n: dict) -> str:
     )
 
 
-def agents_page(*, modes: list[dict], flags: dict, backend: str) -> str:
-    """Render the agent roster + per-mode pipeline flow graph."""
-    legend = (
-        "<div class='legend'>"
-        "<span><span class='swatch' style='background:var(--accent-2)'></span>tool-caller (Gemma-12B)</span>"
-        "<span><span class='swatch' style='background:#c08cf7'></span>reasoner (Gemma-26B, tool-free)</span>"
-        "<span><span class='swatch' style='background:var(--private)'></span>private boundary (MCP)</span>"
-        "<span><span class='swatch' style='background:var(--line)'></span>dashed = stage off by config</span>"
-        "</div>"
+_ROLE_COLOR = {
+    "planner":          "#4285f4",
+    "public_research":  "#34a853",
+    "private_research": "#ea8600",
+    "extractor":        "#fa7b17",
+    "synthesizer":      "#c08cf7",
+    "strategist":       "#e8453c",
+    "coordinator":      "#00bcd4",
+}
+_ALL_ROLES = [
+    "planner", "public_research", "private_research",
+    "extractor", "synthesizer", "strategist", "coordinator",
+]
+
+
+def _agent_card(key: str, ac, *, is_default: bool) -> str:
+    """One agent card with inline edit form."""
+    role  = getattr(ac, "role", "synthesizer")
+    model = getattr(ac, "model", None) or "—"
+    enabled = getattr(ac, "enabled", True)
+    color = _ROLE_COLOR.get(role, "#9aa0a6")
+    gen   = getattr(ac, "generation", None)
+
+    status_dot = (
+        "<span style='color:#34a853;font-size:10px'>●</span> on"
+        if enabled else
+        "<span style='color:#ea4335;font-size:10px'>●</span> off"
     )
+    role_badge = (
+        f"<span style='background:{color};color:#fff;padding:2px 8px;"
+        f"border-radius:10px;font-size:11px;font-weight:600'>{escape(role)}</span>"
+    )
+
+    role_opts = "".join(
+        f"<option value='{r}'{' selected' if r == role else ''}>{r}</option>"
+        for r in _ALL_ROLES
+    )
+    temp_val = str(gen.temperature) if gen and gen.temperature is not None else ""
+    tok_val  = str(gen.max_output_tokens) if gen and gen.max_output_tokens is not None else ""
+
+    delete_btn = "" if is_default else (
+        f"<form method='post' action='/agents/{escape(key)}/delete' style='display:inline' "
+        f"onsubmit=\"return confirm('Delete agent ' + {escape(json.dumps(key), quote=True)} + '?')\">"
+        f"<button class='btn-sm warn' type='submit'>Delete</button></form>"
+    )
+
+    edit_form = (
+        f"<form method='post' action='/agents/{escape(key)}' style='margin-top:12px'>"
+        f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px'>"
+        f"<div><label class='lbl'>Model override</label>"
+        f"<input name='model' value='{escape(model if model != '—' else '')}' "
+        f"placeholder='leave blank = backend default' style='font-size:12px'></div>"
+        f"<div><label class='lbl'>Role</label>"
+        f"<select name='role' style='font-size:12px'>{role_opts}</select></div>"
+        f"<div><label class='lbl'>Temperature</label>"
+        f"<input name='temperature' value='{escape(temp_val)}' placeholder='e.g. 0.7' style='font-size:12px'></div>"
+        f"<div><label class='lbl'>Max tokens</label>"
+        f"<input name='max_output_tokens' value='{escape(tok_val)}' placeholder='e.g. 4096' style='font-size:12px'></div>"
+        f"</div>"
+        f"<div style='margin-top:8px;display:flex;gap:8px;align-items:center'>"
+        f"<label style='font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer'>"
+        f"<input type='checkbox' name='enabled' value='1'{' checked' if enabled else ''}> Enabled</label>"
+        f"<label style='font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer'>"
+        f"<input type='checkbox' name='pin_gemini' value='1'{' checked' if getattr(ac,'pin_gemini',False) else ''}> Pin Gemini</label>"
+        f"<button class='btn-sm' type='submit' style='margin-left:auto'>Save</button>"
+        f"{delete_btn}"
+        f"</div></form>"
+    )
+
+    return (
+        f"<div class='card' style='padding:14px 16px'>"
+        f"<div style='display:flex;align-items:flex-start;justify-content:space-between'>"
+        f"<div>"
+        f"<div style='font-family:monospace;font-weight:700;font-size:14px;margin-bottom:6px'>"
+        f"{escape(key)}</div>"
+        f"<div style='display:flex;gap:6px;align-items:center;flex-wrap:wrap'>"
+        f"{role_badge}"
+        f"<span class='pv' style='font-size:11px'>{escape(model)}</span>"
+        f"<span style='font-size:11px;color:var(--muted)'>{status_dot}</span>"
+        f"</div></div>"
+        f"<details style='width:100%'><summary style='cursor:pointer;font-size:12px;"
+        f"color:var(--accent-2);margin-top:8px;list-style:none'>Edit ›</summary>"
+        f"{edit_form}</details>"
+        f"</div></div>"
+    )
+
+
+def _agent_row(key: str, ac, *, is_default: bool) -> str:
+    """Compact table row + expandable inline edit form for one agent."""
+    role    = getattr(ac, "role", "synthesizer")
+    model   = getattr(ac, "model", None) or ""
+    enabled = getattr(ac, "enabled", True)
+    gen     = getattr(ac, "generation", None)
+    color   = _ROLE_COLOR.get(role, "#9aa0a6")
+    suffix  = key.split(".", 1)[-1] if "." in key else key
+    uid     = key.replace(".", "-").replace("_", "-")
+
+    role_badge = (
+        f"<span style='background:{color};color:#fff;padding:1px 8px;"
+        f"border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap'>"
+        f"{escape(role)}</span>"
+    )
+    dot = ("<span style='color:#34a853;font-size:9px'>●</span>"
+           if enabled else "<span style='color:#ea4335;font-size:9px'>●</span>")
+
+    role_opts = "".join(
+        f"<option value='{r}'{' selected' if r == role else ''}>{r}</option>"
+        for r in _ALL_ROLES
+    )
+    temp_val = str(gen.temperature) if gen and gen.temperature is not None else ""
+    tok_val  = str(gen.max_output_tokens) if gen and gen.max_output_tokens is not None else ""
+
+    # Flat model dropdown — backend is implicit in the model choice
+    _ALL_MODELS = [
+        ("", "default (from Settings)"),
+        ("gemini-2.5-flash",      "Gemini · 2.5 Flash"),
+        ("gemini-2.0-flash-lite", "Gemini · 2.0 Flash Lite"),
+        ("gemma-4-12b-it",        "vLLM · Gemma 12B (Tools)"),
+        ("gemma-4-27b-it",        "vLLM · Gemma 26B (Reasoning)"),
+    ]
+    model_opts = "".join(
+        f"<option value='{m}'{' selected' if m == model else ''}>{label}</option>"
+        for m, label in _ALL_MODELS
+    )
+
+    # Row model label
+    _MODEL_LABELS = {m: label for m, label in _ALL_MODELS if m}
+    if model in _MODEL_LABELS:
+        model_label = _MODEL_LABELS[model]
+    elif model:
+        model_label = escape(model)
+    else:
+        model_label = "<span style='color:var(--muted)'>default</span>"
+
+    delete_btn = "" if is_default else (
+        f"<form method='post' action='/agents/{escape(key)}/delete' style='display:inline;margin-left:6px' "
+        f"onsubmit=\"return confirm('Delete agent ' + {escape(json.dumps(key), quote=True)} + '?')\">"
+        f"<button class='btn-sm warn' type='submit' style='font-size:11px'>Delete</button></form>"
+    )
+
+    edit_form = (
+        f"<div id='edit-{uid}' style='display:none;background:var(--surface2);"
+        f"padding:12px 16px;border-top:1px solid var(--line)'>"
+        f"<form method='post' action='/agents/{escape(key)}'>"
+        f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;align-items:end'>"
+        # Model dropdown
+        f"<div><label class='lbl' style='font-size:11px'>Model</label>"
+        f"<select name='model' style='font-size:12px'>{model_opts}</select></div>"
+        # Role
+        f"<div><label class='lbl' style='font-size:11px'>Role</label>"
+        f"<select name='role' style='font-size:12px'>{role_opts}</select></div>"
+        # Temperature
+        f"<div><label class='lbl' style='font-size:11px'>Temperature</label>"
+        f"<input name='temperature' value='{escape(temp_val)}' placeholder='0.7' style='font-size:12px'></div>"
+        # Max tokens
+        f"<div><label class='lbl' style='font-size:11px'>Max tokens</label>"
+        f"<input name='max_output_tokens' value='{escape(tok_val)}' placeholder='4096' style='font-size:12px'></div>"
+        f"</div>"
+        # Row 2: enabled + save + delete
+        f"<div style='display:flex;gap:12px;align-items:center;margin-top:8px'>"
+        f"<label style='font-size:12px;cursor:pointer'>"
+        f"<input type='checkbox' name='enabled' value='1'{' checked' if enabled else ''}> Enabled</label>"
+        f"<button class='btn-sm' type='submit' style='margin-left:auto;font-size:12px'>Save</button>"
+        f"{delete_btn}"
+        f"</div></form></div>"
+    )
+
+    row = (
+        f"<div style='display:grid;grid-template-columns:2fr 1fr 1fr 60px;"
+        f"align-items:center;padding:8px 16px;border-bottom:1px solid var(--line);gap:8px'>"
+        f"<span style='font-family:monospace;font-size:13px'>{escape(suffix)}</span>"
+        f"{role_badge}"
+        f"<span style='font-size:12px'>{model_label}</span>"
+        f"<div style='display:flex;align-items:center;gap:6px;justify-content:flex-end'>"
+        f"{dot}"
+        f"<button type='button' onclick=\"var d=document.getElementById('edit-{uid}');"
+        f"d.style.display=d.style.display==='none'?'block':'none'\""
+        f" style='background:none;border:none;color:var(--accent-2);font-size:12px;"
+        f"cursor:pointer;padding:2px 6px'>Edit</button>"
+        f"</div></div>"
+        f"{edit_form}"
+    )
+    return row
+
+
+def agents_page(*, modes: list[dict], flags: dict, backend: str,
+                agents_cfg: dict | None = None, ok: str = "", err: str = "") -> str:
+    """Agents page: grouped accordion tables + CRUD + collapsible pipeline view."""
+    agents_cfg = agents_cfg or {}
+
+    banner = ""
+    if ok:
+        banner = f"<div class='card banner ok' style='margin-bottom:16px'>{escape(ok)}</div>"
+    elif err:
+        banner = f"<div class='card banner err' style='margin-bottom:16px'>{escape(err)}</div>"
+
+    # ── flag chips ───────────────────────────────────────────────────────────
+    def chip(label: str, on: bool, warn: bool = False) -> str:
+        c = ("#ea8600" if warn else "#34a853") if on else "#9aa0a6"
+        return (f"<span style='background:{c}22;color:{c};border:1px solid {c}44;"
+                f"padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600'>"
+                f"{escape(label)}: {'on' if on else 'off'}</span>")
+
+    flagline = (
+        "<div style='display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 18px'>"
+        + chip("two-tier extractor", flags.get("two_tier", False))
+        + chip("strategy overlay", flags.get("strategy", False))
+        + chip("coordinator", flags.get("coordinator", False))
+        + chip("private boundary", flags.get("private", False), warn=True)
+        + "</div>"
+    )
+
+    # ── create form ──────────────────────────────────────────────────────────
+    role_opts_new = "".join(f"<option value='{r}'>{r}</option>" for r in _ALL_ROLES)
+    create_form = (
+        "<details style='margin-bottom:16px'>"
+        "<summary style='cursor:pointer;font-size:13px;font-weight:600;"
+        "color:var(--accent-2);padding:9px 14px;background:var(--surface2);"
+        "border-radius:8px;list-style:none;user-select:none'>＋ Add custom agent</summary>"
+        "<div class='card' style='margin-top:4px;padding:14px 16px;border-top:none;border-radius:0 0 8px 8px'>"
+        "<form method='post' action='/agents'>"
+        "<div style='display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;align-items:end'>"
+        "<div><label class='lbl'>Key</label>"
+        "<input name='key' placeholder='domain.role  e.g. custom.planner' required></div>"
+        f"<div><label class='lbl'>Role</label><select name='role'>{role_opts_new}</select></div>"
+        "<div><label class='lbl'>Model</label>"
+        "<select name='model'>"
+        "<option value=''>default (from Settings)</option>"
+        "<option value='gemini-2.5-flash'>Gemini · 2.5 Flash</option>"
+        "<option value='gemini-2.0-flash-lite'>Gemini · 2.0 Flash Lite</option>"
+        "<option value='gemma-4-12b-it'>vLLM · Gemma 12B (Tools)</option>"
+        "<option value='gemma-4-27b-it'>vLLM · Gemma 26B (Reasoning)</option>"
+        "</select></div>"
+        "</div>"
+        "<div style='margin-top:10px'><button class='btn' type='submit'>Create</button></div>"
+        "</form></div></details>"
+    )
+
+    # ── determine built-in keys ──────────────────────────────────────────────
+    try:
+        from sentinel.config import load_config as _lc
+        default_keys = set(_lc().agents.keys())
+    except Exception:
+        default_keys = set(agents_cfg.keys())
+
+    # ── group agents by prefix ───────────────────────────────────────────────
+    from collections import defaultdict as _dd
+    groups: dict[str, list[str]] = _dd(list)
+    for key in sorted(agents_cfg.keys()):
+        prefix = key.split(".", 1)[0]
+        groups[prefix].append(key)
+
+    # group header colours by category
+    _GRP_COLOR = {
+        "competitor": "#4285f4", "client": "#34a853", "software": "#00bcd4",
+        "finance": "#ff9800",    "academic": "#9c27b0", "nutrition": "#e91e63",
+        "travel": "#009688",     "govt_proposal": "#795548", "govt_dept_research": "#795548",
+        "govt_synthesis": "#795548", "product_research": "#ff5722",
+        "self_profile": "#607d8b", "compare": "#607d8b", "program": "#607d8b",
+        "persona": "#9aa0a6",    "eval": "#9aa0a6", "orchestrator": "#9aa0a6",
+        "coordinator": "#00bcd4",
+    }
+
+    group_sections = ""
+    for grp, keys in sorted(groups.items()):
+        gc = _GRP_COLOR.get(grp, "#9aa0a6")
+        rows_html = (
+            "<div style='font-size:11px;color:var(--muted);display:grid;"
+            "grid-template-columns:2fr 1fr 1fr 60px;padding:6px 16px 4px;"
+            "border-bottom:1px solid var(--line);gap:8px'>"
+            "<span>Agent</span><span>Role</span><span>Model</span><span></span></div>"
+        )
+        for key in keys:
+            ac = agents_cfg.get(key)
+            if ac is not None:
+                rows_html += _agent_row(key, ac, is_default=(key in default_keys))
+
+        group_sections += (
+            f"<details style='margin-bottom:8px' open>"
+            f"<summary style='cursor:pointer;list-style:none;user-select:none;"
+            f"padding:9px 14px;background:var(--surface2);border-radius:8px;"
+            f"display:flex;align-items:center;gap:8px'>"
+            f"<span style='width:10px;height:10px;border-radius:50%;"
+            f"background:{gc};display:inline-block;flex-shrink:0'></span>"
+            f"<span style='font-weight:600;font-size:13px'>{escape(grp)}</span>"
+            f"<span style='color:var(--muted);font-size:12px'>{len(keys)} agent{'s' if len(keys)!=1 else ''}</span>"
+            f"</summary>"
+            f"<div class='card' style='padding:0;margin-top:4px;overflow:hidden'>"
+            f"{rows_html}</div></details>"
+        )
+
+    # ── collapsible pipeline view ────────────────────────────────────────────
     lanes = ""
     for m in modes:
         flow = (
@@ -1039,44 +1320,43 @@ def agents_page(*, modes: list[dict], flags: dict, backend: str) -> str:
             "</div>" + flow
         )
 
-    # The deterministic (non-LLM) steps that wrap the LLM pipeline.
+    topo = "A2A coordinator" if flags.get("coordinator") else "Sequential pipeline"
     rail_steps = [
-        ("recall", "Memory recall", "boundary-filtered, injected as context"),
-        ("merge", "Merge overlays", "strategy + extraction gaps → artifact"),
-        ("persist", "Persist run", "memory + run record (sources, run_seq)"),
-        ("priority", "Recompute priority", "deterministic 0–100 score — no LLM"),
+        ("recall",   "Memory recall",        "boundary-filtered, injected as context"),
+        ("merge",    "Merge overlays",        "strategy + extraction gaps → artifact"),
+        ("persist",  "Persist run",           "memory + run record (sources, run_seq)"),
+        ("priority", "Recompute priority",    "deterministic 0–100 score — no LLM"),
     ]
     rail = "".join(
         f"<span class='step'>{_icon('merge')} <b>{escape(t)}</b> · {escape(d)}</span>"
         for _k, t, d in rail_steps
     )
-
-    topo = "A2A coordinator" if flags.get("coordinator") else "Sequential pipeline"
     coord_card = (
         "<div class='card' style='margin-top:18px'>"
         f"<div class='gc-t'>Execution topology <span class='pv'>{escape(topo)}</span></div>"
-        "<p class='gc-d'>Default: a <b>SequentialAgent</b> runs the stages in order, each writing its "
-        "<span class='agent-key'>output_key</span> into shared session state for the next to read. "
-        "When <b>coordinator.enabled</b>, an <b>LlmAgent</b> (Gemma-12B) instead delegates to the same "
-        "stages wrapped as <span class='agent-key'>AgentTool</span> specialists (Goal→Plan→Delegate→Merge). "
-        "Either way the artifact, boundary split, and provenance are identical.</p>"
+        "<p class='gc-d'>A <b>SequentialAgent</b> runs stages in order, each writing its "
+        "<span class='agent-key'>output_key</span> into shared session state. "
+        "With <b>coordinator.enabled</b> an <b>LlmAgent</b> delegates via "
+        "<span class='agent-key'>AgentTool</span>.</p>"
         "<div class='rail'>" + rail + "</div></div>"
     )
-
-    flagline = (
-        "<div class='legend' style='margin-top:10px'>"
-        f"<span>two-tier extractor: <b style='color:var(--ink)'>{'on' if flags.get('two_tier') else 'off'}</b></span>"
-        f"<span>strategy overlay: <b style='color:var(--ink)'>{'on' if flags.get('strategy') else 'off'}</b></span>"
-        f"<span>private boundary: <b style='color:var(--ink)'>{'configured' if flags.get('private') else 'not configured'}</b></span>"
-        "</div>"
+    pipeline_section = (
+        "<details style='margin-top:20px'>"
+        "<summary style='cursor:pointer;list-style:none;user-select:none;"
+        "font-size:13px;font-weight:600;color:var(--muted);"
+        "padding:9px 14px;background:var(--surface2);border-radius:8px'>"
+        "Pipeline topology view</summary>"
+        f"<div style='margin-top:6px'>{lanes}{coord_card}</div>"
+        "</details>"
     )
 
     hero = (
-        "<div class='hero left'><h1>Agents</h1>"
-        "<p style='margin:0'>The agents Sentinel runs, what each does, and how they hand off. "
-        "Tool-callers gather; reasoners decide; deterministic steps score and persist.</p></div>"
+        "<div class='hero left' style='margin-bottom:4px'><h1>Agents</h1>"
+        "<p style='margin:0'>Configure the agents Sentinel runs — grouped by domain. "
+        "Click Edit on any row to change model, role, or generation settings.</p></div>"
     )
-    content = hero + legend + flagline + lanes + coord_card
+
+    content = hero + flagline + banner + create_form + group_sections + pipeline_section
     return shell(active="agents", title="Agents", content=content, backend=backend)
 
 
@@ -1269,6 +1549,18 @@ def _task_status_badge(status: str, degraded: bool = False) -> str:
     return f"<span class='badge' style='background:{bg};color:{color}'>{escape(label)}</span>"
 
 
+_RERUN_SEL = (
+    "<select name='backend' style='font-size:11px;padding:2px 4px;height:24px;"
+    "border-radius:4px;border:1px solid var(--line);background:var(--surface2);"
+    "color:var(--text);cursor:pointer;vertical-align:middle;color-scheme:dark'>"
+    "<option value='' style='background:#16191f;color:#e8eaed'>auto</option>"
+    "<option value='gemini' style='background:#16191f;color:#e8eaed'>☁ Gemini</option>"
+    "<option value='vllm' style='background:#16191f;color:#e8eaed'>🔒 vLLM 12B</option>"
+    "<option value='vllm-26b' style='background:#16191f;color:#e8eaed'>🔒 vLLM 26B</option>"
+    "</select>"
+)
+
+
 def _task_row(task, pid: str, show_full_obj: bool = False) -> str:
     """Rich task row: objective link, meta pills, action buttons (View / Retry / Delete)."""
     tid = escape(task.id)
@@ -1304,8 +1596,8 @@ def _task_row(task, pid: str, show_full_obj: bool = False) -> str:
         retry_btn = (
             f"<form method='post' action='/projects/run-plan' style='display:inline'>"
             f"<input type='hidden' name='task_id' value='{tid}'>"
-            f"<input type='hidden' name='backend' value='gemini'>"
-            f"<button class='btn-sm warn' type='submit' title='Re-run this task'>"
+            f"{_RERUN_SEL}"
+            f"<button class='btn-sm warn' type='submit' title='Re-run this task' style='margin-left:4px'>"
             f"{_icon('bolt')} Re-run</button></form>"
         )
     del_btn = (
@@ -1360,9 +1652,9 @@ def _result_brief_card(task, pid: str) -> str:
                     n = len(v.get("products_found") or [])
                     if n:
                         metrics.append(f"{n} products found")
-                    winner = (v.get("winner_rationale") or "")[:80]
-                    if winner:
-                        metrics.append(f"Winner: {escape(winner)}")
+                    winner = str(v.get("winner") or "").strip()
+                    if winner and winner.lower() not in ("null", "none", ""):
+                        metrics.append(f"Winner: {escape(winner[:60])}")
                 if "strengths" in v:
                     n = len(v.get("strengths") or [])
                     if n:
@@ -1399,7 +1691,8 @@ def _result_brief_card(task, pid: str) -> str:
 
     rerun_btn = (
         f"<form method='post' action='/projects/{pid}/tasks/{tid}/run' style='display:inline'>"
-        f"<button class='btn-sm ghost' type='submit' title='Run this task again'>"
+        f"{_RERUN_SEL}"
+        f"<button class='btn-sm ghost' type='submit' title='Run this task again' style='margin-left:4px'>"
         f"{_icon('bolt')} Re-run</button></form>"
     )
     del_btn = (
@@ -1442,15 +1735,15 @@ def _pending_task_row(task, pid: str) -> str:
         run_btn = (
             f"<form method='post' action='/projects/run-plan' style='display:inline;margin-left:6px'>"
             f"<input type='hidden' name='task_id' value='{tid}'>"
-            f"<input type='hidden' name='backend' value='gemini'>"
-            f"<button class='btn-sm' type='submit'>{_icon('bolt')} Run</button></form>"
+            f"{_RERUN_SEL}"
+            f"<button class='btn-sm' type='submit' style='margin-left:4px'>{_icon('bolt')} Run</button></form>"
         )
     elif status == "failed":
         run_btn = (
             f"<form method='post' action='/projects/run-plan' style='display:inline;margin-left:6px'>"
             f"<input type='hidden' name='task_id' value='{tid}'>"
-            f"<input type='hidden' name='backend' value='gemini'>"
-            f"<button class='btn-sm warn' type='submit'>{_icon('bolt')} Retry</button></form>"
+            f"{_RERUN_SEL}"
+            f"<button class='btn-sm warn' type='submit' style='margin-left:4px'>{_icon('bolt')} Retry</button></form>"
         )
     del_btn = (
         f"<form method='post' action='/projects/{pid}/tasks/{tid}/delete' style='display:inline;margin-left:6px'"
@@ -3501,60 +3794,6 @@ def focus_card(scores: list) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Backends config
-# --------------------------------------------------------------------------- #
-def backends_page(*, default_backend: str, gemini_model: str, vllm_model: str,
-                  vllm_api_base: str, gemini_key_set: bool, private_configured: bool,
-                  vllm_key_set: bool = False) -> str:
-    def chip(ok: bool, yes: str, no: str) -> str:
-        return (f"<span class='pill'><span class='dotmark' style='background:"
-                f"{'#3ad29f' if ok else '#ff6b6b'}'></span>{yes if ok else no}</span>")
-
-    g_active = "background:var(--public-bg);box-shadow:inset 0 0 0 2px var(--public)" if default_backend != "vllm" else ""
-    v_active = "background:var(--private-bg);box-shadow:inset 0 0 0 2px var(--private)" if default_backend == "vllm" else ""
-    content = f"""
-    <p class='note'>Sentinel runs against two interchangeable reasoning backends. <b>One rule:</b>
-    API keys live in <span class='mono'>.env</span>; everything else — models, endpoints, the
-    default backend — is edited in <a href='/settings' style='color:var(--accent-2)'>Settings</a>
-    (saved to <span class='mono'>sentinel.config.yaml</span>). Every run can still override the
-    default with the toggle on <a href='/projects' style='color:var(--accent-2)'>New Run</a>.</p>
-    <div class='grid' style='grid-template-columns:1fr 1fr;margin-top:16px'>
-      <div class='card' style='{g_active}'>
-        <div style='display:flex;align-items:center;gap:10px'>{_icon('globe')}
-          <h3 style='margin:0'>Cloud · Gemini</h3>
-          {"<span class='badge public'>default</span>" if default_backend!='vllm' else ""}</div>
-        <p class='note' style='margin-top:10px'>Managed Gemini for grounding + reasoning. Fastest path.</p>
-        <div style='display:flex;flex-direction:column;gap:8px;margin-top:6px'>
-          <span class='pill'>Model: <b>{escape(gemini_model)}</b></span>
-          {chip(gemini_key_set, "GOOGLE_API_KEY set", "GOOGLE_API_KEY missing")}
-        </div>
-      </div>
-      <div class='card' style='{v_active}'>
-        <div style='display:flex;align-items:center;gap:10px'>{_icon('lock')}
-          <h3 style='margin:0'>On-prem · Gemma</h3>
-          {"<span class='badge private'>default</span>" if default_backend=='vllm' else ""}</div>
-        <p class='note' style='margin-top:10px'>Reasoning on your own GPUs via vLLM. Private data never leaves.</p>
-        <div style='display:flex;flex-direction:column;gap:8px;margin-top:6px'>
-          <span class='pill'>Model: <b>{escape(vllm_model)}</b></span>
-          <span class='pill'>Endpoint: <b>{escape(vllm_api_base)}</b></span>
-          {chip(vllm_key_set, "VLLM_API_KEY set", "VLLM_API_KEY not set (unauthenticated)")}
-        </div>
-      </div>
-    </div>
-    <div class='card' style='margin-top:16px'>
-      <h3 style='margin:0 0 10px'>Private boundary (Workspace MCP)</h3>
-      {chip(private_configured, "Connected — client mode uses private signal",
-            "Not connected — client mode degrades gracefully (public-only, gap flagged)")}
-    </div>
-    <p class='note' style='margin-top:16px'>Start the local Gemma server with
-    <span class='mono'>docker compose -f deploy/vllm-compose.yml up</span>, then switch the
-    toggle to On-prem. Presets: <span class='mono'>.env.gemini</span> /
-    <span class='mono'>.env.vllm</span>.</p>
-    """
-    return shell(active="backends", title="Backends", content=content, backend=default_backend)
-
-
-# --------------------------------------------------------------------------- #
 # Settings (SENTINEL-003)
 # --------------------------------------------------------------------------- #
 def _num(name: str, label: str, value, *, step: str = "any", mn: str = "", mx: str = "") -> str:
@@ -3599,7 +3838,7 @@ def _sel(name: str, label: str, value: str, options: list[tuple[str, str]]) -> s
     )
 
 
-def _agent_card(key: str, a) -> str:
+def _settings_agent_card(key: str, a) -> str:
     return (
         "<div class='card'>"
         f"<form method='post' action='/settings/agents/{escape(key)}' class='set-grid'>"
@@ -3653,7 +3892,7 @@ _ROLE_TIERS = [
 def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err: str = "",
                   vllm_key_set: bool = False, brave_key_set: bool = False,
                   serpapi_key_set: bool = False, atcuality_key_set: bool = False,
-                  google_cse_id_set: bool = False,
+                  google_cse_id_set: bool = False, mcp_rows: list[dict] | None = None,
                   password_ok: str = "", password_err: str = "") -> str:
     banner = ""
     if ok:
@@ -3819,9 +4058,9 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     clnt = [k for k in cfg.agents if k.startswith("client.")]
     agents = (
         "<h2 class='sec'>Agents — competitor</h2><div class='grid' style='gap:12px'>"
-        + "".join(_agent_card(k, cfg.agents[k]) for k in comp)
+        + "".join(_settings_agent_card(k, cfg.agents[k]) for k in comp)
         + "</div><h2 class='sec'>Agents — client</h2><div class='grid' style='gap:12px'>"
-        + "".join(_agent_card(k, cfg.agents[k]) for k in clnt)
+        + "".join(_settings_agent_card(k, cfg.agents[k]) for k in clnt)
         + "</div>"
     )
 
@@ -3933,8 +4172,45 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         "</form></div>"
     )
 
+    # ── External MCP servers — compact status rows + enable toggle ───────────
+    mcp_rows = mcp_rows or []
+    mcp_items = ""
+    for r in mcp_rows:
+        cfg_chip = (
+            "<span class='pill'><span class='dotmark' style='background:#3ad29f'></span>"
+            f"{escape(r['secret_env'])} set</span>" if r["configured"] else
+            "<span class='pill'><span class='dotmark' style='background:#ff6b6b'></span>"
+            f"{escape(r['secret_env'])} not set</span>"
+        )
+        scope = ", ".join(r["domains"]) if r["domains"] else "all domains"
+        tools = ", ".join(r["tools"][:5]) if r["tools"] else "all tools"
+        mcp_items += (
+            "<div style='display:flex;align-items:center;gap:10px;padding:8px 0;"
+            "border-bottom:1px solid var(--line);flex-wrap:wrap'>"
+            f"<b style='font-family:monospace;font-size:13px'>{escape(r['name'])}</b>"
+            f"<span class='pv'>{escape(r['transport'])}</span>{cfg_chip}"
+            f"<span class='mut' style='font-size:12px;flex:1'>{escape(r['description'])} "
+            f"· scope: {escape(scope)} · tools: {escape(tools)}</span>"
+            f"<form method='post' action='/settings/mcp/{escape(r['name'])}' style='display:inline'>"
+            f"<input type='hidden' name='enabled' value='{'' if r['enabled'] else '1'}'>"
+            f"<button class='btn-sm{' ok' if not r['enabled'] else ''}' type='submit'>"
+            f"{'Enable' if not r['enabled'] else 'Disable'}</button></form>"
+            "</div>"
+        )
+    mcp_section = ""
+    if mcp_items:
+        mcp_section = (
+            "<h2 class='sec'>MCP servers</h2>"
+            "<div class='card'>" + mcp_items +
+            "<p class='note' style='margin-top:8px'>External tool servers research agents can "
+            "call (Model Context Protocol). Keys live in <span class='mono'>.env</span> — a "
+            "server without its key is skipped automatically. Sovereign runs never use these "
+            "(cloud egress). Edit domains/tool filters in "
+            "<span class='mono'>sentinel.config.yaml</span>.</p></div>"
+        )
+
     content = (
-        banner + backends + models + coordinator + governance + search
+        banner + backends + models + coordinator + governance + search + mcp_section
         + strategy + generation + memory + harness + agents + prompts + security
     )
     return shell(active="settings", title="Settings", content=content, backend=backend)

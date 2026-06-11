@@ -382,11 +382,73 @@ def _agents_view(cfg) -> tuple[list, dict]:
     return modes, flags
 
 
+def _agents_html(*, ok: str = "", err: str = "") -> str:
+    cfg = get_config()
+    modes, flags = _agents_view(cfg)
+    return render.agents_page(
+        modes=modes, flags=flags, backend=_active(),
+        agents_cfg=dict(cfg.agents), ok=ok, err=err,
+    )
+
+
 @app.get("/agents", response_class=HTMLResponse)
-async def agents() -> str:
+async def agents(ok: str = "", err: str = "") -> str:
     """The agent roster + pipeline flow graph (introspected from the live specs + config)."""
-    modes, flags = _agents_view(get_config())
-    return render.agents_page(modes=modes, flags=flags, backend=_active())
+    return _agents_html(ok=ok, err=err)
+
+
+@app.post("/agents", response_class=HTMLResponse)
+async def agents_create(
+    key: str = Form(...),
+    role: str = Form("synthesizer"),
+    model: str = Form(""),
+) -> RedirectResponse:
+    from urllib.parse import quote as _q
+    try:
+        cfg = settings_helpers.create_agent(get_config(), key, role, model or None)
+        set_config(cfg, persist=True)
+    except ValueError as exc:
+        return RedirectResponse(f"/agents?err={_q(str(exc))}", status_code=303)
+    return RedirectResponse(f"/agents?ok={_q(f'Agent {key.strip()} created.')}", status_code=303)
+
+
+@app.post("/agents/{key}", response_class=HTMLResponse)
+async def agents_update(
+    key: str,
+    enabled: str = Form(""),
+    model: str = Form(""),
+    temperature: str = Form(""),
+    max_output_tokens: str = Form(""),
+    top_p: str = Form(""),
+    top_k: str = Form(""),
+) -> RedirectResponse:
+    from urllib.parse import quote as _q
+    # Backend is implicit in the model choice: gemini-* → pin Gemini; gemma-* → vLLM; blank → default
+    model = model.strip()
+    pin_gemini = model.startswith("gemini-")
+    form = {"temperature": temperature, "max_output_tokens": max_output_tokens,
+            "top_p": top_p, "top_k": top_k}
+    try:
+        gen = settings_helpers.parse_generation(form, allow_blank=True)
+        cfg = settings_helpers.apply_agent(
+            get_config(), key, enabled=bool(enabled), model=model,
+            pin_gemini=pin_gemini, gen=gen,
+        )
+        set_config(cfg, persist=True)
+    except ValueError as exc:
+        return RedirectResponse(f"/agents?err={_q(str(exc))}", status_code=303)
+    return RedirectResponse(f"/agents?ok={_q(f'Agent {key} saved.')}", status_code=303)
+
+
+@app.post("/agents/{key}/delete", response_class=HTMLResponse)
+async def agents_delete(key: str) -> RedirectResponse:
+    from urllib.parse import quote as _q
+    try:
+        cfg = settings_helpers.delete_agent(get_config(), key)
+        set_config(cfg, persist=True)
+    except ValueError as exc:
+        return RedirectResponse(f"/agents?err={_q(str(exc))}", status_code=303)
+    return RedirectResponse(f"/agents?ok={_q(f'Agent {key} deleted.')}", status_code=303)
 
 
 @app.get("/artifacts", response_class=HTMLResponse)
@@ -401,17 +463,8 @@ async def artifacts(project: str = "") -> str:
 
 
 @app.get("/backends", response_class=HTMLResponse)
-async def backends() -> str:
-    cfg = get_config()  # Settings edits these; env only seeds the initial config
-    return render.backends_page(
-        default_backend=_active(),
-        gemini_model=cfg.backend.gemini.model,
-        vllm_model=cfg.backend.vllm.model,
-        vllm_api_base=cfg.backend.vllm.api_base or "",
-        gemini_key_set=_key_set("GOOGLE_API_KEY"),
-        vllm_key_set=_key_set("VLLM_API_KEY"),
-        private_configured=private_boundary_configured(),
-    )
+async def backends() -> RedirectResponse:
+    return RedirectResponse("/settings", status_code=301)
 
 
 # --------------------------------------------------------------------------- #
@@ -1765,7 +1818,10 @@ async def _approve_and_run(task_id: str, override_backend: str = "") -> Redirect
         trace: list[str] = []
         policy = _run_policy(cloud_allowed)
         # Apply user's explicit backend choice, honouring sovereignty.
-        if override_backend in ("gemini", "vllm") and (cloud_allowed or override_backend != "gemini"):
+        if override_backend == "vllm-26b":
+            policy["backend"] = "vllm"
+            policy["vllm_model"] = "gemma-4-27b-it"
+        elif override_backend in ("gemini", "vllm") and (cloud_allowed or override_backend != "gemini"):
             policy["backend"] = override_backend
         outcome = await gate_proposal(
             proposal, autonomy="autonomous", seeds=_plan_seeds(task, plan, proj),
@@ -2052,6 +2108,7 @@ async def run(
 # stored config (NFR-2). No secret is ever rendered or persisted (NFR-1).
 # --------------------------------------------------------------------------- #
 def _settings_html(*, ok: str = "", err: str = "", password_ok: str = "", password_err: str = "") -> str:
+    from sentinel.tools.mcp_registry import mcp_status
     return render.settings_page(
         get_config(),
         backend=_active(),
@@ -2061,11 +2118,25 @@ def _settings_html(*, ok: str = "", err: str = "", password_ok: str = "", passwo
         serpapi_key_set=_key_set("SERPAPI_API_KEY"),
         google_cse_id_set=_key_set("GOOGLE_CSE_ID"),
         atcuality_key_set=_key_set("ATCUALITY_API_KEY"),
+        mcp_rows=mcp_status(get_config()),
         ok=ok,
         err=err,
         password_ok=password_ok,
         password_err=password_err,
     )
+
+
+@app.post("/settings/mcp/{name}", response_class=HTMLResponse)
+async def settings_mcp_toggle(name: str, enabled: str = Form("")) -> RedirectResponse:
+    from urllib.parse import quote as _q
+    cfg = get_config().model_copy(deep=True)
+    server = cfg.mcp_servers.get(name)
+    if server is None:
+        return RedirectResponse(f"/settings?err={_q(f'Unknown MCP server {name}.')}", status_code=303)
+    server.enabled = bool(enabled)
+    set_config(cfg, persist=True)
+    state = "enabled" if server.enabled else "disabled"
+    return RedirectResponse(f"/settings?ok={_q(f'MCP server {name} {state}.')}", status_code=303)
 
 
 @app.get("/settings", response_class=HTMLResponse)

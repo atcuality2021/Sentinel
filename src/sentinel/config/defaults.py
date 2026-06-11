@@ -987,4 +987,42 @@ def build_default() -> SentinelConfig:
     return SentinelConfig(
         backend=_default_backend(), agents=agents, prompts=prompts,
         search=_default_search(), strategy=_default_strategy(), research=_default_research(),
+        mcp_servers=_default_mcp_servers(),
     )
+
+
+def _default_mcp_servers() -> dict:
+    """External MCP servers agents can draw tools from. Keys live in .env only
+    (api_key_env / url_env name the variables) — a server whose secret is unset is
+    skipped at build time, so these defaults are safe to ship enabled."""
+    from sentinel.config.schema import MCPServerConfig
+
+    return {
+        "firecrawl": MCPServerConfig(
+            transport="stdio", command="npx", args="-y firecrawl-mcp",
+            api_key_env="FIRECRAWL_API_KEY",
+            # Tight allow-list: search + scrape cover research needs without flooding
+            # the 12B tool-caller's menu (crawl/map/extract are batch ops, not agent moves).
+            tool_filter=["firecrawl_search", "firecrawl_scrape"],
+            domains=[],  # every domain — the model picks it when a page needs scraping
+            description="Web scraping + search (Firecrawl). Markdown extraction from any URL.",
+        ),
+        "searchapi": MCPServerConfig(
+            transport="http", url_env="SEARCHAPI_MCP_URL",
+            # No local filter: the SearchAPI dashboard integration already curates which
+            # engine tools the URL exposes (verified live: tools/list returns only the
+            # engines selected when creating the integration). Add engines there, not here.
+            tool_filter=[],
+            domains=[],
+            description="SearchAPI.io engines — toolset curated in the SearchAPI dashboard.",
+        ),
+        "gdrive": MCPServerConfig(
+            transport="stdio", command="npx", args="-y @isaacphi/mcp-gdrive",
+            api_key_env="CLIENT_ID",  # Google OAuth desktop client (+ CLIENT_SECRET, GDRIVE_CREDS_DIR)
+            # Read-only by tool filter — the server also ships gsheets_update_cell,
+            # which stays unreachable (same scope-at-tool-layer rule as the private boundary).
+            tool_filter=["gdrive_search", "gdrive_read_file"],
+            domains=[],
+            description="Google Drive — search + read your Drive files during research.",
+        ),
+    }

@@ -47,3 +47,7 @@ data/
 # Python bytecode (belt-and-suspenders alongside __pycache__/)
 *.pyc
 *.pyo
+
+# SSH keys — never commit
+*.pem
+*.ppk

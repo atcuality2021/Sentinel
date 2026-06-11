@@ -362,8 +362,13 @@ def test_post_strategy_persists(client):
     reset_config()
     cfg = load_config(config_path())
     assert cfg.strategy.enabled is True
-    # no secret persisted
-    assert "API_KEY" not in config_path().read_text().upper() or "=" not in config_path().read_text()
+    # No secret persisted. Env-var *names* are fine (mcp_servers' api_key_env fields name
+    # which variable holds the secret, e.g. "FIRECRAWL_API_KEY") — what must never appear
+    # is a key VALUE on an API_KEY line.
+    for line in config_path().read_text().splitlines():
+        if "API_KEY" in line.upper():
+            field = line.split(":", 1)[0].strip().lower()
+            assert field.endswith("_env"), f"possible secret persisted: {line.strip()[:60]}"
 
 
 def test_post_strategy_bad_playbook_errors(client):

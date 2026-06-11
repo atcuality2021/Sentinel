@@ -44,9 +44,9 @@ def test_dashboard_renders(client):
 
 def test_dashboard_has_sidebar_nav(client):
     r = client.get("/")
-    # collapsible sidebar — project-first nav (Build: Dashboard/Projects/Agents; Govern: Backends/Settings)
+    # collapsible sidebar — project-first nav (Build: Dashboard/Projects/Agents; Govern: Settings)
     assert "navToggle" in r.text
-    for href in ("/projects", "/backends", "/agents"):
+    for href in ("/projects", "/settings", "/agents"):
         assert f"href='{href}'" in r.text
     for group in ("Build", "Govern"):
         assert group in r.text

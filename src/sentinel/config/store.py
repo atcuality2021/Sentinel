@@ -53,6 +53,10 @@ def _backfill_defaults(cfg: SentinelConfig) -> SentinelConfig:
                 cfg.agents[key] = existing.model_copy(update={"role": ac.role})
     for key, tmpl in d.prompts.items():
         cfg.prompts.setdefault(key, tmpl)
+    # New shipped MCP servers appear without a manual migration; user edits
+    # (enabled, domains, tool_filter) on existing entries are never touched.
+    for key, server in d.mcp_servers.items():
+        cfg.mcp_servers.setdefault(key, server)
     return cfg
 
 
