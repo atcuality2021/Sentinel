@@ -1123,7 +1123,9 @@ async def run_plan(
     (seeds, base_seed, budget, cfg, backend, cloud_allowed, search_provider, two_tier, cache, use_cache,
     project_id, clock, trace)."""
     registry = _resolve_registry(plan, registry)
-    execu = await _execute_plan(plan, registry=registry, **kwargs)
+    # Strip keys _execute_plan doesn't accept (forwarded by run_dag / gate_proposal for post-run hooks).
+    _exec_kwargs = {k: v for k, v in kwargs.items() if k not in ("user_id", "handoff_id")}
+    execu = await _execute_plan(plan, registry=registry, **_exec_kwargs)
     project = assemble or _assemble_result
     result = project(
         execu.plan, execu.results, execu.produced,
