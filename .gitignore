@@ -51,3 +51,12 @@ data/
 # SSH keys — never commit
 *.pem
 *.ppk
+
+# Debug screenshots / recordings — verification artifacts, never source.
+# Doc images live under docs/**/assets/ which stays tracked.
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.mp4
+/*.webm
