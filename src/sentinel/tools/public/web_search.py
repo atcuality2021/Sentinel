@@ -209,10 +209,10 @@ def _google_cse(query: str, results: int) -> SearchResponse:
     """
     import httpx
 
-    key = os.getenv("GOOGLE_API_KEY", "").strip()
+    key = (os.getenv("GOOGLE_CSE_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
     cx = os.getenv("GOOGLE_CSE_ID", "").strip()
     if not key:
-        return _err("GOOGLE_API_KEY is not set", "google_cse")
+        return _err("GOOGLE_CSE_API_KEY (or GOOGLE_API_KEY) is not set", "google_cse")
     if not cx:
         return _err(
             "GOOGLE_CSE_ID is not set — create a search engine at "

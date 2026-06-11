@@ -271,25 +271,59 @@ def test_searxng_requires_env_url(monkeypatch):
     assert out["status"] == "error" and "SEARXNG_URL" in out["message"] and out["results"] == []
 
 
-# --- google_cse provider (GOOGLE_API_KEY + GOOGLE_CSE_ID) ------------------------------------ #
+# --- google_cse provider (GOOGLE_CSE_API_KEY preferred, GOOGLE_API_KEY fallback) ------------- #
 
 
 def test_google_cse_requires_api_key(monkeypatch):
+    monkeypatch.delenv("GOOGLE_CSE_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("GOOGLE_CSE_ID", "cx-abc")
     out = web_search.get_search_tool("google_cse")("openai")
-    assert out["status"] == "error" and "GOOGLE_API_KEY" in out["message"]
+    assert out["status"] == "error" and "GOOGLE_CSE_API_KEY" in out["message"]
+
+
+def test_google_cse_dedicated_key_takes_precedence(monkeypatch):
+    """GOOGLE_CSE_API_KEY is used when set, ignoring GOOGLE_API_KEY."""
+    monkeypatch.setenv("GOOGLE_CSE_API_KEY", "cse-key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "ai-studio-key")
+    monkeypatch.setenv("GOOGLE_CSE_ID", "cx-abc123")
+    captured: dict = {}
+
+    def fake_get(url, **kw):
+        captured.update(kw)
+        return _FakeResp({"items": []})
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    web_search.get_search_tool("google_cse")("test")
+    assert captured["params"]["key"] == "cse-key"
+
+
+def test_google_cse_falls_back_to_google_api_key(monkeypatch):
+    """Falls back to GOOGLE_API_KEY when GOOGLE_CSE_API_KEY is absent."""
+    monkeypatch.delenv("GOOGLE_CSE_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "fallback-key")
+    monkeypatch.setenv("GOOGLE_CSE_ID", "cx-abc123")
+    captured: dict = {}
+
+    def fake_get(url, **kw):
+        captured.update(kw)
+        return _FakeResp({"items": []})
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    web_search.get_search_tool("google_cse")("test")
+    assert captured["params"]["key"] == "fallback-key"
 
 
 def test_google_cse_requires_cx_id(monkeypatch):
-    monkeypatch.setenv("GOOGLE_API_KEY", "gkey")
+    monkeypatch.setenv("GOOGLE_CSE_API_KEY", "gkey")
     monkeypatch.delenv("GOOGLE_CSE_ID", raising=False)
     out = web_search.get_search_tool("google_cse")("openai")
     assert out["status"] == "error" and "GOOGLE_CSE_ID" in out["message"]
 
 
 def test_google_cse_parses_items_and_key_never_in_output(monkeypatch):
-    monkeypatch.setenv("GOOGLE_API_KEY", "gkey-secret")
+    monkeypatch.setenv("GOOGLE_CSE_API_KEY", "gkey-secret")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("GOOGLE_CSE_ID", "cx-abc123")
     captured: dict = {}
 
