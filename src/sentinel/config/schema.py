@@ -282,6 +282,17 @@ class SearchConfig(BaseModel):
     stagger_s: float = 0.0
 
 
+class AuthConfig(BaseModel):
+    """Login authentication (session-based, scrypt hash, httponly cookie).
+
+    ``password_hash`` is None on first boot — the app redirects to /setup so the
+    admin can set a password before any other route is reachable. Holds no raw
+    secret: the hash is safe to persist in sentinel.config.yaml (gitignored).
+    """
+
+    password_hash: str | None = None  # scrypt$<salt>$<key> or None = setup required
+
+
 class SentinelConfig(BaseModel):
     """The whole runtime configuration. Build via :meth:`default` or load from YAML."""
 
@@ -301,6 +312,7 @@ class SentinelConfig(BaseModel):
     coordinator: CoordinatorConfig = Field(default_factory=CoordinatorConfig)
     priority: PriorityConfig = Field(default_factory=PriorityConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
     @classmethod
     def default(cls) -> "SentinelConfig":

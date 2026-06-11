@@ -431,7 +431,8 @@ def _sidebar(active: str) -> str:
         f"{_icon('menu')}</button></div>"
         f"{''.join(blocks)}"
         "<div class='side-foot'>Sovereign Intelligence Agent<br>Public &amp; private signal, "
-        "separated by design.</div>"
+        "separated by design.<br><a href='/logout' style='color:#9aa0a6;font-size:11px;"
+        "text-decoration:none;margin-top:6px;display:inline-block'>Sign out</a></div>"
         "</aside>"
     )
 
@@ -3652,7 +3653,8 @@ _ROLE_TIERS = [
 def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err: str = "",
                   vllm_key_set: bool = False, brave_key_set: bool = False,
                   serpapi_key_set: bool = False, atcuality_key_set: bool = False,
-                  google_cse_id_set: bool = False) -> str:
+                  google_cse_id_set: bool = False,
+                  password_ok: str = "", password_err: str = "") -> str:
     banner = ""
     if ok:
         banner = f"<div class='card banner ok'>{escape(ok)}</div>"
@@ -3911,9 +3913,29 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         + "".join(_prompt_card(k, cfg.prompts[k]) for k in cfg.prompts)
     )
 
+    _pw_msg = (f"<div class='banner ok'>{escape(password_ok)}</div>" if password_ok
+               else (f"<div class='banner bad'>{escape(password_err)}</div>" if password_err else ""))
+    security = (
+        "<h2 class='sec'>Security · password</h2>"
+        "<div class='card'>"
+        + _pw_msg
+        + "<form method='post' action='/settings/password' class='set-grid'>"
+        "<div class='row2'>"
+        "<div><label class='lbl' for='sec_cur'>Current password</label>"
+        "<input type='password' id='sec_cur' name='current_password' autocomplete='current-password' required></div>"
+        "<div><label class='lbl' for='sec_new'>New password <span style='color:#9aa0a6;font-size:11px'>(min 8 chars)</span></label>"
+        "<input type='password' id='sec_new' name='new_password' autocomplete='new-password' required></div>"
+        "</div>"
+        "<div><label class='lbl' for='sec_cfm'>Confirm new password</label>"
+        "<input type='password' id='sec_cfm' name='confirm_password' autocomplete='new-password' required></div>"
+        "<div class='set-actions'><button class='btn' type='submit'>Change password</button></div>"
+        "<p class='note'>Changes take effect immediately. All active sessions remain valid.</p>"
+        "</form></div>"
+    )
+
     content = (
         banner + backends + models + coordinator + governance + search
-        + strategy + generation + memory + harness + agents + prompts
+        + strategy + generation + memory + harness + agents + prompts + security
     )
     return shell(active="settings", title="Settings", content=content, backend=backend)
 
@@ -5016,3 +5038,76 @@ def _project_report_page_LEGACY(*, project, tasks: list, backend: str) -> str:
         subnav=subnav,
         project=project.name,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Auth pages — login + first-boot setup (no shell wrapper, standalone HTML)
+# --------------------------------------------------------------------------- #
+_AUTH_CSS = """
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:#0b0e14;color:#e8eaed;
+  font:14.5px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.box{background:#151a23;border:1px solid #2a2f3a;border-radius:18px;padding:40px 36px;
+  width:100%;max-width:400px;box-shadow:0 8px 48px rgba(0,0,0,.55)}
+.logo{display:flex;align-items:center;gap:12px;margin-bottom:28px}
+.logo-mark{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;
+  justify-content:center;background:linear-gradient(135deg,#4285f4,#a142f4);
+  color:#fff;font-weight:800;font-size:18px;flex:0 0 auto}
+.logo-text{font-size:20px;font-weight:700;letter-spacing:.2px}
+h2{font-size:16px;font-weight:600;margin:0 0 6px}
+.sub{color:#9aa0a6;font-size:13px;margin:0 0 24px}
+label{font-size:11.5px;text-transform:uppercase;letter-spacing:.1em;color:#9aa0a6;
+  display:block;margin-bottom:6px}
+input[type=password]{width:100%;background:#11151d;border:1px solid #2a2f3a;color:#e8eaed;
+  padding:11px 13px;border-radius:10px;font-size:14.5px;margin-bottom:16px}
+input[type=password]:focus{outline:none;border-color:#4285f4}
+.btn-full{width:100%;background:#4285f4;color:#fff;border:0;padding:13px;border-radius:10px;
+  font-size:15px;font-weight:600;cursor:pointer;margin-top:4px}
+.btn-full:hover{filter:brightness(1.1)}
+.err{background:#1c1011;border:1px solid #5a1f1f;color:#ff6b6b;border-radius:8px;
+  padding:10px 14px;font-size:13px;margin-bottom:16px}
+.foot{color:#9aa0a6;font-size:12px;text-align:center;margin-top:18px}
+</style>
+"""
+
+
+def login_page(*, next_url: str = "", err: str = "") -> str:
+    err_html = f"<div class='err'>{escape(err)}</div>" if err else ""
+    next_field = f"<input type='hidden' name='next' value='{escape(next_url)}'>" if next_url else ""
+    return f"""<!doctype html><html lang='en'><head>
+<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Sign in · Sentinel</title>{_AUTH_CSS}</head>
+<body><div class='wrap'><div class='box'>
+<div class='logo'><div class='logo-mark'>S</div><div class='logo-text'>Sentinel</div></div>
+<h2>Sign in</h2>
+<p class='sub'>Sovereign Intelligence Agent</p>
+{err_html}
+<form method='post' action='/login'>
+{next_field}
+<label for='pw'>Password</label>
+<input type='password' id='pw' name='password' autofocus required placeholder='Enter password'>
+<button class='btn-full' type='submit'>Sign in</button>
+</form>
+</div></div></body></html>"""
+
+
+def setup_page(*, err: str = "") -> str:
+    err_html = f"<div class='err'>{escape(err)}</div>" if err else ""
+    return f"""<!doctype html><html lang='en'><head>
+<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Set up password · Sentinel</title>{_AUTH_CSS}</head>
+<body><div class='wrap'><div class='box'>
+<div class='logo'><div class='logo-mark'>S</div><div class='logo-text'>Sentinel</div></div>
+<h2>Set up your password</h2>
+<p class='sub'>First boot — create a password to protect this instance.</p>
+{err_html}
+<form method='post' action='/setup'>
+<label for='pw'>Password <span style='color:#9aa0a6;font-size:11px'>(min 8 characters)</span></label>
+<input type='password' id='pw' name='password' autofocus required placeholder='Choose a password'>
+<label for='pw2'>Confirm password</label>
+<input type='password' id='pw2' name='confirm' required placeholder='Repeat password'>
+<button class='btn-full' type='submit'>Create password &amp; sign in</button>
+</form>
+</div></div></body></html>"""

@@ -14,3 +14,4 @@ import pytest
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("SENTINEL_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SENTINEL_DISABLE_AUTH", "1")

@@ -41,8 +41,103 @@ from sentinel.priority import PriorityStore, compute_account_priority
 from sentinel.tools.private.workspace_mcp import private_boundary_configured
 from sentinel.web import render
 from sentinel.web import settings as settings_helpers
+from sentinel.web import auth as _auth
 
 app = FastAPI(title="Sentinel — Sovereign Intelligence Agent", docs_url="/api")
+
+# ---- Auth constants ----
+_COOKIE = "sentinel_session"
+# Routes that bypass auth (login/setup/logout only)
+_PUBLIC_PATHS = {"/login", "/logout", "/setup"}
+
+# ---- Auth middleware: intercepts every request before routing ----
+@app.middleware("http")
+async def _auth_middleware(request: Request, call_next):
+    # SENTINEL_DISABLE_AUTH=1 skips all auth checks (test environments only)
+    if os.getenv("SENTINEL_DISABLE_AUTH") == "1":
+        return await call_next(request)
+
+    path = request.url.path
+    if path in _PUBLIC_PATHS:
+        return await call_next(request)
+
+    cfg = get_config()
+    # No password set yet → force setup
+    if not cfg.auth.password_hash:
+        return RedirectResponse("/setup", status_code=307)
+
+    token = request.cookies.get(_COOKIE)
+    if not _auth.is_valid_session(token):
+        next_url = quote(path + ("?" + str(request.url.query) if request.url.query else ""))
+        return RedirectResponse(f"/login?next={next_url}", status_code=307)
+
+    return await call_next(request)
+
+
+# ---- Setup (first-boot password creation) ----
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_get(err: str = "") -> str:
+    if get_config().auth.password_hash:
+        return RedirectResponse("/", status_code=307)
+    return render.setup_page(err=err)
+
+@app.post("/setup", response_class=HTMLResponse)
+async def setup_post(
+    password: str = Form(...),
+    confirm: str = Form(...),
+) -> str:
+    cfg = get_config()
+    if cfg.auth.password_hash:
+        return RedirectResponse("/", status_code=307)
+    if len(password) < 8:
+        return render.setup_page(err="Password must be at least 8 characters.")
+    if password != confirm:
+        return render.setup_page(err="Passwords do not match.")
+    cfg = cfg.model_copy(deep=True)
+    cfg.auth.password_hash = _auth.hash_password(password)
+    set_config(cfg, persist=True)
+    resp = RedirectResponse("/", status_code=303)
+    token = _auth.create_session()
+    resp.set_cookie(_COOKIE, token, httponly=True, samesite="strict", max_age=43200)
+    return resp
+
+
+# ---- Login ----
+@app.get("/login", response_class=HTMLResponse)
+async def login_get(next: str = "", err: str = "") -> str:
+    if _auth.is_valid_session(None):  # already logged in
+        return RedirectResponse(next or "/", status_code=307)
+    return render.login_page(next_url=next, err=err)
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_post(
+    request: Request,
+    password: str = Form(...),
+    next: str = Form(""),
+) -> str:
+    ip = request.client.host if request.client else "unknown"
+    if not _auth.check_rate_limit(ip):
+        return render.login_page(next_url=next,
+                                 err="Too many attempts. Wait 5 minutes and try again.")
+    cfg = get_config()
+    if not cfg.auth.password_hash:
+        return RedirectResponse("/setup", status_code=307)
+    if not _auth.verify_password(password, cfg.auth.password_hash):
+        return render.login_page(next_url=next, err="Incorrect password.")
+    resp = RedirectResponse(next or "/", status_code=303)
+    token = _auth.create_session()
+    resp.set_cookie(_COOKIE, token, httponly=True, samesite="strict", max_age=43200)
+    return resp
+
+
+# ---- Logout ----
+@app.get("/logout")
+async def logout(request: Request) -> RedirectResponse:
+    token = request.cookies.get(_COOKIE)
+    _auth.delete_session(token)
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(_COOKIE)
+    return resp
 
 
 # --------------------------------------------------------------------------- #
@@ -1939,7 +2034,7 @@ async def run(
 # commits to a deep copy only after validation, so a bad edit never corrupts the
 # stored config (NFR-2). No secret is ever rendered or persisted (NFR-1).
 # --------------------------------------------------------------------------- #
-def _settings_html(*, ok: str = "", err: str = "") -> str:
+def _settings_html(*, ok: str = "", err: str = "", password_ok: str = "", password_err: str = "") -> str:
     return render.settings_page(
         get_config(),
         backend=_active(),
@@ -1951,6 +2046,8 @@ def _settings_html(*, ok: str = "", err: str = "") -> str:
         atcuality_key_set=_key_set("ATCUALITY_API_KEY"),
         ok=ok,
         err=err,
+        password_ok=password_ok,
+        password_err=password_err,
     )
 
 
@@ -2300,6 +2397,26 @@ def _failure_hint(exc: Exception) -> str:
     if "no '" in text and "in state" in text:
         return "The model returned no structured artifact — usually a transient model error; retry."
     return ""
+
+
+@app.post("/settings/password", response_class=HTMLResponse)
+async def settings_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+) -> str:
+    cfg = get_config()
+    if not cfg.auth.password_hash or not _auth.verify_password(current_password, cfg.auth.password_hash):
+        return _settings_html(password_err="Current password is incorrect.")
+    if len(new_password) < 8:
+        return _settings_html(password_err="New password must be at least 8 characters.")
+    if new_password != confirm_password:
+        return _settings_html(password_err="New passwords do not match.")
+    cfg = cfg.model_copy(deep=True)
+    cfg.auth.password_hash = _auth.hash_password(new_password)
+    set_config(cfg, persist=True)
+    return _settings_html(password_ok="Password changed. All existing sessions remain active.")
 
 
 def main() -> None:  # pragma: no cover - convenience entrypoint
