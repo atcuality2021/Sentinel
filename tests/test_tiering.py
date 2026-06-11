@@ -312,3 +312,58 @@ def test_gemini_agent_never_gets_litellm_response_format(monkeypatch):
     model = resolve_model(cfg, ac, None, cloud_allowed=True, output_schema=Battlecard)
     assert isinstance(model, str)            # a Gemini model-id, not a LiteLlm
     assert "response_format" not in captured  # no LiteLlm was constructed at all
+
+
+# --- Gemini thinking-token floor (2026-06-11 thin-results bug) ---------------------------- #
+
+
+def test_gemini_synthesizer_gets_thinking_token_floor(monkeypatch):
+    """gemini-2.5-flash spends hidden *thinking* tokens from the same max_output_tokens budget, so
+    the synthesizer's vLLM-tuned 3072 cap truncated its JSON mid-object → ValidationError → empty
+    findings (live 2026-06-11). On a Gemini-resolved agent the cap is floored at 8192."""
+    from sentinel.agent.modes._build import GEMINI_MIN_OUTPUT_TOKENS
+
+    cfg = _tiered_cfg()
+    assert cfg.agents["self_profile.synthesizer"].generation.max_output_tokens == 3072  # the trap
+    agent = make_agent(
+        cfg, "self_profile.synthesizer", name="synth", output_key="self_profile",
+        mode_backend="gemini", cloud_allowed=True,
+    )
+    assert agent.generate_content_config.max_output_tokens == GEMINI_MIN_OUTPUT_TOKENS
+
+
+def test_vllm_synthesizer_cap_is_untouched(monkeypatch):
+    """The floor is Gemini-only: the vLLM path has no thinking budget (and the 26B synthesizes in
+    chunks), so its configured cap must stay byte-identical."""
+    monkeypatch.setenv("ATCUALITY_API_KEY", "atc")
+    cfg = _tiered_cfg()
+    agent = make_agent(
+        cfg, "self_profile.synthesizer", name="synth", output_key="self_profile",
+        mode_backend="vllm", cloud_allowed=True,
+    )
+    assert agent.generate_content_config.max_output_tokens == 3072
+
+
+def test_sovereign_run_never_inflates_the_cap(monkeypatch):
+    """cloud_allowed=False forces vLLM even on a pin_gemini agent — the resolved backend (not the
+    requested one) decides, so a sovereign run keeps its configured cap."""
+    monkeypatch.setenv("ATCUALITY_API_KEY", "atc")
+    cfg = _tiered_cfg()
+    cfg.agents["self_profile.synthesizer"].pin_gemini = True
+    agent = make_agent(
+        cfg, "self_profile.synthesizer", name="synth", output_key="self_profile",
+        mode_backend="gemini", cloud_allowed=False,
+    )
+    assert agent.generate_content_config.max_output_tokens == 3072
+
+
+def test_generous_gemini_cap_is_not_lowered():
+    """An agent already configured above the floor keeps its own (larger) budget — the floor only
+    raises, never clamps."""
+    cfg = _tiered_cfg()
+    cfg.agents["self_profile.synthesizer"].generation.max_output_tokens = 16384
+    agent = make_agent(
+        cfg, "self_profile.synthesizer", name="synth", output_key="self_profile",
+        mode_backend="gemini", cloud_allowed=True,
+    )
+    assert agent.generate_content_config.max_output_tokens == 16384

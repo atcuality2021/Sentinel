@@ -1226,6 +1226,18 @@ def _plan_seeds(task, plan, project=None) -> dict:
          r"(?:\s+(?:and|,|vs\.?|versus|against|compared?\b|to\b)|$)"],
         host or getattr(project, "name", None) or obj,
     ))
+    # Topic-word guard: "Research AI based government solutions…" extracts org="AI" — a subject
+    # area, not an organisation — and the agents then faithfully profile the wrong entity (live
+    # 2026-06-11: a run researched Google's AI products instead of the user's org). When the
+    # extracted "org" is a generic tech/topic token, fall back to the project's own identity.
+    _GENERIC_TOPICS = {
+        "ai", "ml", "iot", "ar", "vr", "genai", "llm", "llms", "saas", "crm", "erp",
+        "digital", "software", "technology", "tech", "data", "cloud", "cyber",
+        "cybersecurity", "blockchain", "automation", "analytics",
+        "best", "top", "new", "latest", "leading", "modern",
+    }
+    if org and org.lower() in _GENERIC_TOPICS:
+        org = _cap(host or getattr(project, "name", None) or obj)
     rival = _cap(_extract(
         obj,
         [r"\b(?:against|vs\.?|versus|compared?\s+(?:to|with)|competitor[s]?:?)\s+(.+?)(?:\s+(?:and|,|\.)|$)"],

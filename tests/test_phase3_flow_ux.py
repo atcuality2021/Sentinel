@@ -115,6 +115,31 @@ def test_plan_seeds_falls_back_when_no_rival_named():
     assert len(target) < len(task.objective)
 
 
+def test_plan_seeds_rejects_topic_word_as_org():
+    """'Research AI based government solutions…' extracted org='AI' — a subject area, not an org —
+    and the agents profiled the wrong entity (live 2026-06-11: Google's AI products instead of the
+    user's org). A generic tech/topic token falls back to the project's own identity."""
+    from sentinel.web.app import _plan_seeds
+    from sentinel.artifacts.schemas import Task as _T
+
+    task = _T(id="t1", project_id="p1",
+              objective="Research AI based government solutions for Assam",
+              domain=Domain(name="market"), persona=Persona(), created_at=_NOW)
+    plan = Plan(id="pl", task_id="t1", steps=[
+        Step(id="s1", capability="self_profile", output_key="self_profile")])
+
+    proj = Project(id="p1", name="BiltIQ", website="https://biltiq.ai", created_at=_NOW)
+    assert _plan_seeds(task, plan, proj)["s1"]["target"] == "biltiq.ai"   # website host wins
+
+    proj_no_site = Project(id="p1", name="BiltIQ", created_at=_NOW)
+    assert _plan_seeds(task, plan, proj_no_site)["s1"]["target"] == "BiltIQ"  # then project name
+
+    # a real org name containing the token as a *part* is untouched
+    task2 = _T(id="t2", project_id="p1", objective="Profile BiltIQ AI for the board",
+               domain=Domain(name="market"), persona=Persona(), created_at=_NOW)
+    assert _plan_seeds(task2, plan, proj)["s1"]["target"] == "BiltIQ AI"
+
+
 # --------------------------------------------------------------------------- #
 # task lifecycle: status badge, clickable task-detail route, create→plan funnel
 # --------------------------------------------------------------------------- #

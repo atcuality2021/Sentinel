@@ -20,6 +20,26 @@ from sentinel.config.schema import (
 )
 from sentinel.llm.gateway import build_model, resolve_backend
 
+# Gemini floor for max_output_tokens: gemini-2.5-flash is a *thinking* model — its hidden thinking
+# tokens count against max_output_tokens, so a budget sized for the visible JSON (e.g. the
+# synthesizer's 3072) truncates the payload mid-object → pydantic ValidationError in ADK's
+# validate_schema → the node fails and the run degrades to empty findings (proven live 2026-06-11;
+# discover.py:60 hit the same wall at 1024 and settled on 4096 for a short list). 8192 leaves room
+# for thinking + a full multi-section research artifact. vLLM is unaffected (no thinking budget,
+# and the 26B synthesizes in chunks), so the floor applies only when the agent resolves to Gemini.
+GEMINI_MIN_OUTPUT_TOKENS = 8192
+
+
+def _agent_backend(
+    cfg: SentinelConfig, ac: AgentConfig, mode_backend: str | None, *, cloud_allowed: bool
+) -> str:
+    """The backend this agent will actually run on — same precedence as :func:`resolve_model`."""
+    if not cloud_allowed:
+        return "vllm"
+    if ac.pin_gemini:
+        return "gemini"
+    return resolve_backend(mode_backend or cfg.backend.default)
+
 
 def to_genai(gen: GenerationConfig) -> types.GenerateContentConfig | None:
     """Map our GenerationConfig to ADK's generate_content_config (omitting None fields)."""
@@ -76,12 +96,7 @@ def resolve_model(
     ``output_schema`` (when set) constrains the vLLM decode to that schema via ``response_format``
     json_schema — see :func:`_vllm_response_format`. Ignored on the Gemini path (ADK handles it).
     """
-    if not cloud_allowed:
-        backend = "vllm"
-    elif ac.pin_gemini:
-        backend = "gemini"
-    else:
-        backend = resolve_backend(mode_backend or cfg.backend.default)
+    backend = _agent_backend(cfg, ac, mode_backend, cloud_allowed=cloud_allowed)
     if backend == "gemini":
         model_id = ac.model or cfg.backend.gemini.model
         return build_model("gemini", model_id)
@@ -129,6 +144,15 @@ def make_agent(
             "tool-free — give the tool-using work to a tool-caller role (gemma-4-12B)"
         )
     gen = cfg.generation.merge(ac.generation)
+    # Thinking-token floor (see GEMINI_MIN_OUTPUT_TOKENS): a cap tuned for vLLM's visible output
+    # starves a Gemini thinking model and decapitates the JSON. Applied at build time so every
+    # mode/config inherits it — the per-machine config file never needs touching.
+    if (
+        gen.max_output_tokens is not None
+        and gen.max_output_tokens < GEMINI_MIN_OUTPUT_TOKENS
+        and _agent_backend(cfg, ac, mode_backend, cloud_allowed=cloud_allowed) == "gemini"
+    ):
+        gen = gen.merge(GenerationConfig(max_output_tokens=GEMINI_MIN_OUTPUT_TOKENS))
     instruction = render_prompt(cfg.prompts[prompt_key or key])
     for var, value in (note_substitutions or {}).items():
         instruction = instruction.replace("{" + var + "}", value)

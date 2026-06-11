@@ -57,7 +57,10 @@ def test_absent_file_self_seeds(tmp_path):
 
 # --- AC-4 / AC-5: per-agent model + generation resolution --------------------------------- #
 def test_per_agent_model_and_generation_override():
+    from sentinel.agent.modes._build import GEMINI_MIN_OUTPUT_TOKENS
+
     cfg = SentinelConfig.default()
+    cfg.backend.default = "gemini"                # pin: env may seed vllm; this test is the Gemini path
     cfg.agents["competitor.synthesizer"].model = "gemini-2.5-pro"
     cfg.agents["competitor.synthesizer"].generation = GenerationConfig(temperature=0.9)
     agent = build_competitor_agent(config=cfg)
@@ -65,12 +68,15 @@ def test_per_agent_model_and_generation_override():
     assert synth.model == "gemini-2.5-pro"
     gen = synth.generate_content_config
     assert gen.temperature == 0.9                 # per-agent override wins
-    assert gen.max_output_tokens == 2048          # inherited from global (override left it None)
+    # inherited global (2048) is below the Gemini thinking-token floor, so the build raises it —
+    # gemini-2.5's hidden thinking spends from this same budget (thin-results bug, 2026-06-11)
+    assert gen.max_output_tokens == GEMINI_MIN_OUTPUT_TOKENS
     assert gen.top_p == 0.95                       # inherited from global
 
 
 def test_planner_generation_defaults_applied():
     cfg = SentinelConfig.default()
+    cfg.backend.default = "vllm"                  # pin: no Gemini floor → pure config-merge mechanics
     agent = build_competitor_agent(config=cfg)
     planner = next(s for s in agent.sub_agents if s.name == "competitor_planner")
     assert planner.generate_content_config.temperature == 0.2
