@@ -3,359 +3,461 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sentinel — Architecture</title>
+<title>Sentinel — Architecture (detailed)</title>
 <style>
   :root{
-    --bg:#0b0f17; --panel:#121826; --panel2:#0e1420; --ink:#e7ecf3; --muted:#8b97a8;
-    --line:#1e2940; --public:#4ea1ff; --public-bg:#11233d; --private:#ffb24d;
-    --private-bg:#2e2410; --accent:#7c5cff; --ok:#3ad29f; --warn:#f59e0b;
-    --mem:#1a3028; --mem-line:#2a6048; --mem-ink:#3ad29f;
-    --tier1:#1a2035; --tier2:#1d1535;
+    --bg:#f5f7fb; --panel:#ffffff; --panel2:#eef2f8; --ink:#1c2638; --muted:#5d6b81;
+    --line:#dbe3ef; --public:#1a73e8; --public-bg:#e8f1fd; --private:#b45309;
+    --private-bg:#fdf2e3; --accent:#6d28d9; --ok:#0f8a55; --warn:#b45309; --bad:#d23f3f;
+    --mem:#e9f6ef; --mem-line:#a9d9c2; --mem-ink:#0f7a4d;
+    --tier1:#edf1fa; --tier2:#f2edfa; --mcp:#e9eefb;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--ink);
     font:13.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  .sheet{max-width:1100px;margin:0 auto;padding:32px 28px 56px}
+  .sheet{max-width:1180px;margin:0 auto;padding:32px 28px 64px}
 
-  /* Header */
   .hd{display:flex;align-items:center;gap:10px;margin-bottom:4px}
   .dot{width:11px;height:11px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent)}
-  h1{font-size:20px;font-weight:700}
-  .sub{color:var(--muted);font-size:12.5px;margin-bottom:26px;max-width:820px}
+  h1{font-size:21px;font-weight:700}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:10px;max-width:900px}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 30px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 14px}
+  .stat b{font-size:16px;display:block}
+  .stat span{color:var(--muted);font-size:11px}
 
-  /* Generic node */
-  .node{background:var(--panel);border:1px solid var(--line);border-radius:10px;
-    padding:10px 14px;text-align:center}
+  h2{font-size:15px;font-weight:700;margin:34px 0 4px;display:flex;align-items:center;gap:8px}
+  h2 .n{background:var(--accent);color:#fff;border-radius:50%;width:20px;height:20px;
+    display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+  .secd{color:var(--muted);font-size:12px;margin-bottom:12px;max-width:880px}
+
+  .lane{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:10px}
+  .lane h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px}
+  .row{display:grid;gap:10px}
+  .c2{grid-template-columns:1fr 1fr}.c3{grid-template-columns:1fr 1fr 1fr}
+  .c4{grid-template-columns:repeat(4,1fr)}.c5{grid-template-columns:repeat(5,1fr)}
+  @media(max-width:880px){.c3,.c4,.c5{grid-template-columns:1fr 1fr}.c2{grid-template-columns:1fr}}
+
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 13px;
+    box-shadow:0 1px 3px rgba(28,38,56,.06)}
   .node .t{font-weight:600;font-size:13px}
-  .node .d{color:var(--muted);font-size:11.5px;margin-top:2px}
-  .node.core{border-color:#33285f;background:linear-gradient(180deg,#161427,#121826)}
-  .node.io{background:var(--panel2);color:var(--muted)}
-  .node.ok{border-color:#1e4a38;background:#0e1e18}
+  .node .m{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:var(--accent);margin-top:1px}
+  .node .d{color:var(--muted);font-size:11.5px;margin-top:3px}
+  .node.pub{border-color:var(--public);background:var(--public-bg)}
+  .node.priv{border-color:var(--private);background:var(--private-bg)}
+  .node.mem{border-color:var(--mem-line);background:var(--mem)}
+  .node.mcp{border-color:#3b5bd0;background:var(--mcp)}
+  .node.t1{background:var(--tier1)}.node.t2{background:var(--tier2)}
+  .node.dark{opacity:.55;border-style:dashed}
 
-  /* Arrow */
-  .arrow{color:var(--muted);text-align:center;font-size:17px;line-height:1;margin:6px 0}
-  .arrow small{display:block;font-size:10.5px;letter-spacing:.03em}
+  .arrow{ text-align:center;color:var(--muted);font-size:16px;line-height:1;margin:6px 0}
+  .flow{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap}
+  .flow .node{flex:1;min-width:130px}
+  .fa{align-self:center;color:var(--muted);font-size:15px}
 
-  /* Centre helper */
-  .center{display:flex;justify-content:center}
+  table{border-collapse:collapse;width:100%;font-size:12px;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th{background:var(--panel2);text-align:left;padding:7px 10px;color:var(--muted);
+    font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--line)}
+  td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+  .chip{display:inline-block;border-radius:9px;padding:1px 8px;font-size:10.5px;font-weight:600}
+  .chip.pub{background:var(--public-bg);color:var(--public);border:1px solid var(--public)}
+  .chip.priv{background:var(--private-bg);color:var(--private);border:1px solid var(--private)}
+  .chip.ok{background:#e6f6ee;color:var(--ok);border:1px solid var(--ok)}
+  .chip.warn{background:#fdf2e3;color:var(--warn);border:1px solid var(--warn)}
+  .chip.dark{background:#eef0f5;color:var(--muted);border:1px dashed var(--muted)}
 
-  /* ── Top entry ── */
-  .entry{min-width:260px}
-
-  /* ── ADK Agent shell ── */
-  .agent-shell{border:1px dashed #3d2f7a;border-radius:18px;padding:18px 16px;margin:0 0 16px;
-    background:rgba(124,92,255,.03);position:relative}
-  .agent-shell .cap{position:absolute;top:-11px;left:50%;transform:translateX(-50%);
-    background:var(--bg);padding:0 10px;color:var(--accent);font-size:11px;
-    letter-spacing:.14em;text-transform:uppercase;font-weight:700;white-space:nowrap}
-
-  /* Coordinator strip */
-  .coord{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-  .coord .node{flex:1}
-  .coord .gov{flex:0 0 auto;border:1px solid #2a3a5a;border-radius:10px;
-    padding:9px 12px;background:#0d1421;font-size:11.5px;color:var(--muted);min-width:170px}
-  .coord .gov .gt{font-weight:600;color:#6ea8d8;font-size:11.5px;margin-bottom:3px}
-
-  /* Domain ribbon */
-  .domains{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:0 0 14px}
-  .domain-pill{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;
-    letter-spacing:.05em;text-transform:uppercase;border:1px solid;white-space:nowrap}
-  .domain-pill.comp{color:#a78bfa;border-color:#4c3b8a;background:#1a1030}
-  .domain-pill.clt{color:#f59e0b;border-color:#6b4515;background:#1e1408}
-  .domain-pill.fin{color:#3ad29f;border-color:#1e4a38;background:#0e1e18}
-  .domain-pill.sw{color:#60a5fa;border-color:#1e3a5a;background:#0e1825}
-  .domain-pill.ac{color:#f472b6;border-color:#6b2560;background:#1e0e18}
-  .domain-pill.nu{color:#fb923c;border-color:#7a3610;background:#220f06}
-  .domain-pill.tr{color:#34d399;border-color:#0e5038;background:#061812}
-
-  /* Pipeline strip */
-  .pipeline-strip{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;
-    align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);
-    border-radius:12px;padding:12px 14px;margin-bottom:14px}
-  .pipeline-strip .pa{color:var(--accent);font-size:17px;text-align:center}
-  .pipeline-strip .tier{font-size:10px;color:var(--muted);margin-top:2px}
-
-  /* Extractor bubble */
-  .ext-row{display:flex;gap:7px;justify-content:center;margin:-4px 0 10px;flex-wrap:wrap}
-  .ext-pill{font-size:10.5px;color:var(--muted);border:1px solid var(--line);
-    border-radius:6px;padding:2px 8px;background:var(--panel2)}
-
-  /* Boundary lanes */
-  .bounds{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
-  .lane{border-radius:12px;padding:12px}
-  .lane.pub{background:var(--public-bg);border:1px solid #21456f}
-  .lane.priv{background:var(--private-bg);border:1px solid #5a4413}
-  .lane .lh{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
-    text-align:center;margin-bottom:8px}
-  .lane.pub .lh{color:var(--public)} .lane.priv .lh{color:var(--private)}
-  .lane .node{background:rgba(0,0,0,.18)}
-  .lane .tool-list{font-size:10.5px;color:var(--muted);margin-top:4px;text-align:center}
-
-  /* Post-processing row */
-  .postproc{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:0}
-  .postproc .node{font-size:12px}
-
-  /* Bottom three-column grid */
-  .bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
-  .stack-box{border:1px solid var(--mem-line);border-radius:12px;padding:13px;
-    background:#0a1710}
-  .stack-box .sh{color:var(--mem-ink);font-size:10.5px;font-weight:700;
-    letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;text-align:center}
-  .stack-row{display:flex;align-items:baseline;gap:8px;font-size:12px;margin-bottom:5px}
-  .stack-row .sl{font-weight:600;min-width:80px;color:var(--mem-ink)}
-  .stack-row .sd{color:var(--muted);font-size:11px}
-
-  /* Gateway */
-  .gateway{border:1px solid var(--line);border-radius:12px;padding:13px 16px;margin:0 0 16px;
-    background:var(--panel2)}
-  .gateway .gh{font-size:10.5px;font-weight:700;letter-spacing:.12em;
-    text-transform:uppercase;color:#8b97a8;text-align:center;margin-bottom:10px}
-  .gw-tiers{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center}
-  .gw-tier{border-radius:10px;padding:9px 12px;text-align:center;font-size:12px}
-  .gw-tier.cloud{background:var(--tier1);border:1px solid #1e3a5a}
-  .gw-tier.onprem{background:var(--tier2);border:1px solid #33285f}
-  .gw-tier .tm{font-weight:700;font-size:12.5px}
-  .gw-tier .ts{font-size:10.5px;color:var(--muted);margin-top:1px}
-  .gw-swap{text-align:center;color:var(--accent);font-size:12px;white-space:nowrap}
-  .gw-swap small{display:block;color:var(--muted);font-size:10.5px}
-  .gw-proof{font-size:10.5px;color:var(--muted);text-align:center;margin-top:8px;
-    border-top:1px solid var(--line);padding-top:7px}
-  .gw-proof b{color:var(--ok)}
-
-  /* Badges */
-  .badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;
-    text-transform:uppercase;padding:1px 6px;border-radius:999px}
-  .badge.pub{color:var(--public);background:var(--public-bg);border:1px solid #21456f}
-  .badge.priv{color:var(--private);background:var(--private-bg);border:1px solid #5a4413}
-
-  /* Legend */
-  .legend{display:flex;gap:20px;justify-content:center;color:var(--muted);
-    font-size:11.5px;margin-top:16px;flex-wrap:wrap}
-  .key{display:flex;align-items:center;gap:6px}
+  ol.steps{margin:8px 0 0 0;padding-left:0;list-style:none;counter-reset:s}
+  ol.steps li{counter-increment:s;display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+  ol.steps li:last-child{border-bottom:none}
+  ol.steps li::before{content:counter(s);background:var(--accent);color:#fff;border-radius:50%;
+    width:20px;height:20px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;
+    font-size:11px;font-weight:700;margin-top:1px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:8px 0 0;font-size:11.5px;color:var(--muted)}
+  .sw{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+  .note{background:var(--panel2);border-left:3px solid var(--warn);border-radius:6px;
+    padding:9px 13px;font-size:12px;color:var(--muted);margin-top:10px}
 </style>
 </head>
 <body>
 <div class="sheet">
 
-  <div class="hd"><span class="dot"></span><h1>Sentinel — Sovereign Intelligence Agent</h1></div>
-  <p class="sub">7 research domains · structural public/private boundary · dual-tier Gemma-4
-    sovereignty · ADK 2.2 coordinator + MCP · episodic + semantic + procedural memory ·
-    built for the Google for Startups AI Agents Challenge (Track 1: Build, APAC)</p>
+  <div class="hd"><span class="dot"></span><h1>Sentinel — Sovereign Intelligence Agent · Architecture</h1></div>
+  <p class="sub">Universal research-to-action platform on <b>Google ADK 2.2</b> — built for the Google for
+  Startups AI Agents Challenge (Track 1: Build, APAC). Project → Task → Plan → parallel DAG of domain skills,
+  executed on a governed dual backend (cloud Gemini or on-prem dual-tier Gemma-4 sovereignty), with a
+  structural public/private boundary, layered memory (semantic · episodic · KB · procedural) and
+  config-driven external MCP toolsets. Generated from code 2026-06-11 (commit <span class="mono">732f739</span>).</p>
 
-  <!-- Entry -->
-  <div class="center" style="margin-bottom:8px">
-    <div class="node io entry">
-      <div class="t">Operator</div>
-      <div class="d">target · domain · mode · backend</div>
-    </div>
+  <div class="stats">
+    <div class="stat"><b>20,686</b><span>src LOC · 77 py files</span></div>
+    <div class="stat"><b>766</b><span>tests green</span></div>
+    <div class="stat"><b>14</b><span>capabilities / 9 domains</span></div>
+    <div class="stat"><b>2</b><span>LLM backends · 3 model tiers</span></div>
+    <div class="stat"><b>6</b><span>search providers</span></div>
+    <div class="stat"><b>3</b><span>external MCP servers</span></div>
+    <div class="stat"><b>17</b><span>SQLite tables</span></div>
+    <div class="stat"><b>51</b><span>configured agents · 18 groups</span></div>
   </div>
-  <div class="arrow">↓</div>
 
-  <!-- ── ADK Agent Shell ── -->
-  <div class="agent-shell">
-    <span class="cap">Sentinel Agent · Google ADK 2.2</span>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--public)"></span>public signal</span>
+    <span><span class="sw" style="background:var(--private)"></span>private boundary</span>
+    <span><span class="sw" style="background:var(--mem-ink)"></span>memory / storage</span>
+    <span><span class="sw" style="background:#3b5bd0"></span>MCP toolsets</span>
+    <span><span class="sw" style="background:var(--tier1);border:1px solid var(--line)"></span>tier-1 · 12B tool-caller</span>
+    <span><span class="sw" style="background:var(--tier2);border:1px solid var(--line)"></span>tier-2 · 26B reasoner</span>
+    <span><span class="sw" style="background:#eef0f5;border:1px dashed var(--muted)"></span>ships dark (off by default)</span>
+  </div>
 
-    <!-- Coordinator + Governance -->
-    <div class="coord">
-      <div class="node core">
-        <div class="t">Coordinator <span style="color:var(--accent);font-size:10px">(LlmAgent · 12B · AgentTool delegation)</span></div>
-        <div class="d">Goal → Plan → Delegate to specialists → Merge results · A2A-ready (Phase 2)</div>
-      </div>
-      <div class="gov">
-        <div class="gt">Governance Brain</div>
-        <div>compliance_mode<br>cloud_allowed?<br>effective_backend<br>search_provider</div>
-      </div>
+  <!-- ──────────────────────────── 0 · SYSTEM FLOW ──────────────────────────── -->
+  <h2><span class="n">★</span>System flow — one run, end to end</h2>
+  <p class="secd">The complete path of a research task through every layer. Branches show what feeds
+  each stage; colors match the legend.</p>
+
+  <div class="lane">
+    <div class="flow">
+      <div class="node"><div class="t">🧑 Operator</div><div class="d">objective + context + URLs</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">nginx · TLS</div><div class="d">sentinel.atcuality.com</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">FastAPI</div><div class="m">app.py</div><div class="d">auth middleware · routes</div></div>
+      <div class="fa">→</div>
+      <div class="node mem"><div class="t">KB crawl</div><div class="d">client URLs indexed in background</div></div>
     </div>
-
-    <!-- Domain pills -->
-    <div class="domains">
-      <span class="domain-pill comp">competitor</span>
-      <span class="domain-pill clt">client</span>
-      <span class="domain-pill fin">finance</span>
-      <span class="domain-pill sw">software</span>
-      <span class="domain-pill ac">academic</span>
-      <span class="domain-pill nu">nutrition</span>
-      <span class="domain-pill tr">travel</span>
+    <div class="arrow">▼ plan</div>
+    <div class="flow">
+      <div class="node"><div class="t">plan_task</div><div class="m">2-pass planner</div><div class="d">template-first · LLM fallback</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">staff_plan</div><div class="d">registry picks best-scored agent per step</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">⛩ gate_proposal</div><div class="d">propose = human approves · autonomous = straight through</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">run_dag</div><div class="d">toposort · level-parallel · budgets</div></div>
     </div>
-
-    <!-- Pipeline strip -->
-    <div class="pipeline-strip">
-      <div class="node core">
-        <div class="t">Planner</div>
-        <div class="tier">12B · tool-caller</div>
-        <div class="d">decomposes target → research plan</div>
-      </div>
-      <div class="pa">→</div>
-      <div>
-        <div class="node core">
-          <div class="t">Extractor × N</div>
-          <div class="tier">12B · parallel DAG</div>
-          <div class="d">concurrent domain extractors</div>
-        </div>
-        <div class="ext-row" style="margin-top:6px">
-          <span class="ext-pill">extractor-A</span>
-          <span class="ext-pill">extractor-B</span>
-          <span class="ext-pill">extractor-C</span>
-          <span class="ext-pill">extractor-D</span>
-        </div>
-      </div>
-      <div class="pa">→</div>
-      <div class="node core">
-        <div class="t">Synthesizer</div>
-        <div class="tier">26B · reasoner</div>
-        <div class="d">schema-bound output<br>Battlecard / Brief / Profile</div>
-      </div>
+    <div class="arrow">▼ execute each step (parallel where independent)</div>
+    <div class="flow">
+      <div class="node mem"><div class="t">memory inject</div><div class="d">entity + episodic + KB + prospective → 2,400-tok budget</div></div>
+      <div class="fa">→</div>
+      <div class="node t1"><div class="t">pass 1 · 12B tool-caller</div>
+        <div class="d">🔍 web search · 📚 KB tool · 🔌 MCP (firecrawl / searchapi / gdrive) · 🔒 private MCP (client mode)</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">🛡 sandbox</div><div class="d">injection + PII screen on findings</div></div>
+      <div class="fa">→</div>
+      <div class="node t2"><div class="t">pass 2 · 26B reasoner</div><div class="d">tool-free · SSE · guided JSON schema</div></div>
     </div>
-
-    <!-- Boundary lanes -->
-    <div class="bounds">
-      <div class="lane pub">
-        <div class="lh">Public boundary</div>
-        <div class="node">
-          <div class="t">public_research agent</div>
-          <div class="tool-list">tools = [ google_search | DuckDuckGo | Brave | SerpAPI ]<br>
-            ← provider selected by governance</div>
-        </div>
-        <div class="arrow" style="margin:7px 0">↓<small>grounded / DDG search</small></div>
-        <div class="node io"><div class="t">Public web</div></div>
-      </div>
-      <div class="lane priv">
-        <div class="lh">Private boundary</div>
-        <div class="node">
-          <div class="t">private_research agent</div>
-          <div class="tool-list">tools = [ Workspace MCP ] · read-only, user-authorized<br>
-            ← client mode only; no web tool ever added</div>
-        </div>
-        <div class="arrow" style="margin:7px 0">↓<small>authorized MCP connector</small></div>
-        <div class="node io"><div class="t">Your Workspace</div>
-          <div class="d">CRM · Docs · Calendar</div></div>
-      </div>
+    <div class="arrow">▼ governance routes the models (cloud_allowed?)</div>
+    <div class="flow">
+      <div class="node pub"><div class="t">☁ Gemini 2.5 Flash</div><div class="d">cloud path · grounding · chat</div></div>
+      <div class="fa">or</div>
+      <div class="node priv"><div class="t">🔒 Gemma 12B + 26B</div><div class="d">sovereign vLLM · zero egress</div></div>
     </div>
-
-    <!-- Post-processing -->
-    <div class="postproc">
-      <div class="node core">
-        <div class="t">Strategy (26B)</div>
-        <div class="d">playbook overlay · assessment<br>action plan · objection handling</div>
-      </div>
-      <div class="node core">
-        <div class="t">Priority (deterministic)</div>
-        <div class="d">signal registry · weighted score<br>focus list — no LLM</div>
-      </div>
-      <div class="node ok">
-        <div class="t">Eval Grader</div>
-        <div class="d">citation quality · field coverage<br>score write-back · telemetry</div>
-      </div>
-    </div>
-
-  </div><!-- /agent-shell -->
-
-  <!-- Bottom: Memory + KB -->
-  <div class="bottom-grid">
-    <div class="stack-box">
-      <div class="sh">Memory Stack</div>
-      <div class="stack-row">
-        <span class="sl">Episodic</span>
-        <span class="sd">SQLite RunStore · boundary-tagged findings per run</span>
-      </div>
-      <div class="stack-row">
-        <span class="sl">Semantic</span>
-        <span class="sd">ChromaDB + BM25 + cross-encoder reranker · SM-2 reinforced</span>
-      </div>
-      <div class="stack-row">
-        <span class="sl">Procedural</span>
-        <span class="sd">YAML playbooks · runtime-loaded strategy overlays</span>
-      </div>
-      <div class="stack-row">
-        <span class="sl">Working</span>
-        <span class="sd">ADK session state · in-flight agent context</span>
-      </div>
-    </div>
-    <div class="stack-box" style="border-color:#21456f;background:#0a1220">
-      <div class="sh" style="color:var(--public)">Knowledge-Base Pipeline</div>
-      <div class="stack-row">
-        <span class="sl" style="color:var(--public)">Crawl</span>
-        <span class="sd">URL guard · BeautifulSoup · chunker</span>
-      </div>
-      <div class="stack-row">
-        <span class="sl" style="color:var(--public)">Embed</span>
-        <span class="sd">Qwen3-VL / OpenAI-compatible embedder</span>
-      </div>
-      <div class="stack-row">
-        <span class="sl" style="color:var(--public)">Index</span>
-        <span class="sd">ChromaDB vector store + BM25 keyword index</span>
-      </div>
-      <div class="stack-row">
-        <span class="sl" style="color:var(--public)">Search</span>
-        <span class="sd">hybrid retrieval → cross-encoder rerank → inject</span>
-      </div>
+    <div class="arrow">▼ finish</div>
+    <div class="flow">
+      <div class="node"><div class="t">Result</div><div class="d">typed artifacts · citations · degraded flags</div></div>
+      <div class="fa">→</div>
+      <div class="node mem"><div class="t">persist</div><div class="d">task · RunRecord · entity relations · KB auto-ingest · skill scores</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">task page</div><div class="d">DAG graph · timeline · artifact HTML · feedback · chat · export</div></div>
     </div>
   </div>
 
-  <!-- LLM Gateway -->
-  <div class="gateway">
-    <div class="gh">LLM Gateway — config-only sovereignty swap (zero orchestration change)</div>
-    <div class="gw-tiers">
-      <div>
-        <div class="gw-tier cloud" style="margin-bottom:8px">
-          <div class="tm">Gemini 2.5 Flash</div>
-          <div class="ts">tool-caller · cloud demo</div>
-        </div>
-        <div class="gw-tier cloud">
-          <div class="tm">Gemini 2.5 Pro / Flash</div>
-          <div class="ts">reasoner · cloud demo</div>
-        </div>
-      </div>
-      <div class="gw-swap">◀ config swap ▶<br><small>role → model resolution<br>llm/gateway.py</small></div>
-      <div>
-        <div class="gw-tier onprem" style="margin-bottom:8px">
-          <div class="tm">Gemma-4 12B</div>
-          <div class="ts">tool-caller · on-prem vLLM<br>gemma.atcuality.com</div>
-        </div>
-        <div class="gw-tier onprem">
-          <div class="tm">Gemma-4 26B</div>
-          <div class="ts">reasoner · on-prem vLLM<br>omni.atcuality.com</div>
-        </div>
-      </div>
+  <!-- ──────────────────────────── 1 · ENTRY ──────────────────────────── -->
+  <h2><span class="n">1</span>Entry &amp; web layer</h2>
+  <p class="secd">Server-rendered HTML only — no SPA. Every route sits behind the auth middleware
+  (scrypt password, SQLite-persisted sessions, 12&nbsp;h TTL, rate-limited login) except
+  <span class="mono">/healthz · /login · /setup</span>.</p>
+
+  <div class="lane">
+    <div class="flow">
+      <div class="node"><div class="t">Browser</div><div class="d">operator UI · dark theme</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">nginx + TLS</div><div class="d">GCP prod 35.252.125.139 (https)</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">FastAPI</div><div class="m">web/app.py · 2,523 LOC</div><div class="d">uvicorn :8080 · systemd "sentinel"</div></div>
     </div>
-    <div class="gw-proof">
-      <b>on_prem_required</b> → zero Gemini objects constructed anywhere in the graph
-      (enforced by governance.py · proven by tests/test_governance.py)
+    <div class="arrow">▼</div>
+    <div class="row c4">
+      <div class="node"><div class="t">Routes</div><div class="m">app.py</div>
+        <div class="d">auth · projects · tasks · plan/run · KB · agents · accounts · settings · prompts · MCP toggle · memory · export · chat</div></div>
+      <div class="node"><div class="t">Renderer</div><div class="m">web/render.py · 5,389 LOC</div>
+        <div class="d">shell + pages: dashboard, project detail, plan review, DAG graph, step timeline, artifact HTML, agents accordion, settings</div></div>
+      <div class="node"><div class="t">Auth</div><div class="m">web/auth.py</div>
+        <div class="d">scrypt hash · sessions table (SQLite, survives restarts) · 10 attempts / 5 min per IP</div></div>
+      <div class="node"><div class="t">Settings helpers</div><div class="m">web/settings.py</div>
+        <div class="d">form → validated SentinelConfig mutation (backends, agents CRUD, prompts, MCP, governance…)</div></div>
     </div>
   </div>
 
-  <!-- Artifact + output -->
-  <div class="arrow">↓</div>
-  <div class="center">
-    <div class="node core" style="min-width:460px">
-      <div class="t">Provenance-tagged artifact</div>
-      <div class="d">every finding carries
-        <span class="badge pub">public</span> or
-        <span class="badge priv">private</span> ·
-        Gaps recorded for missing sources — never silently dropped</div>
+  <!-- ──────────────────────────── 2 · ORCHESTRATION ──────────────────────────── -->
+  <h2><span class="n">2</span>Orchestration spine — plan → gate → DAG</h2>
+  <p class="secd">Two-pass planning staffs a typed Plan from the skill registry; the autonomy gate is the
+  only place a plan may execute; the DAG engine runs steps level-parallel with budgets and fail-soft
+  degradation. The A2A coordinator exists but ships dark — the live spine is planner → gate → DAG.</p>
+
+  <div class="lane">
+    <div class="flow">
+      <div class="node"><div class="t">plan_task</div><div class="m">orchestrator_planner.py</div>
+        <div class="d">template-first deterministic plans; LLM Plan-pass fallback (output_schema=Plan)</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">staff_plan</div><div class="m">AgentRegistry.resolve</div>
+        <div class="d">(capability, domain) ranked by eval_score; misses mint validated "created" specs</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">gate_proposal</div><div class="m">autonomy.py</div>
+        <div class="d">propose ⇒ render for approval · autonomous ⇒ execute. Single choke-point.</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">run_dag</div><div class="m">dag.py · 1,478 LOC</div>
+        <div class="d">toposort → level-parallel asyncio.gather · leaf semaphore (3) · TaskBudget · StepCache</div></div>
     </div>
-  </div>
-  <div class="arrow">↓</div>
-  <div class="center">
-    <div class="node" style="min-width:460px">
-      <div class="t">Writers → durable output</div>
-      <div class="d">Markdown · Google Doc · CRM record via MCP (back to your workspace)</div>
+    <div class="arrow">▼</div>
+    <div class="row c3">
+      <div class="node t1"><div class="t">Pass 1 — tool-callers</div><div class="m">_run_skill · 12B · StreamingMode.NONE</div>
+        <div class="d">planner / public_research / extractor agents hold the tools: search + KB + MCP. Map-reduce parallel extract (one call per source) under two-tier.</div></div>
+      <div class="node t2"><div class="t">Pass 2 — reasoners</div><div class="m">26B · StreamingMode.SSE</div>
+        <div class="d">synthesizer / strategist, structurally tool-free; guided json_schema decoding; chunked synthesis (5×1024) against truncation; SSE beats the ~100s edge timeout.</div></div>
+      <div class="node"><div class="t">assemble_generic</div><div class="m">→ Result</div>
+        <div class="d">typed artifacts payload · union citations · degraded + missing_inputs flags · optional persona render + rubric grade</div></div>
     </div>
-  </div>
-  <div class="arrow">↓</div>
-  <div class="center">
-    <div class="node io" style="min-width:260px">
-      <div class="t">Operator</div>
-      <div class="d">battlecard · account brief · domain profile · report</div>
+    <div class="arrow">side paths</div>
+    <div class="row c3">
+      <div class="node dark"><div class="t">A2A coordinator</div><div class="m">coordinator.py · enabled=False</div>
+        <div class="d">Goal→Plan→Delegate→Merge over AgentTool-wrapped pipelines (ADR-0001)</div></div>
+      <div class="node dark"><div class="t">Strategy overlay</div><div class="m">program_strategy.py · ships dark</div>
+        <div class="d">playbook-shaped assessment + action plan merged onto artifacts</div></div>
+      <div class="node"><div class="t">run_step</div><div class="m">orchestrator.py</div>
+        <div class="d">the single generic leaf executor: InMemoryRunner · max_turns 30 · retries w/ backoff</div></div>
     </div>
   </div>
 
-  <div class="legend" style="margin-top:22px">
-    <div class="key"><span class="badge pub">public</span> grounded web search — Gemini / DDG / Brave / SerpAPI</div>
-    <div class="key"><span class="badge priv">private</span> scoped user-authorized MCP connectors only</div>
-    <div class="key" style="color:#7c5cff">■ ADK 2.2 agent graph (LlmAgent + AgentTool)</div>
-    <div class="key" style="color:#3ad29f">■ memory boundary-choke: recall(allowed_boundaries=)</div>
+  <!-- ──────────────────────────── 2b · AGENT ROSTER ──────────────────────────── -->
+  <h2><span class="n">A</span>Agent roster &amp; orchestration — 51 agents, 7 roles, 18 groups</h2>
+  <p class="secd">Every agent is a config row (<span class="mono">cfg.agents</span>, editable on /agents) built by
+  the single factory <span class="mono">make_agent</span>. The <b>orchestrator.planner</b> writes the plan; the
+  registry assigns one agent per DAG step; each domain group contributes its planner / researcher /
+  extractor / synthesizer quartet.</p>
+
+  <div class="lane">
+    <div class="row c4">
+      <div class="node t1"><div class="t">10 × planner</div><div class="d">per-domain step planners + orchestrator.planner (writes the Plan itself)</div></div>
+      <div class="node t1"><div class="t">11 × public_research</div><div class="d">search-tool holders — one per domain + discovery</div></div>
+      <div class="node t1"><div class="t">9 × extractor</div><div class="d">two-tier distillers (map-reduce over sources)</div></div>
+      <div class="node t2"><div class="t">15 × synthesizer</div><div class="d">26B reasoners — one per artifact type (incl. 2-tier variants)</div></div>
+    </div>
+    <div class="row c3" style="margin-top:10px">
+      <div class="node t2"><div class="t">4 × strategist</div><div class="d">overlay + program strategy (ships dark)</div></div>
+      <div class="node priv"><div class="t">1 × private_research</div><div class="d">client mode — sole holder of the private boundary</div></div>
+      <div class="node dark"><div class="t">1 × coordinator</div><div class="d">A2A Goal→Plan→Delegate→Merge (enabled=False)</div></div>
+    </div>
+    <div class="arrow">▼ orchestration hierarchy</div>
+    <div class="flow">
+      <div class="node"><div class="t">orchestrator.planner</div><div class="d">1 agent — plans ALL tasks</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">AgentRegistry</div><div class="d">staffs N steps from 51 scored specs (REUSE &gt; NEW)</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">DAG levels</div><div class="d">independent steps run in parallel (semaphore 3)</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">per-step quartet</div><div class="d">planner → researcher (+extractor) → synthesizer</div></div>
+    </div>
   </div>
+
+  <!-- ──────────────────────────── 3 · SKILLS ──────────────────────────── -->
+  <h2><span class="n">3</span>Skill registry — 14 capabilities, declarative specs</h2>
+  <p class="secd"><span class="mono">modes/spec.py · SKILL_SPECS</span> — every mode is a
+  <span class="mono">ResearchModeSpec</span> built by one constructor (<span class="mono">build_step_agents</span>).
+  Pattern: planner → research (search) → [extractor] → synthesizer. Persisted as scored
+  <span class="mono">agent_specs</span> rows the planner staffs against.</p>
+
+  <table>
+    <tr><th>capability</th><th>domain</th><th>pipeline</th><th>artifact</th><th>notes</th></tr>
+    <tr><td class="mono">competitor</td><td>market</td><td>plan → search → synthesize</td><td class="mono">Battlecard</td><td>two-tier · chunked synthesis</td></tr>
+    <tr><td class="mono">client</td><td>account</td><td>plan → search → <span class="chip priv">private MCP</span> → synthesize</td><td class="mono">AccountBrief</td><td>only holder of private boundary</td></tr>
+    <tr><td class="mono">self_profile</td><td>market</td><td>plan → search → synthesize</td><td class="mono">SelfProfile</td><td></td></tr>
+    <tr><td class="mono">compare</td><td>market</td><td>synthesize-only (reads state)</td><td class="mono">ComparisonMatrix</td><td>fan-in over profile + battlecards</td></tr>
+    <tr><td class="mono">software / finance / academic / nutrition / travel</td><td>each</td><td>plan → search → synthesize</td><td class="mono">*Brief / FinancialProfile</td><td>two-tier capable</td></tr>
+    <tr><td class="mono">govt_proposal</td><td>govt_proposal</td><td>plan → search → synthesize</td><td class="mono">GovernmentProposal</td><td></td></tr>
+    <tr><td class="mono">govt_dept_research</td><td>govt_proposal</td><td>search → synthesize ×N depts</td><td class="mono">DeptResearchOutput</td><td>parallel fan-out</td></tr>
+    <tr><td class="mono">govt_synthesis</td><td>govt_proposal</td><td>synthesize-only, depends_on all depts</td><td class="mono">GovernmentProposal</td><td>fan-in</td></tr>
+    <tr><td class="mono">product_research</td><td>product_research</td><td>plan → search → synthesize</td><td class="mono">ProductResearch</td><td>5-step attack prompt · winner ranking</td></tr>
+    <tr><td class="mono">program_strategy</td><td>—</td><td>aggregator over ComparisonMatrix set</td><td class="mono">ProgramStrategy</td><td>partial-tolerant</td></tr>
+  </table>
+  <p class="note">Deterministic plan templates: single-step for the five specialist domains + product_research;
+  market expands to self_profile + competitor → compare (→ program_strategy); govt_proposal fans out one
+  research step per department then fans in. Unknown shapes fall back to the LLM planner.</p>
+
+  <!-- ──────────────────────────── 4 · TOOLS ──────────────────────────── -->
+  <h2><span class="n">4</span>Tool layer — what pass-1 agents can touch</h2>
+  <p class="secd">All tools are fail-soft. Search has a per-run call budget (8) with a soft "synthesize now"
+  stop; DDG staggers against throttling. External MCP toolsets are config-driven, domain-scoped and
+  <b>cloud-gated</b> — a sovereign run never builds one. Tool output passes the injection/PII sandbox
+  before reaching a reasoner.</p>
+
+  <div class="lane">
+    <div class="row c4">
+      <div class="node pub"><div class="t">Web search</div><div class="m">tools/public/web_search.py</div>
+        <div class="d">gemini (ADK grounding) · duckduckgo · brave · serpapi · google_cse · searxng. vLLM runs auto-fallback gemini→DDG; DDG auto-upgrades to Brave when keyed.</div></div>
+      <div class="node mem"><div class="t">KB tool</div><div class="m">tools/kb_tool.py</div>
+        <div class="d">search_knowledge_base(query) — project-scoped hybrid search baked into every search step</div></div>
+      <div class="node mcp"><div class="t">External MCP registry</div><div class="m">tools/mcp_registry.py</div>
+        <div class="d">build_mcp_toolsets(cfg, domain, cloud_allowed) → ADK McpToolset list · 60s stdio / 15s http timeouts · secrets by env-var name only</div></div>
+      <div class="node priv"><div class="t">Private boundary</div><div class="m">tools/private/workspace_mcp.py</div>
+        <div class="d">Workspace MCP (stdio/http via SENTINEL_MCP_*) · read-only allow-list · step omitted when unconfigured</div></div>
+    </div>
+    <div class="arrow">configured MCP servers</div>
+    <div class="row c3">
+      <div class="node mcp"><div class="t">firecrawl</div><div class="m">npx -y firecrawl-mcp · FIRECRAWL_API_KEY</div>
+        <div class="d">filter: firecrawl_search · firecrawl_scrape <span class="chip ok">live</span></div></div>
+      <div class="node mcp"><div class="t">searchapi</div><div class="m">https streamable · SEARCHAPI_MCP_URL</div>
+        <div class="d">toolset curated in the SearchAPI dashboard (currently shopping engines) <span class="chip ok">live</span></div></div>
+      <div class="node mcp"><div class="t">gdrive</div><div class="m">npx -y @isaacphi/mcp-gdrive · CLIENT_ID</div>
+        <div class="d">read-only: gdrive_search · gdrive_read_file <span class="chip warn">needs OAuth</span></div></div>
+    </div>
+    <p class="note">Sentinel also <b>exposes</b> MCP servers of its own: <span class="mono">mcp/server.py</span>
+    (sentinel-memory: recall_memory · top_skills · list_recent_runs) and
+    <span class="mono">kb/mcp_server.py</span> (search_project_kb) — other agents can mount Sentinel as a tool.</p>
+  </div>
+
+  <!-- ──────────────────────────── 4b · BOUNDARY ──────────────────────────── -->
+  <h2><span class="n">B</span>Public / private boundary — structural, not prompt-based</h2>
+  <p class="secd">Separation is enforced by construction: the public researcher can never hold the private
+  toolset, and the private researcher never gets a web tool. Every finding carries its boundary tag through
+  to the artifact; gaps are recorded, never silently dropped.</p>
+
+  <div class="lane">
+    <div class="row c2">
+      <div class="node pub" style="padding:14px">
+        <div class="t">PUBLIC BOUNDARY · public_research agent</div>
+        <div class="m">tools = [ google_search | DuckDuckGo | Brave | SerpAPI | CSE | SearXNG ] + KB + ext-MCP</div>
+        <div class="d">provider selected by governance → grounded / DDG search → <b>Public web</b></div>
+      </div>
+      <div class="node priv" style="padding:14px">
+        <div class="t">PRIVATE BOUNDARY · private_research agent</div>
+        <div class="m">tools = [ Workspace MCP ] · read-only allow-list · user-authorized</div>
+        <div class="d">client mode only; no web tool ever added → <b>Your Workspace</b> (CRM · Docs · Calendar)</div>
+      </div>
+    </div>
+    <div class="arrow">▼ post-research stages</div>
+    <div class="row c3">
+      <div class="node dark"><div class="t">Strategy (26B)</div><div class="d">playbook overlay · assessment · action plan · objection handling (ships dark)</div></div>
+      <div class="node"><div class="t">Priority (deterministic)</div><div class="d">signal registry · weighted 0–100 score · focus list — no LLM</div></div>
+      <div class="node mem"><div class="t">Eval Grader</div><div class="d">citation quality · field coverage · score write-back → registry (opt-in sampling)</div></div>
+    </div>
+    <div class="arrow">▼</div>
+    <div class="flow">
+      <div class="node"><div class="t">Provenance-tagged artifact</div>
+        <div class="d">every finding carries <span class="chip pub">PUBLIC</span> or <span class="chip priv">PRIVATE</span> · gaps recorded for missing sources</div></div>
+      <div class="fa">→</div>
+      <div class="node"><div class="t">Writers → durable output</div>
+        <div class="d">Markdown (live) · Google Doc · CRM record via MCP (stubs)</div></div>
+    </div>
+  </div>
+
+  <!-- ──────────────────────────── 5 · BACKENDS ──────────────────────────── -->
+  <h2><span class="n">5</span>LLM backends &amp; governance routing — config-only sovereignty swap</h2>
+  <p class="secd"><span class="mono">llm/gateway.py · build_model</span> is the single model factory;
+  <span class="mono">modes/_build.py · resolve_model</span> applies role tiering and sovereignty.
+  Under <span class="mono">cloud_allowed=False</span> a Gemini object is never even constructed —
+  the boundary is provable by introspection, not prompts.</p>
+
+  <div class="lane">
+    <div class="row c2">
+      <div class="node pub"><div class="t">Cloud · Gemini</div><div class="m">gemini-2.5-flash</div>
+        <div class="d">reasoning + google_search grounding + post-run chat (litellm). Blocked entirely under on_prem_required.</div></div>
+      <div class="node priv"><div class="t">On-prem · vLLM dual-tier Gemma</div><div class="m">LiteLlm hosted_vllm/…</div>
+        <div class="d">tier-1 <b>gemma-4-12B</b> tool-callers @ gemma.atcuality.com · tier-2 <b>gemma-4-26B</b> reasoners @ omni.atcuality.com (json_schema guided decoding, SSE). UI override vllm-26b → gemma-4-27b-it.</div></div>
+    </div>
+    <div class="arrow">▼ routed by</div>
+    <div class="row c3">
+      <div class="node"><div class="t">effective_backend</div><div class="m">agent/governance.py</div>
+        <div class="d">compliance_mode=on_prem_required ⇒ vllm; block_cloud_on_private honored</div></div>
+      <div class="node"><div class="t">effective_search_provider</div><div class="m">agent/governance.py</div>
+        <div class="d">cloud blocked ⇒ onprem_fallback (DDG) · keyed-Brave auto-upgrade</div></div>
+      <div class="node"><div class="t">role tiering + pin_gemini</div><div class="m">modes/_build.resolve_model</div>
+        <div class="d">backend.roles map per role · per-agent model override (flat dropdown on /agents) · reasoners raised-if-given-tools</div></div>
+    </div>
+    <p class="note"><b>on_prem_required ⇒ zero Gemini objects constructed anywhere in the graph</b> — enforced
+    by governance.py, proven by tests/test_governance.py and the boundary suite. Swapping cloud ↔ sovereign is
+    a config change only; the orchestration graph is untouched.</p>
+  </div>
+
+  <!-- ──────────────────────────── 6 · MEMORY ──────────────────────────── -->
+  <h2><span class="n">6</span>Memory &amp; knowledge — four layers over SQLite + ChromaDB</h2>
+  <p class="secd">Everything persists under <span class="mono">SENTINEL_DATA_DIR</span>. Recall is
+  boundary-filtered at the store (<span class="mono">recall(allowed_boundaries…)</span>) and packed
+  into a 2,400-token <span class="mono">ContextBudget</span> (entity-hot 30% · entity-cold 15% ·
+  episodic 25% · KB 30%) injected before every run.</p>
+
+  <div class="lane">
+    <div class="row c4">
+      <div class="node mem"><div class="t">Semantic</div><div class="m">memory_entries · MemoryStore</div>
+        <div class="d">boundary-tagged entity facts · SM-2 strength decay/reinforce (feedback ±1) · entity_relations graph</div></div>
+      <div class="node mem"><div class="t">Episodic</div><div class="m">run_records · RunStore</div>
+        <div class="d">every run, citations split by boundary · ChromaDB-embedded run index for semantic recall · run-over-run delta</div></div>
+      <div class="node mem"><div class="t">Procedural</div><div class="m">agent_specs · procedural_traces · skill_ratings</div>
+        <div class="d">scored skills the planner reuses · post-run trace + curation hooks</div></div>
+      <div class="node mem"><div class="t">Prospective + user</div><div class="m">prospective_tasks · user_profiles · session_handoffs</div>
+        <div class="d">due follow-ups fire into context · per-user profile rendering · handoff completion</div></div>
+    </div>
+    <div class="arrow">project knowledge base</div>
+    <div class="flow">
+      <div class="node mem"><div class="t">crawler</div><div class="d">httpx + Playwright fallback · SSRF guard</div></div>
+      <div class="fa">→</div>
+      <div class="node mem"><div class="t">chunker</div><div class="d">512 tok / 64 overlap</div></div>
+      <div class="fa">→</div>
+      <div class="node mem"><div class="t">embedder</div><div class="d">Qwen3-VL-Embedding-2B @ embed.atcuality.com</div></div>
+      <div class="fa">→</div>
+      <div class="node mem"><div class="t">BM25 + ChromaDB</div><div class="d">dual index per project</div></div>
+      <div class="fa">→</div>
+      <div class="node mem"><div class="t">hybrid_search</div><div class="d">union → cross-encoder rerank @ rerank.atcuality.com (cosine fallback)</div></div>
+    </div>
+    <p class="note">KB intake: URL crawl · file upload (PDF/TXT/MD, async extraction) · <b>auto-ingest of every
+    run artifact</b> as labelled text (background thread) · Add-to-KB button. KB chat answers grounded on
+    hybrid_search hits.</p>
+  </div>
+
+  <!-- ──────────────────────────── 7 · RUN FLOW ──────────────────────────── -->
+  <h2><span class="n">7</span>End-to-end research run</h2>
+  <div class="lane">
+    <ol class="steps">
+      <li>Operator submits an objective → <span class="mono">GET /projects/{id}/plan</span>; task reused or created; optional client_url starts a background KB crawl in parallel.</li>
+      <li><span class="mono">plan_task</span>: deterministic template if the domain shape is known, else LLM Plan-pass — typed <span class="mono">Plan</span>, id forced to <span class="mono">plan-{task.id}</span> (one plan per task).</li>
+      <li><span class="mono">staff_plan</span> stamps each step with an <span class="mono">agent_spec_id</span> from the registry (eval-score ranked).</li>
+      <li>Task + plan persisted (<span class="mono">status=planned</span>) → plan review page (PRG).</li>
+      <li><span class="mono">gate_proposal</span> — autonomy setting decides: propose (human approves) or autonomous (straight through). Backend/search policy resolved by governance, honoring per-project compliance.</li>
+      <li>Approve → <span class="mono">POST …/tasks/{tid}/run</span> (re-run selector: auto / gemini / vllm / vllm-26b) → <span class="mono">_approve_and_run</span> reloads the persisted plan and resets step statuses.</li>
+      <li><span class="mono">run_dag</span> pre-run injection: entity memory + episodic recall + KB top-5 (sandboxed) + prospective follow-ups + persona + user profile → <span class="mono">memory_context</span>.</li>
+      <li>Level-parallel execution: per step — cache check → pass-1 12B with search/KB/MCP tools → optional map-reduce extract → sandbox → pass-2 26B SSE synthesis. Budgets degrade gracefully; failures never crash the DAG.</li>
+      <li><span class="mono">assemble_generic</span> → typed <span class="mono">Result</span> (artifacts · citations · degraded flags) + optional persona render and rubric grade.</li>
+      <li>Persist: result on task · <span class="mono">RunRecord</span> · entity relations · <b>KB auto-ingest</b> of artifacts · procedural trace · skill curation · priority recompute.</li>
+      <li>303 → task page: DAG graph, step timeline, artifact HTML, feedback (±1 → SM-2), post-run chat, PDF/HTML export.</li>
+    </ol>
+  </div>
+
+  <!-- ──────────────────────────── 8 · DEPLOY ──────────────────────────── -->
+  <h2><span class="n">8</span>Deploy topology &amp; external services</h2>
+  <div class="lane">
+    <div class="row c3">
+      <div class="node"><div class="t">Local dev</div><div class="d">uvicorn :8080 · data/ SQLite+Chroma+BM25</div></div>
+      <div class="node"><div class="t">Container</div><div class="d">Dockerfile ($PORT, Cloud-Run shaped) · deploy/cloudrun.sh · vllm-compose.yml</div></div>
+      <div class="node"><div class="t">GCP prod</div><div class="d">nginx + TLS → systemd "sentinel" → /opt/sentinel · manual deploy: scp .env · git pull · npx warm-up · restart</div></div>
+    </div>
+    <table style="margin-top:10px">
+      <tr><th>external service</th><th>used by</th><th>sovereignty</th></tr>
+      <tr><td>Gemini API (gemini-2.5-flash)</td><td>cloud reasoning · grounding · chat</td><td><span class="chip pub">blocked on_prem_required</span></td></tr>
+      <tr><td class="mono">gemma.atcuality.com/v1</td><td>12B tool-callers</td><td><span class="chip ok">sovereign</span></td></tr>
+      <tr><td class="mono">omni.atcuality.com/v1</td><td>26B reasoners (SSE)</td><td><span class="chip ok">sovereign</span></td></tr>
+      <tr><td class="mono">embed / rerank .atcuality.com</td><td>KB + episodic embeddings · rerank</td><td><span class="chip ok">sovereign</span></td></tr>
+      <tr><td>DDG · Brave · SerpAPI · Google CSE · SearXNG</td><td>function-tool search</td><td><span class="chip ok">onprem_fallback chain</span></td></tr>
+      <tr><td>Firecrawl MCP · SearchAPI MCP · GDrive MCP</td><td>pass-1 research tools</td><td><span class="chip pub">cloud-gated (skipped on sovereign runs)</span></td></tr>
+    </table>
+  </div>
+
+  <p class="sub" style="margin-top:26px">Sources: verified code read 2026-06-11 — app.py · render.py · dag.py ·
+  orchestrator*.py · autonomy.py · governance.py · registry.py · modes/spec.py · modes/_build.py ·
+  llm/gateway.py · memory/store.py · kb/* · tools/* · config/* · artifacts/schemas.py.
+  Companion: <span class="mono">diagram.mmd</span> (Mermaid source) · <span class="mono">overview.md</span>
+  (note: overview/stack docs predate the universal-research pivot).</p>
 
 </div>
 </body>
