@@ -1,0 +1,115 @@
+{
+  "project": "NutriVault",
+  "project_id": "d9c190982f21456eb2145555001a6786",
+  "total_elapsed_s": 670.3,
+  "results": [
+    {
+      "label": "competitor_hkvitals",
+      "ok": false,
+      "has_result": false,
+      "has_action_plan": false,
+      "has_grade": true,
+      "public_findings": 0,
+      "private_findings": 0,
+      "artifact_type": "",
+      "error": "",
+      "elapsed_s": 40.1
+    },
+    {
+      "label": "competitor_oziva",
+      "ok": false,
+      "has_result": false,
+      "has_action_plan": false,
+      "has_grade": false,
+      "public_findings": 0,
+      "private_findings": 0,
+      "artifact_type": "",
+      "error": "",
+      "elapsed_s": 33.1
+    },
+    {
+      "label": "competitor_wellbeing",
+      "ok": false,
+      "has_result": false,
+      "has_action_plan": false,
+      "has_grade": false,
+      "public_findings": 0,
+      "private_findings": 0,
+      "artifact_type": "",
+      "error": "",
+      "elapsed_s": 39.7
+    },
+    {
+      "label": "self_profile_nutrivault",
+      "ok": false,
+      "has_result": false,
+      "has_action_plan": false,
+      "has_grade": false,
+      "public_findings": 0,
+      "private_findings": 0,
+      "artifact_type": "",
+      "error": "",
+      "elapsed_s": 300.0
+    },
+    {
+      "label": "compare_vs_hkvitals",
+      "ok": false,
+      "has_result": false,
+      "has_action_plan": false,
+      "has_grade": true,
+      "public_findings": 0,
+      "private_findings": 0,
+      "artifact_type": "",
+      "error": "",
+      "elapsed_s": 44.5
+    },
+    {
+      "label": "software_shopify",
+      "ok": false,
+      "has_result": false,
+      "has_action_plan": false,
+      "has_grade": true,
+      "public_findings": 0,
+      "private_findings": 0,
+      "artifact_type": "",
+      "error": "",
+      "elapsed_s": 5.5
+    },
+    {
+      "label": "finance_healthkart",
+      "ok": false,
+      "has_result": false,
+      "has_action_plan": false,
+      "has_grade": true,
+      "public_findings": 0,
+      "private_findings": 0,
+      "artifact_type": "",
+      "error": "",
+      "elapsed_s": 7.0
+    },
+    {
+      "label": "academic_protein",
+      "ok": false,
+      "has_result": false,
+      "has_action_plan": false,
+      "has_grade": true,
+      "public_findings": 0,
+      "private_findings": 0,
+      "artifact_type": "",
+      "error": "",
+      "elapsed_s": 5.8
+    },
+    {
+      "label": "nutrition_ashwagandha",
+      "ok": false,
+      "has_result": false,
+      "has_action_plan": false,
+      "has_grade": true,
+      "public_findings": 0,
+      "private_findings": 0,
+      "artifact_type": "",
+      "error": "",
+      "elapsed_s": 5.2
+    }
+  ]
+}

@@ -56,6 +56,12 @@ AGENT_KEYS = [
     "academic.planner", "academic.public_research", "academic.extractor", "academic.synthesizer",
     "nutrition.planner", "nutrition.public_research", "nutrition.extractor", "nutrition.synthesizer",
     "travel.planner", "travel.public_research", "travel.extractor", "travel.synthesizer",
+    # SENTINEL-017: govt proposal + product research domains.
+    "govt_proposal.planner", "govt_proposal.public_research", "govt_proposal.extractor", "govt_proposal.synthesizer",
+    "product_research.planner", "product_research.public_research", "product_research.extractor", "product_research.synthesizer",
+    # Per-dept sub-agents + final synthesis step.
+    "govt_dept_research.public_research", "govt_dept_research.synthesizer",
+    "govt_synthesis.synthesizer",
 ]
 
 # --- Default prompts (verbatim from the pre-refactor builders) --------------------------- #
@@ -573,6 +579,168 @@ _P_TRAVEL_SYNTH_2T = (
     "Set best_time and budget_range. Write 'destination_overview'. Add Gaps for missing categories."
 )
 
+# ── govt_proposal ────────────────────────────────────────────────────────────────────────── #
+_P_GOVT_PROPOSAL_PLANNER = (
+    "You are a government technology proposal analyst. The proposal target is: {target}. "
+    "Decompose into 3-5 research questions covering: "
+    "(1) What departments and challenges does the client government have? "
+    "(2) What are their current digital/AI initiatives and priorities? "
+    "(3) What specific operational problems need AI solutions (flood management, land records, "
+    "agriculture, border security, governance, public services)? "
+    "(4) What are the vendor's key capabilities, products, and relevant case studies? "
+    "(5) What similar sovereign/on-prem AI deployments exist for Indian state governments? "
+    "Output ONLY a numbered list of research questions."
+)
+_P_GOVT_PROPOSAL_PUBLIC = (
+    "You are researching for a government technology proposal. Target: {target}\n"
+    "Research plan:\n{research_plan}\n\n"
+    "Search for: (1) the client government's departments, challenges, and digital initiatives; "
+    "(2) the vendor's capabilities, products, pricing, and case studies from their website and Crunchbase; "
+    "(3) similar AI deployments in Indian state governments. "
+    "Use google_search. Cite every claim with source URL. "
+    "Output findings grouped by: client_challenges, vendor_capabilities, similar_deployments."
+    + _INJECTION_STANCE
+)
+_P_GOVT_PROPOSAL_EXTRACTOR = (
+    "You are a research extractor. The gathered findings for proposal '{target}' are in "
+    "{public_findings}. For EACH distinct source, produce one Extraction: its Source "
+    "(boundary='public', source label, URL if present) and a list of atomic, factual notes drawn "
+    "ONLY from that source. If a source is missing or unreadable, add a Gap (boundary='public'). "
+    "Output an ExtractionSet."
+)
+_P_GOVT_PROPOSAL_SYNTH = (
+    "Synthesize a GovernmentProposal for '{target}' from these findings:\n\n{public_findings}\n\n"
+    "REQUIRED fields — every one must be non-empty:\n"
+    "  client: name of the government entity (e.g. 'Government of Assam')\n"
+    "  vendor: name of the company (e.g. 'BiltIQ AI')\n"
+    "  one_line_summary: one sentence describing the engagement\n"
+    "  executive_summary: 2-3 paragraphs on why AI matters for this government\n"
+    "  client_challenges: LIST of Finding objects — at least 4, each citing a source URL:\n"
+    "    [{\"text\": \"<specific challenge>\", \"source\": {\"boundary\": \"public\", "
+    "\"label\": \"<site name>\", \"url\": \"<https://...>\"}}]\n"
+    "  vendor_capabilities: LIST of Finding objects — at least 4, mapping BiltIQ capabilities:\n"
+    "    [{\"text\": \"<capability or product feature>\", \"source\": {\"boundary\": \"public\", "
+    "\"label\": \"<site or doc>\", \"url\": \"<https://...>\"}}]\n"
+    "  department_mappings: LIST of 4-6 objects, each with:\n"
+    "    {\"department\": \"<dept name>\", \"challenge\": \"<specific problem>\", "
+    "\"solution\": \"<how vendor solves it>\", \"impact\": \"<measurable outcome>\"}\n"
+    "  competitive_advantage: paragraph on sovereign/on-prem AI vs cloud vendors\n"
+    "  pilot_plan: 90-day engagement plan with 3 milestones\n"
+    "  sources: LIST of Finding objects for any additional source cited\n"
+    "Every Finding.source.boundary MUST be 'public'. Add Gaps where evidence is missing."
+)
+_P_GOVT_PROPOSAL_SYNTH_2T = (
+    "Synthesize a GovernmentProposal for '{target}' from per-source extractions:\n\n{extractions}\n\n"
+    "REQUIRED — all fields non-empty:\n"
+    "  client: government entity name\n"
+    "  vendor: solution provider name\n"
+    "  client_challenges: LIST of 4+ Finding objects each with text + source(boundary='public',label,url)\n"
+    "  vendor_capabilities: LIST of 4+ Finding objects each with text + source(boundary='public',label,url)\n"
+    "  department_mappings: LIST of 4-6 {department, challenge, solution, impact} objects\n"
+    "  executive_summary, competitive_advantage, pilot_plan: non-empty strings\n"
+    "  sources: LIST of Finding objects for cited sources\n"
+    "Every Finding.source.boundary MUST be 'public'. Add Gaps where evidence is missing."
+)
+
+# ── govt_dept_research + govt_synthesis ──────────────────────────────────────────────────── #
+# Per-dept researcher: search for one department's challenges, digital gaps, and initiatives.
+_P_GOVT_DEPT_RESEARCH_PUBLIC = (
+    "You are researching for a government technology proposal. Focus area: {target}.\n"
+    "Search for: (1) specific operational challenges and pain points for this department; "
+    "(2) current digital initiatives and gaps; (3) AI/tech solutions used in similar departments "
+    "in other Indian state governments. Use google_search. Cite every claim with source URL.\n"
+    "Output findings as department, findings (paragraph), sources (list of URLs)."
+    + _INJECTION_STANCE
+)
+_P_GOVT_DEPT_RESEARCH_SYNTH = (
+    "Synthesize research findings for this department into a DeptResearchOutput.\n"
+    "Target / focus area: {target}\n"
+    "Gathered findings: {dept_findings}\n\n"
+    "Output fields:\n"
+    "  department: name of this government department (e.g. 'Flood Management')\n"
+    "  findings: 2-3 paragraph summary of challenges, gaps, and AI opportunities — cite sources\n"
+    "  sources: list of source URLs cited\n"
+    "  gaps: list of any missing evidence\n"
+    "Be specific and factual. Do not fabricate data."
+)
+# Final synthesis: aggregate all per-dept findings into a full GovernmentProposal.
+_P_GOVT_SYNTHESIS_SYNTH = (
+    "Synthesize a complete GovernmentProposal for '{target}' from department-by-department research:\n\n"
+    "{public_findings}\n\n"
+    "REQUIRED fields — every one must be non-empty:\n"
+    "  client: name of the government entity\n"
+    "  vendor: name of the technology vendor\n"
+    "  one_line_summary: one sentence value proposition\n"
+    "  executive_summary: 2-3 paragraphs on why AI matters for this government\n"
+    "  client_challenges: LIST of Finding objects — at least 4, each with source URL:\n"
+    "    [{\"text\": \"<specific challenge>\", \"source\": {\"boundary\": \"public\", "
+    "\"label\": \"<site name>\", \"url\": \"<https://...>\"}}]\n"
+    "  vendor_capabilities: LIST of Finding objects — at least 4 mapping vendor capabilities\n"
+    "  department_mappings: LIST of 4-6 objects {department, challenge, solution, impact}\n"
+    "  competitive_advantage: paragraph on sovereign/on-prem AI advantage\n"
+    "  pilot_plan: 90-day plan with 3 milestones\n"
+    "  sources: LIST of Finding objects for all cited sources\n"
+    "Every Finding.source.boundary MUST be 'public'. Add Gaps where evidence is missing."
+)
+
+# ── product_research ─────────────────────────────────────────────────────────────────────── #
+_P_PRODUCT_RESEARCH_PLANNER = (
+    "You are a consumer product research analyst. The research request is: {target}. "
+    "Decompose into 3-5 research questions covering: "
+    "(1) Which specific product models meet the stated budget and spec criteria? "
+    "(2) What are exact current prices on major retail platforms (Flipkart, Amazon India)? "
+    "(3) What do expert reviews and user reviews say about each qualifying model? "
+    "(4) What are the key spec differences between qualifying models? "
+    "(5) Which model offers the best value for the stated requirements? "
+    "Output ONLY a numbered list of research questions."
+)
+_P_PRODUCT_RESEARCH_PUBLIC = (
+    "You are a product price-comparison researcher. Request: {target}\n"
+    "Research plan:\n{research_plan}\n\n"
+    "ATTACK SEQUENCE — run ALL of these searches in order, do NOT stop after one:\n"
+    "1. Search 'site:flipkart.com <product_type> <key_spec> buy price' — get live Flipkart listings "
+    "with MRP, offer price, seller rating.\n"
+    "2. Search 'site:amazon.in <product_type> <key_spec> buy price' — get live Amazon India listings "
+    "with MRP, deal price, Prime badge.\n"
+    "3. Search '<product_type> <key_spec> price comparison India 2025' — find comparison articles "
+    "that list multiple models side-by-side.\n"
+    "4. Search '<product_type> <key_spec> review 91mobiles OR notebookcheck OR digit.in 2025' — "
+    "get expert review scores, pros/cons per model.\n"
+    "5. If budget and spec constraints are given (e.g. '₹1 lakh', '16GB RAM'), run a fifth search: "
+    "'<product_type> under <budget> <spec> best value India 2025'.\n\n"
+    "For EACH product model found, record: name, brand, exact price (₹) with source, RAM, storage, "
+    "processor, display, battery, expert score (X/10), top 3 pros, top 3 cons, direct product URL. "
+    "Group findings by product model. Include AT LEAST 5 qualifying models. "
+    "If Flipkart and Amazon show different prices for the same model, record BOTH prices. "
+    "Do NOT summarise — output raw per-model findings with source URLs."
+    + _INJECTION_STANCE
+)
+_P_PRODUCT_RESEARCH_EXTRACTOR = (
+    "You are a research extractor. The gathered product research findings for '{target}' are in "
+    "{public_findings}. For EACH distinct source, produce one Extraction: its Source "
+    "(boundary='public', source label, URL if present) and atomic facts per product "
+    "(price in ₹, spec, rating). "
+    "If a source is missing or unreadable, add a Gap (boundary='public'). Output an ExtractionSet."
+)
+_P_PRODUCT_RESEARCH_SYNTH = (
+    "Synthesize a ProductResearch for '{target}' from findings:\n\n{public_findings}\n\n"
+    "For each qualifying product, create a ProductOption: name, brand, price (₹), processor, ram, "
+    "storage, display, battery, score (X/10), pros (list), cons (list), source_url. "
+    "Set 'criteria' to the buyer's requirements summary. "
+    "Rank ALL products by value-for-money in value_ranking (best first). "
+    "Declare the winner with a clear winner_rationale (cite specific specs and price advantage). "
+    "Write a one-line assessment. "
+    "Only include products with sourced prices. Every Finding.source.boundary MUST be 'public'. "
+    "Add Gaps for missing specs."
+)
+_P_PRODUCT_RESEARCH_SYNTH_2T = (
+    "Synthesize a ProductResearch for '{target}' from per-source extractions:\n\n{extractions}\n\n"
+    "Create ProductOptions for all qualifying products with sourced specs and prices (₹). "
+    "Rank by value-for-money, declare winner with rationale. "
+    "Set 'criteria' to the buyer's requirements. "
+    "Every Finding.source.boundary MUST be 'public'. Add Gaps for missing data."
+)
+
 # --- Coordinator (SENTINEL-011): Goal→Plan→Delegate→Merge over specialist tools ---------- #
 _P_COORDINATOR = (
     "You are the Sentinel coordinator for intelligence on '{target}'. You do NOT research or "
@@ -723,6 +891,24 @@ def build_default() -> SentinelConfig:
             role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
         "travel.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
         "travel.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        # SENTINEL-017: govt_proposal — research client govt needs + vendor capabilities → proposal.
+        "govt_proposal.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
+        "govt_proposal.public_research": AgentConfig(
+            role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
+        "govt_proposal.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
+        "govt_proposal.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        # Per-dept researcher (tool-caller 12B) + synthesizer (reasoner 26B).
+        "govt_dept_research.public_research": AgentConfig(
+            role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
+        "govt_dept_research.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 2048)),
+        # Final proposal synthesis from all dept findings.
+        "govt_synthesis.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        # SENTINEL-017: product_research — discover ALL products meeting criteria → compare → recommend.
+        "product_research.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
+        "product_research.public_research": AgentConfig(
+            role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
+        "product_research.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
+        "product_research.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
     }
     prompts = {
         "competitor.planner": _prompt(_P_COMPETITOR_PLANNER, ["target"]),
@@ -781,6 +967,22 @@ def build_default() -> SentinelConfig:
         "travel.extractor": _prompt(_P_TRAVEL_EXTRACTOR, ["target", "public_findings"]),
         "travel.synthesizer": _prompt(_P_TRAVEL_SYNTH, ["target", "public_findings"]),
         "travel.synthesizer_2t": _prompt(_P_TRAVEL_SYNTH_2T, ["target", "extractions"]),
+        # SENTINEL-017: govt_proposal
+        "govt_proposal.planner": _prompt(_P_GOVT_PROPOSAL_PLANNER, ["target"]),
+        "govt_proposal.public_research": _prompt(_P_GOVT_PROPOSAL_PUBLIC, ["target", "research_plan"]),
+        "govt_proposal.extractor": _prompt(_P_GOVT_PROPOSAL_EXTRACTOR, ["target", "public_findings"]),
+        "govt_proposal.synthesizer": _prompt(_P_GOVT_PROPOSAL_SYNTH, ["target", "public_findings"]),
+        "govt_proposal.synthesizer_2t": _prompt(_P_GOVT_PROPOSAL_SYNTH_2T, ["target", "extractions"]),
+        # Per-dept sub-agents + synthesis
+        "govt_dept_research.public_research": _prompt(_P_GOVT_DEPT_RESEARCH_PUBLIC, ["target"]),
+        "govt_dept_research.synthesizer": _prompt(_P_GOVT_DEPT_RESEARCH_SYNTH, ["target", "dept_findings"]),
+        "govt_synthesis.synthesizer": _prompt(_P_GOVT_SYNTHESIS_SYNTH, ["target", "public_findings"]),
+        # SENTINEL-017: product_research
+        "product_research.planner": _prompt(_P_PRODUCT_RESEARCH_PLANNER, ["target"]),
+        "product_research.public_research": _prompt(_P_PRODUCT_RESEARCH_PUBLIC, ["target", "research_plan"]),
+        "product_research.extractor": _prompt(_P_PRODUCT_RESEARCH_EXTRACTOR, ["target", "public_findings"]),
+        "product_research.synthesizer": _prompt(_P_PRODUCT_RESEARCH_SYNTH, ["target", "public_findings"]),
+        "product_research.synthesizer_2t": _prompt(_P_PRODUCT_RESEARCH_SYNTH_2T, ["target", "extractions"]),
     }
     return SentinelConfig(
         backend=_default_backend(), agents=agents, prompts=prompts,

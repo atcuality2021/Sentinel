@@ -103,6 +103,65 @@ class KBManager:
         _log(f"Done. {len(chunks)} chunks from {len(pages)} page(s) indexed.")
         return source
 
+    def add_text(
+        self,
+        project_id: str,
+        text: str,
+        label: str,
+        source_type: SourceType = SourceType.ARTIFACT,
+    ) -> KBSource:
+        """Ingest raw text (e.g. a research artifact) directly — no crawl step needed."""
+        source = KBSource(
+            project_id=project_id,
+            url=f"artifact://{label.replace(' ', '_')[:80]}",
+            source_type=source_type,
+        )
+        if not text.strip():
+            source.status = CrawlStatus.FAILED
+            source.error = "Empty text — nothing to index"
+            return source
+
+        chunks: list[KBChunk] = []
+        for fragment in chunk_text(text, chunk_size=512, chunk_overlap=64):
+            chunks.append(KBChunk(
+                id=str(uuid.uuid4()),
+                project_id=project_id,
+                source_id=source.id,
+                url=source.url,
+                title=label,
+                text=fragment,
+                source_type=source_type.value,
+            ))
+
+        bm25 = BM25Index(_bm25_path(project_id, self._data_dir))
+        for i in range(0, len(chunks), _EMBED_BATCH):
+            batch = chunks[i : i + _EMBED_BATCH]
+            try:
+                vecs = embed([c.text for c in batch])
+            except Exception as exc:
+                source.status = CrawlStatus.FAILED
+                source.error = f"Embedding failed at batch {i}: {exc}"
+                return source
+            upsert_chunks(
+                project_id=project_id,
+                data_dir=self._data_dir,
+                ids=[c.id for c in batch],
+                embeddings=vecs,
+                documents=[c.text for c in batch],
+                metadatas=[{
+                    "url": c.url,
+                    "title": c.title,
+                    "source_type": c.source_type,
+                    "source_id": c.source_id,
+                } for c in batch],
+            )
+            for c in batch:
+                bm25.add(c.id, c.text)
+        bm25.save()
+        source.chunk_count = len(chunks)
+        source.status = CrawlStatus.INDEXED
+        return source
+
     def delete_project(self, project_id: str) -> None:
         """Remove all KB data for a project (ChromaDB + BM25 index)."""
         delete_project_collection(project_id, self._data_dir)

@@ -65,6 +65,12 @@ _CAPABILITY_DESCRIPTIONS: dict[str, str] = {
     "academic": "survey academic literature on a topic → AcademicBrief (key findings, research gaps, methodology).",
     "nutrition": "research a food, nutrient, or dietary pattern → NutritionBrief (evidence quality, claims, general guidance). Non-clinical only.",
     "travel": "research a destination or travel question → TravelBrief (highlights, practical info, safety, budget).",
+    # SENTINEL-017: new domains
+    "govt_proposal": "research a government client's challenges + a vendor's capabilities → GovernmentProposal (department mappings, pilot plan). Use when the objective is a government technology proposal.",
+    "product_research": "discover ALL products meeting buyer criteria → ProductResearch (qualifying products with specs/prices, winner, value ranking). Use when the objective is product discovery/comparison for a buyer.",
+    # Per-dept sub-agents (used internally by the govt_proposal multi-step DAG)
+    "govt_dept_research": "research ONE government department's challenges, digital gaps, and AI opportunities. Used per-department inside a govt_proposal plan.",
+    "govt_synthesis": "synthesize all per-dept research into a final GovernmentProposal. Must depend on all govt_dept_research steps.",
 }
 
 
@@ -145,10 +151,54 @@ import re as _re
 _COMPARE_RE = _re.compile(r"\b(?:vs\.?|versus|against|compared?\s+(?:to|with)|benchmark|head[- ]to[- ]head)\b", _re.I)
 _STRATEGY_RE = _re.compile(r"\b(?:strateg|market[- ]capture|go[- ]to[- ]market|capture the market)\b", _re.I)
 _PROFILE_RE = _re.compile(r"\b(?:profile|research|analy[sz]e|assess|overview of|about)\b", _re.I)
+# Parenthetical dept list: "(flood, agriculture, land records)"
+_GOVT_PAREN_RE = _re.compile(r"\(([^)]+)\)")
+# Keyword-based dept extraction (common Indian govt domains)
+_GOVT_DEPT_KEYWORDS = [
+    "flood management", "agriculture", "land records", "e-governance",
+    "healthcare", "education", "border security", "disaster management",
+    "digital infrastructure", "rural development", "water management",
+    "urban planning", "taxation", "public distribution",
+]
+_GOVT_DEFAULT_DEPTS = [
+    "flood management and disaster response",
+    "agriculture and rural development",
+    "land records and e-governance",
+    "healthcare and public services",
+]
+
+
+def _extract_govt_departments(text: str) -> list[str]:
+    """Extract department names from the task objective for per-dept research steps.
+
+    Priority: (1) parenthetical list, (2) keyword scan, (3) 4 generic defaults.
+    Returns 2-6 dept name strings, lowercased, stripped.
+    """
+    # Try parenthetical list first: "(health, education, land records)"
+    m = _GOVT_PAREN_RE.search(text)
+    if m:
+        parts = [p.strip().lower() for p in m.group(1).split(",") if p.strip()]
+        if 2 <= len(parts) <= 6:
+            return parts
+
+    # Keyword scan
+    text_lower = text.lower()
+    found = [kw for kw in _GOVT_DEPT_KEYWORDS if kw in text_lower]
+    if len(found) >= 2:
+        return found[:6]
+
+    return _GOVT_DEFAULT_DEPTS
+
+
+def _dept_slug(dept: str) -> str:
+    """Convert a dept name to a valid step-ID slug: 'flood management' → 'flood_management'."""
+    return _re.sub(r"[^a-z0-9]+", "_", dept.lower()).strip("_")[:40]
 
 
 _SINGLE_STEP_DOMAINS: frozenset[str] = frozenset(
-    {"software", "finance", "academic", "nutrition", "travel"}
+    {"software", "finance", "academic", "nutrition", "travel",
+     "product_research"}
+    # NOTE: govt_proposal removed — uses multi-step per-dept DAG (see _template_plan below)
 )
 
 
@@ -171,6 +221,27 @@ def _template_plan(task: Task) -> Plan | None:
     if dom in _SINGLE_STEP_DOMAINS:
         return Plan(id=pid, task_id=task.id,
                     steps=[Step(id=dom, capability=dom, output_key=dom)])
+
+    # govt_proposal: one research step per extracted department + one synthesis step.
+    # Dept name encoded in step ID so _plan_seeds() can decode it for per-dept targeting.
+    if dom == "govt_proposal":
+        depts = _extract_govt_departments(task.objective)
+        research_steps = [
+            Step(
+                id=f"research_dept_{_dept_slug(dept)}",
+                capability="govt_dept_research",
+                output_key=f"research_dept_{_dept_slug(dept)}",
+            )
+            for dept in depts
+        ]
+        dept_ids = [s.id for s in research_steps]
+        synthesis = Step(
+            id="govt_synthesis",
+            capability="govt_synthesis",
+            output_key="govt_proposal",
+            depends_on=dept_ids,
+        )
+        return Plan(id=pid, task_id=task.id, steps=research_steps + [synthesis])
 
     if dom != "market":
         return None

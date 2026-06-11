@@ -156,6 +156,16 @@ def test_biltiq_plan_shape():
 # --- AC-7: full DAG → typed Result ---------------------------------------------------------- #
 
 
+async def _noop_synth(state, output_key, *, cfg, backend, cloud_allowed, trace):
+    return state  # no-op: leaves output_key absent → fallback to ADK pass2
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_synth(monkeypatch):
+    """Block real litellm calls from _synthesize_chunked so every test stays hermetic."""
+    monkeypatch.setattr(dag, "_synthesize_chunked", _noop_synth)
+
+
 def test_full_dag_runs_to_result(monkeypatch):
     monkeypatch.setenv("ATCUALITY_API_KEY", "atc")
     factory = FakeRunnerFactory()

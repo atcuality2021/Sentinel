@@ -249,6 +249,8 @@ class Project(BaseModel):
     id: str
     name: str
     website: str | None = None
+    description: str = Field(default="", description="Short description of the research objective.")
+    context: str = Field(default="", description="Agent context — appended to vertical_context for every task in this project.")
     source_docs: list[str] = Field(default_factory=list, description="Paths/URLs of supplied context docs.")
     settings: ProjectSettings = Field(default_factory=ProjectSettings)
     created_at: str = Field(description="ISO-8601 UTC timestamp (caller-supplied; no wall-clock in models).")
@@ -273,6 +275,12 @@ class Task(BaseModel):
     # Both ride in the existing tasks.data JSON column — no DDL change needed.
     user_id: str | None = Field(default=None, description="Operator user ID for profile injection (G-14).")
     handoff_id: str | None = Field(default=None, description="A2A SessionHandoff to complete post-run (G-17).")
+    # Extra background injected into every agent prompt as vertical_context (e.g. org description,
+    # data sovereignty requirements, budget constraints). Rides in tasks.data JSON — no DDL change.
+    context: str | None = Field(default=None, description="Research context / additional background for this task.")
+    # Conversational chat history — list of {role, content} dicts for post-run refinement.
+    # Rides in tasks.data JSON — no DDL change.
+    chat: list[dict] = Field(default_factory=list, description="Chat history for post-run refinement (role/content dicts).")
     # The latest run output, persisted on the task so it lives at the task's own URL (PRG): Approve &
     # Run redirects to /tasks/{id}, which re-renders this instead of the result being trapped in a POST
     # response body. Forward-ref to ``Result`` (defined below) — resolved by ``Task.model_rebuild()`` at
@@ -547,6 +555,78 @@ class TravelBrief(BaseModel):
     action_plan: list[RecommendedAction] = Field(default_factory=list)
 
 
+class DepartmentMapping(BaseModel):
+    """One government department's challenge mapped to a vendor capability."""
+    department: str = Field(description="Government department or policy area.")
+    challenge: str = Field(description="Specific problem or operational challenge faced.")
+    solution: str = Field(description="How the vendor's product/service addresses this challenge.")
+    impact: str = Field(default="", description="Expected outcome or benefit.")
+
+
+class DeptResearchOutput(BaseModel):
+    """Intermediate output of one govt_dept_research step — findings for a single department."""
+
+    department: str = Field(default="", description="The department this research covers.")
+    findings: str = Field(default="", description="Aggregated findings text about this department.")
+    sources: list[str] = Field(default_factory=list, description="Source URLs cited.")
+    gaps: list[str] = Field(default_factory=list, description="Missing evidence.")
+
+
+class GovernmentProposal(BaseModel):
+    """Output of the ``govt_proposal`` skill: vendor capability mapped to government client needs."""
+
+    client: str = Field(description="Government entity being proposed to (e.g. 'Assam State Government').")
+    vendor: str = Field(description="Company or product making the proposal.")
+    one_line_summary: str = Field(description="One-sentence value proposition.")
+    executive_summary: str = Field(description="2-3 paragraph executive summary of the proposal.")
+    client_challenges: list[Finding] = Field(
+        default_factory=list, description="Researched problems, pain points, and priorities of the client.")
+    vendor_capabilities: list[Finding] = Field(
+        default_factory=list, description="Researched capabilities and strengths of the vendor.")
+    department_mappings: list[DepartmentMapping] = Field(
+        default_factory=list, description="Per-department capability-to-need mapping.")
+    competitive_advantage: str = Field(
+        default="", description="Why this vendor vs cloud/foreign alternatives (sovereignty, cost, compliance).")
+    pilot_plan: str = Field(default="", description="90-day or phased engagement / pilot plan.")
+    sources: list[Source] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list)
+    assessment: str | None = Field(default=None)
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+
+
+class ProductOption(BaseModel):
+    """A single product found during product research."""
+    name: str = Field(description="Full product model name.")
+    brand: str = Field(description="Brand / manufacturer.")
+    price: str = Field(default="", description="Current price with currency (e.g. '₹84,990').")
+    processor: str = Field(default="", description="CPU model and generation.")
+    ram: str = Field(default="", description="RAM size and type.")
+    storage: str = Field(default="", description="Storage size and type.")
+    display: str = Field(default="", description="Screen size, resolution, panel type.")
+    battery: str = Field(default="", description="Battery capacity and estimated life.")
+    score: str = Field(default="", description="Value score or review rating (e.g. '8.5/10').")
+    pros: list[str] = Field(default_factory=list)
+    cons: list[str] = Field(default_factory=list)
+    source_url: str = Field(default="", description="Product page or review URL.")
+
+
+class ProductResearch(BaseModel):
+    """Output of the ``product_research`` skill: multi-product discovery, comparison, and recommendation."""
+
+    criteria: str = Field(description="The buyer's stated requirements (budget, specs, use case).")
+    one_line_summary: str = Field(description="One-sentence headline recommendation.")
+    products_found: list[ProductOption] = Field(
+        default_factory=list, description="All products discovered that meet the criteria.")
+    winner: str = Field(default="", description="Recommended product name.")
+    winner_rationale: str = Field(default="", description="Why this product wins on value-for-money.")
+    value_ranking: list[str] = Field(
+        default_factory=list, description="All products ranked best-to-worst by value-for-money.")
+    sources: list[Source] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list)
+    assessment: str | None = Field(default=None)
+    action_plan: list[RecommendedAction] = Field(default_factory=list)
+
+
 # A registry of artifact schemas that an AgentSpec.output_schema_ref may name (SENTINEL-012 §9.2).
 # Used by validate_agent_spec to reject specs that point at an unknown schema.
 KNOWN_OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
@@ -562,6 +642,9 @@ KNOWN_OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
     "AcademicBrief": AcademicBrief,
     "NutritionBrief": NutritionBrief,
     "TravelBrief": TravelBrief,
+    "GovernmentProposal": GovernmentProposal,
+    "ProductResearch": ProductResearch,
+    "DeptResearchOutput": DeptResearchOutput,
 }
 
 

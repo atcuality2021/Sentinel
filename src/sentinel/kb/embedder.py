@@ -8,10 +8,21 @@ _DEFAULT_BASE = "https://embed.atcuality.com/v1"
 _DEFAULT_MODEL = "Qwen3-VL-Embedding-2B"
 
 
+def _api_key() -> str:
+    # Cascade: explicit embed key → vLLM key (same gateway) → atcuality key → empty.
+    # Any on-prem deployment that sets VLLM_API_KEY gets embedding without a second key.
+    return (
+        os.environ.get("EMBED_API_KEY")
+        or os.environ.get("VLLM_API_KEY")
+        or os.environ.get("ATCUALITY_API_KEY")
+        or ""
+    )
+
+
 def _client() -> OpenAI:
     return OpenAI(
         base_url=os.environ.get("EMBED_API_BASE", _DEFAULT_BASE),
-        api_key=os.environ.get("EMBED_API_KEY", ""),
+        api_key=_api_key(),
     )
 
 

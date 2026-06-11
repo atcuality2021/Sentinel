@@ -19,7 +19,13 @@ def rerank(
     if not documents:
         return []
     base = os.environ.get("RERANK_API_BASE", _DEFAULT_BASE)
-    key = os.environ.get("RERANK_API_KEY", os.environ.get("EMBED_API_KEY", ""))
+    key = (
+        os.environ.get("RERANK_API_KEY")
+        or os.environ.get("EMBED_API_KEY")
+        or os.environ.get("VLLM_API_KEY")
+        or os.environ.get("ATCUALITY_API_KEY")
+        or ""
+    )
     resp = httpx.post(
         f"{base}/rerank",
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},

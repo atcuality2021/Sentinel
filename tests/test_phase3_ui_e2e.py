@@ -82,7 +82,7 @@ def test_plan_review_ran_without_result_does_not_crash():
 
     html = render.plan_review_page(task=_task(), proposal=PlanProposal(plan=plan, created_specs=[]),
                                    autonomy="autonomous", backend="vllm", ran=True, result=None)
-    assert "Plan review" in html                            # renders fine with no result
+    assert "View full plan" in html                         # renders fine with no result — plan toggle present
 
 
 # --------------------------------------------------------------------------- #
@@ -95,7 +95,8 @@ def test_persist_run_writes_a_scoped_runrecord(tmp_path, monkeypatch):
     from sentinel.web.app import _persist_run
 
     _persist_run(_task(), _result(degraded=True), "vllm")
-    runs = RunStore().runs_for("profile us and strategize")  # entity is the normalised objective
+    # entity is now extracted from self_profile.org ("BiltIQ"), not the full objective
+    runs = RunStore().runs_for("BiltIQ")
     assert len(runs) == 1
     rec = runs[0]
     assert rec.project_id == "p1"

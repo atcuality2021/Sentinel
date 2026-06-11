@@ -8,7 +8,7 @@
 - Use the structure below. Don't add new top-level sections without an ADR.
 - Don't store secrets, credentials, or PII here.
 
-**Last updated:** 2026-06-09 by harish@atcuality.com
+**Last updated:** 2026-06-10 by harish@atcuality.com
 
 ---
 
@@ -32,16 +32,16 @@ cloud-native for demo and sovereign on-prem (vLLM) for production without rework
 
 ## Current focus (this week)
 
-- **Active sprint:** Challenge build, 2026-06-07 → **2026-06-11 17:00 PT (deadline)**. Goal: win Google AI Agents Challenge (Track 1: Build, APAC).
-- **Engine status:** 470 tests green. SENTINEL-001 through SENTINEL-013 complete. Research pipeline hardened (sovereign search, concurrent DAG, parallel extraction).
-- **Critical path (2 days left):**
-  1. **Cloud Run deploy** — run `deploy/cloudrun.sh` with `GOOGLE_API_KEY` set. One command. Blocked on user GCP project + service account setup.
-  2. **Demo video** — record a live run (competitor or account mode) showing sourced artifact + sovereignty toggle. Target: 3–5 min.
-  3. **Workspace MCP OAuth** (stretch) — real private connector. Needs Google OAuth consent screen configured by user.
+- **Active sprint:** Challenge build, 2026-06-07 → **2026-06-11 17:00 PT (deadline — TODAY+1 day)**.
+- **Engine status:** 705 tests green. SENTINEL-001 through SENTINEL-016 complete. KB reuse loop live. Key bugs fixed 2026-06-10.
+- **Critical path (1 day left):**
+  1. **UX/UI audit** — IN PROGRESS. User requested full page-by-page audit. Only Dashboard screenshot taken. Resume at `/projects` next.
+  2. **Cloud Run deploy** — run `deploy/cloudrun.sh` with `GOOGLE_API_KEY` set. One command. User owns GCP actions.
+  3. **Demo video** — user will record. Good target: "Crayon" competitor mode. Show sovereignty toggle.
 - **Top risks:**
-  1. Deploy blocked on user GCP actions → prep everything to one-command-away (done — `cloudrun.sh`).
-  2. Sovereignty claim discounted by judges → mitigated: boundary is structural (`test_boundary.py`) + vLLM gateway is real (`test_gateway.py`) + zero-Gemini introspection test (`test_governance.py`).
-  3. Demo video quality — have a good target entity ready (e.g. "Crayon" for competitor mode).
+  1. Deploy blocked on user GCP actions → everything is one-command-away (`cloudrun.sh`).
+  2. Demo video quality — have a good target entity ready (Crayon or HDFC Bank).
+  3. KB embed server auth — FIXED (key cascade). KB crawl of crayon.co fails (401 from their server, not ours).
 
 ---
 
@@ -123,9 +123,15 @@ Terms introduced or changed since `/docs/GLOSSARY.md` was last updated.
 
 ## Session log (last 5 sessions)
 
+### 2026-06-10 — harish@atcuality.com
+- Worked on: Challenge submission readiness, bug fixes, UX audit (in progress)
+- Did: (1) Fixed 5 submission gaps — ADK SequentialAgent compat shim, +7 pyproject.toml deps, README 18→705 tests, arch diagram rebuild. (2) Full research journey walkthrough (all 10 tabs documented). (3) **Artifact-to-KB reuse** — `KBManager.add_text()`, `RunStore.get()`, POST `/projects/{id}/kb/sources/artifact`, "Add to KB" button on Artifacts tab (705 tests, +12). (4) **Bug fix: `finding_texts=[]` on all task runs** — `_persist_run()` never set it; fixed with `_extract_finding_texts(result)` that walks `dashboard_payload`. (5) **Bug fix: embed/reranker 401** — key cascade `EMBED_API_KEY → VLLM_API_KEY → ATCUALITY_API_KEY` in `embedder.py` + `reranker.py`. (6) Started UX/UI audit (Dashboard only).
+- Discovered: `_persist_run()` in `app.py` diverged from `orchestrator.py` — the latter correctly sets `finding_texts`, the former never did. All task-based runs had empty findings/memory.
+- Next session should: Complete UX/UI audit (Projects, Project detail, KB, Research, Memory, Artifacts, Agents, Settings, Prompts). Then Cloud Run deploy + video.
+
 ### 2026-06-09 — harish@atcuality.com
 - Worked on: SENTINEL-013 (Steps 8–10) + repo onboarding
-- Did: Parallel per-source extraction (470 tests, +24). Committed + pushed to `atcuality2021/Sentinel`. Ran full suite with `GOOGLE_API_KEY` (457 passed). Updated AGENT_RULES.md stack section + dual compliance mode. Updated MEMORY.md.
+- Did: Parallel per-source extraction (470 tests, +24). Committed + pushed to `atcuality2021/Sentinel`. Ran full suite with `GOOGLE_API_KEY` (457 passed). Updated AGENT_RULES.md stack section + dual compliance mode.
 - Discovered: `_split_findings` falls back to single-source when `public_findings` is free text — full parallel benefit only fires with structured JSON list from search tool.
 - Next session should: Focus on Cloud Run deploy (`deploy/cloudrun.sh`). Have `GOOGLE_API_KEY` in `.env`. Then demo video targeting "Crayon" as the competitor.
 
@@ -147,7 +153,7 @@ Terms introduced or changed since `/docs/GLOSSARY.md` was last updated.
 
 - _(none in flight)_ — last closed: **SENTINEL-012** _2026-06-08 08:27_
 
-## Today's activity (2026-06-09)
+## Today's activity (2026-06-10)
 
 _(no activity recorded today)_
 

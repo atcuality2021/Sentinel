@@ -86,8 +86,8 @@ def test_task_page_renders_persisted_result(monkeypatch):
 
     resp = _client().get("/projects/p-pr/tasks/t-show")
     assert resp.status_code == 200
-    assert "Run complete" in resp.text                 # the ran banner, not the propose banner
-    assert "Approve" not in resp.text or "Run complete" in resp.text
+    assert "View full plan" in resp.text               # result-first: plan collapsed behind toggle
+    assert "Approve" not in resp.text                  # approve button only shown pre-run
 
 
 # --------------------------------------------------------------------------- #

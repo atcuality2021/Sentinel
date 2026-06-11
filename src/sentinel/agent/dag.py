@@ -372,9 +372,132 @@ async def _run_parallel_extract(
     return state
 
 
+# ------------------------------------------------------------------------------- #
+# Field-group definitions for chunked battlecard/accountbrief synthesis.
+# Each entry generates one JSON sub-object; results are merged into the final artifact.
+# ------------------------------------------------------------------------------- #
+_BATTLECARD_CHUNKS = [
+    {
+        "name": "core",
+        "prompt": (
+            "Competitor: {target}\nResearch:\n{findings}\n\n"
+            "Output ONLY valid JSON (no commentary) for these fields:\n"
+            '{{"target":"string","one_line_summary":"one sentence","positioning":"2-3 sentences",'
+            '"vertical_context":null}}'
+        ),
+    },
+    {
+        "name": "analysis",
+        "prompt": (
+            "Competitor: {target}\nResearch:\n{findings}\n\n"
+            "Output ONLY valid JSON for strengths and weaknesses (max 5 each):\n"
+            '{{"strengths":[{{"summary":"...","evidence":"...","boundary":"public"}}],'
+            '"weaknesses":[{{"summary":"...","evidence":"...","boundary":"public"}}]}}'
+        ),
+    },
+    {
+        "name": "market",
+        "prompt": (
+            "Competitor: {target}\nResearch:\n{findings}\n\n"
+            "Output ONLY valid JSON for pricing and recent news (max 5 each):\n"
+            '{{"pricing_signals":[{{"summary":"...","evidence":"...","boundary":"public"}}],'
+            '"recent_developments":[{{"summary":"...","evidence":"...","boundary":"public"}}]}}'
+        ),
+    },
+    {
+        "name": "strategy",
+        "prompt": (
+            "Competitor: {target}\nResearch:\n{findings}\n\n"
+            "Output ONLY valid JSON for counter-strategy (max 5 items per list):\n"
+            '{{"how_to_win":["angle 1","angle 2"],"assessment":"strategic standing",'
+            '"action_plan":[],"gaps":[]}}'
+        ),
+    },
+    {
+        "name": "evidence",
+        "prompt": (
+            "Competitor: {target}\nResearch:\n{findings}\n\n"
+            "Output ONLY valid JSON listing up to 5 sources:\n"
+            '{{"sources":[{{"title":"...","url":"...","snippet":"..."}}]}}'
+        ),
+    },
+]
+
+
+async def _synthesize_chunked(
+    state: dict,
+    output_key: str,
+    *,
+    cfg,
+    backend: str,
+    cloud_allowed: bool,
+    trace: list[str],
+) -> dict:
+    """Generate a large schema artifact in field-group chunks via direct litellm calls.
+
+    Replaces a single max_output_tokens=8192 synthesizer call that hits the token
+    ceiling and produces truncated JSON, with 5 focused calls (1024 tokens each).
+    Each call targets a distinct JSON sub-object; results are merged under *output_key*.
+    Uses json_object response_format so vLLM forces valid, closed JSON on every chunk.
+    """
+    import json as _json
+    import litellm as _litellm
+    from sentinel.llm.gateway import _vllm_api_key
+
+    synth_ac = cfg.agents.get("competitor.synthesizer")
+    if synth_ac is None:
+        trace.append("chunked_synth: no competitor.synthesizer agent config — skipped")
+        return state
+
+    opt = (cfg.backend.roles or {}).get(synth_ac.role) or cfg.backend.vllm
+    model_id = synth_ac.model or opt.model
+    api_base = opt.api_base
+    api_key = _vllm_api_key(api_base)
+
+    target = str(state.get("target", "unknown"))
+    # Only apply chunked synthesis for a named competitor (short string).
+    # A long objective-style string means this is a generic research task — fall back to ADK pass2
+    # so the normal synthesizer prompt runs (chunked prompts assume a single company name).
+    if len(target) > 80 or "\n" in target:
+        trace.append(f"chunked_synth: target looks like an objective ({len(target)} chars) — skipped")
+        return state
+
+    findings_key = "extractions" if state.get("extractions") else "public_findings"
+    findings_str = str(state.get(findings_key, ""))[:3000]  # cap to avoid context overflow
+
+    merged: dict = {}
+    for chunk in _BATTLECARD_CHUNKS:
+        prompt = chunk["prompt"].format(target=target, findings=findings_str)
+        try:
+            resp = await _litellm.acompletion(
+                model=f"hosted_vllm/{model_id}",
+                messages=[{"role": "user", "content": prompt}],
+                api_base=api_base,
+                api_key=api_key,
+                max_tokens=1024,
+                temperature=0.3,
+                response_format={"type": "json_object"},
+            )
+            text = (resp.choices[0].message.content or "").strip()
+            if text.startswith("{"):
+                merged.update(_json.loads(text))
+                trace.append(f"chunked_synth/{chunk['name']}: ok ({len(text)} chars)")
+            else:
+                trace.append(f"chunked_synth/{chunk['name']}: non-JSON response, skipped")
+        except Exception as exc:
+            trace.append(
+                f"chunked_synth/{chunk['name']}: FAILED ({type(exc).__name__}: {str(exc)[:80]})"
+            )
+
+    if merged:
+        state = {**state, output_key: merged}
+        trace.append(f"chunked_synth: merged {len(merged)} top-level keys → {output_key!r}")
+    return state
+
+
 async def _run_skill(
     spec: ResearchModeSpec, seed: dict, *, cfg, backend, cloud_allowed, search_provider, two_tier,
-    trace: list[str],
+    trace: list[str], project_id: str | None = None,
 ) -> dict:
     """Build + run one declarative skill via the two-pass split (12B tools → 26B reasoner), the same
     partition the legacy pipeline uses — derived here from config *roles*, not a hardcoded key set, so
@@ -391,7 +514,7 @@ async def _run_skill(
     _instruction_ctx = str(seed.get("memory_context") or "") + str(seed.get("persona_framing") or "")
     agents = build_step_agents(
         spec, cfg, backend, cloud_allowed=cloud_allowed, search_provider=search_provider,
-        two_tier=two_tier, memory_context=_instruction_ctx,
+        two_tier=two_tier, memory_context=_instruction_ctx, project_id=project_id,
     )
     reasoner_keys = {
         s.output_key for s in spec.steps if cfg.agents[s.agent_key].role in REASONER_ROLES
@@ -431,10 +554,28 @@ async def _run_skill(
         except Exception:
             pass
     if pass2:
-        state = await _run_agents(
-            pass2, name=f"{spec.capability}_p2", streaming=StreamingMode.SSE,
-            seed=state, message=msg, trace=trace, max_concurrency=mc,
-        )
+        if spec.capability == "competitor":
+            # Chunked synthesis: 5 × 1024-token calls instead of one 8192-token call.
+            # Prevents JSON truncation at the token ceiling (SENTINEL-017 fix).
+            # Falls back to the ADK pass2 if all chunks fail (e.g. no API in tests).
+            terminal = spec.steps[-1].output_key
+            state = await _synthesize_chunked(
+                state, terminal, cfg=cfg, backend=backend,
+                cloud_allowed=cloud_allowed, trace=trace,
+            )
+            if terminal not in state:
+                trace.append(
+                    f"chunked_synth: produced no {terminal!r} — falling back to ADK pass2"
+                )
+                state = await _run_agents(
+                    pass2, name=f"{spec.capability}_p2", streaming=StreamingMode.SSE,
+                    seed=state, message=msg, trace=trace, max_concurrency=mc,
+                )
+        else:
+            state = await _run_agents(
+                pass2, name=f"{spec.capability}_p2", streaming=StreamingMode.SSE,
+                seed=state, message=msg, trace=trace, max_concurrency=mc,
+            )
     return state
 
 
@@ -549,6 +690,7 @@ async def _run_one_step(
     search_provider: str,
     two_tier: bool,
     registry,
+    project_id: str | None = None,
 ) -> _StepOutcome:
     """Run a single **already-admitted** step (deps satisfied, budget checked by the scheduler) against a
     snapshot of ``results`` and return a :class:`_StepOutcome`. Pure w.r.t. shared accumulators — it
@@ -571,6 +713,27 @@ async def _run_one_step(
 
     step.started_at = _now_iso()
     entity = seed.get("target")
+
+    # --- govt_synthesis: aggregate all per-dept research into a single public_findings block ------ #
+    if step.capability == "govt_synthesis":
+        dept_parts: list[str] = []
+        for k, v in seed.items():
+            if k.startswith("research_dept_"):
+                dept_name = k.removeprefix("research_dept_").replace("_", " ").title()
+                if isinstance(v, dict):
+                    text = v.get("findings") or v.get("summary") or str(v)[:1200]
+                    srcs = v.get("sources") or []
+                    src_txt = (", ".join(str(s) for s in srcs[:5])) if srcs else ""
+                    part = f"=== {dept_name} ===\n{text}"
+                    if src_txt:
+                        part += f"\nSources: {src_txt}"
+                else:
+                    part = f"=== {dept_name} ===\n{v}"
+                dept_parts.append(part)
+        if dept_parts:
+            seed["public_findings"] = "\n\n".join(dept_parts)
+        else:
+            seed.setdefault("public_findings", "No department research available.")
 
     # --- cache: per-entity, research skills only -------------------------------------------------- #
     if use_cache and cache is not None and _is_cacheable(spec) and entity:
@@ -601,6 +764,7 @@ async def _run_one_step(
             state = await _run_skill(
                 spec, seed, cfg=cfg, backend=backend, cloud_allowed=cloud_allowed,
                 search_provider=search_provider, two_tier=two_tier, trace=trace,
+                project_id=project_id,
             )
             terminal = _terminal_key(step.capability, spec)
             raw = state.get(terminal)
@@ -764,7 +928,7 @@ async def _execute_plan(
                 step, by_id=by_id, results_snapshot=results, base=base, seeds=seeds,
                 unsatisfied=uns, spec=spec, cache=cache, use_cache=use_cache, cfg=cfg,
                 backend=backend, cloud_allowed=cloud_allowed, search_provider=search_provider,
-                two_tier=two_tier, registry=registry,
+                two_tier=two_tier, registry=registry, project_id=project_id,
             )
             for step, spec, uns in run_specs
         ], return_exceptions=True)
@@ -1104,7 +1268,8 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
                 kwargs = {**kwargs, "base_seed": _base}
     except Exception:
         pass  # fail-soft: user profile injection must never break a run
-    result = await run_plan(plan, assemble=assemble_generic, **kwargs)
+    _fwd = {k: v for k, v in kwargs.items() if k not in ("user_id", "handoff_id")}
+    result = await run_plan(plan, assemble=assemble_generic, **_fwd)
     # G-07: procedural memory — record successful plan structures so the planner can reuse them.
     if not result.degraded:
         try:
@@ -1150,20 +1315,71 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
     return result
 
 
+def _mine_urls_from_artifact(art: dict) -> list[Source]:
+    """Fallback citation extraction when the model leaves sources: [] empty.
+
+    Walks known URL-bearing sub-fields (products_found[].source_url,
+    department_mappings[].url, any top-level 'url' string) and constructs
+    Source objects from them. Relies on simple str fields the 26B model
+    fills reliably, unlike the list[Source] structured field it skips."""
+    found: list[Source] = []
+
+    # ProductResearch: products_found[].{name, source_url}
+    for p in (art.get("products_found") or []):
+        if not isinstance(p, dict):
+            continue
+        url = (p.get("source_url") or "").strip()
+        if url and url.startswith("http"):
+            found.append(Source(
+                boundary="public",
+                label=f"{p.get('name', 'Product')} — {p.get('brand', '')}".strip(" —"),
+                url=url,
+            ))
+
+    # GovernmentProposal: no per-dept URLs from model, but check action_plan items
+    for a in (art.get("action_plan") or []):
+        if not isinstance(a, dict):
+            continue
+        url = (a.get("url") or a.get("source_url") or "").strip()
+        if url and url.startswith("http"):
+            found.append(Source(boundary="public", label=a.get("action", "Reference"), url=url))
+
+    # Generic: any top-level string field that looks like a URL
+    for _k, v in art.items():
+        if isinstance(v, str) and v.startswith("http") and " " not in v and len(v) < 300:
+            found.append(Source(boundary="public", label=_k, url=v))
+
+    return found
+
+
 def _union_citations(results: dict[str, dict], produced: list[tuple[str, str]]) -> list[Source]:
-    """The de-duplicated union of every produced artifact's ``sources`` (by boundary/label/url)."""
+    """De-duplicated union of every produced artifact's citations (by boundary/label/url).
+
+    Primary path: artifact.sources list[Source] from structured model output.
+    Fallback: mine URL-bearing sub-fields the 26B model reliably fills
+    (e.g. products_found[].source_url) when sources: [] is empty."""
     citations: list[Source] = []
     seen: set[tuple] = set()
+
+    def _add(src: Source) -> None:
+        sig = (src.boundary, src.label or "", src.url or "")
+        if sig not in seen:
+            seen.add(sig)
+            citations.append(src)
+
     for _cap, key in produced:
-        for raw in results[key].get("sources", []) or []:
+        art = results[key]
+        # Primary: explicit sources list
+        for raw in (art.get("sources") or []):
             try:
-                src = Source.model_validate(raw)
+                _add(Source.model_validate(raw))
             except Exception:
                 continue
-            sig = (src.boundary, src.label, src.url)
-            if sig not in seen:
-                seen.add(sig)
-                citations.append(src)
+        # Fallback: mine URLs from sub-fields when primary is empty
+        if not art.get("sources"):
+            for src in _mine_urls_from_artifact(art):
+                _add(src)
+
     return citations
 
 

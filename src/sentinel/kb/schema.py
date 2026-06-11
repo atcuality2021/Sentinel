@@ -9,6 +9,7 @@ class SourceType(str, Enum):
     WEB = "web"
     SOCIAL = "social"
     DOCUMENT = "document"
+    ARTIFACT = "artifact"  # research output ingested back as KB grounding
 
 
 class CrawlStatus(str, Enum):

@@ -287,7 +287,7 @@ def test_run_skill_lifts_memory_and_persona_to_synthesizer(monkeypatch):
     captured_memory: list[str] = []
 
     def fake_build_step_agents(spec, cfg, backend, *, cloud_allowed, search_provider,
-                                two_tier, memory_context=""):
+                                two_tier, memory_context="", project_id=None):
         captured_memory.append(memory_context)
         return []
 

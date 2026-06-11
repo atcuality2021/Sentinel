@@ -31,9 +31,12 @@ from sentinel.artifacts.schemas import (
     AcademicBrief,
     Battlecard,
     ComparisonMatrix,
+    DeptResearchOutput,
     ExtractionSet,
     FinancialProfile,
+    GovernmentProposal,
     NutritionBrief,
+    ProductResearch,
     SelfProfile,
     SoftwareBrief,
     TravelBrief,
@@ -255,6 +258,63 @@ TRAVEL_SPEC = ResearchModeSpec(
 )
 
 
+GOVT_PROPOSAL_SPEC = ResearchModeSpec(
+    name="sentinel_govt_proposal",
+    output_schema=GovernmentProposal,
+    capability="govt_proposal",
+    domain="govt_proposal",
+    extractor_key="govt_proposal.extractor",
+    extractor_name="govt_proposal_extractor",
+    steps=[
+        StepSpec("govt_proposal.planner", "govt_proposal_planner", "research_plan", role="plan"),
+        StepSpec("govt_proposal.public_research", "govt_proposal_public_research", "public_findings",
+                 tool="search", role="research"),
+        StepSpec("govt_proposal.synthesizer", "govt_proposal_synthesizer", "govt_proposal",
+                 output_schema=GovernmentProposal, role="synthesize"),
+    ],
+)
+
+GOVT_DEPT_RESEARCH_SPEC = ResearchModeSpec(
+    name="sentinel_govt_dept_research",
+    output_schema=DeptResearchOutput,
+    capability="govt_dept_research",
+    domain="govt_proposal",
+    steps=[
+        StepSpec("govt_dept_research.public_research", "govt_dept_research_researcher",
+                 "dept_findings", tool="search", role="research"),
+        StepSpec("govt_dept_research.synthesizer", "govt_dept_research_synthesizer",
+                 "dept_findings", output_schema=DeptResearchOutput, role="synthesize"),
+    ],
+)
+
+GOVT_SYNTHESIS_SPEC = ResearchModeSpec(
+    name="sentinel_govt_synthesis",
+    output_schema=GovernmentProposal,
+    capability="govt_synthesis",
+    domain="govt_proposal",
+    steps=[
+        StepSpec("govt_synthesis.synthesizer", "govt_synthesis_synthesizer",
+                 "govt_proposal", output_schema=GovernmentProposal, role="synthesize"),
+    ],
+)
+
+PRODUCT_RESEARCH_SPEC = ResearchModeSpec(
+    name="sentinel_product_research",
+    output_schema=ProductResearch,
+    capability="product_research",
+    domain="product_research",
+    extractor_key="product_research.extractor",
+    extractor_name="product_research_extractor",
+    steps=[
+        StepSpec("product_research.planner", "product_research_planner", "research_plan", role="plan"),
+        StepSpec("product_research.public_research", "product_research_public_research", "public_findings",
+                 tool="search", role="research"),
+        StepSpec("product_research.synthesizer", "product_research_synthesizer", "product_research",
+                 output_schema=ProductResearch, role="synthesize"),
+    ],
+)
+
+
 # The skill registry: capability → spec (design §2.1, "the mode library becomes the skill registry").
 # A flat in-code seed for now; Phase 3's AgentRegistry will resolve (capability, domain) → best spec.
 SKILL_SPECS: dict[str, ResearchModeSpec] = {
@@ -263,6 +323,10 @@ SKILL_SPECS: dict[str, ResearchModeSpec] = {
         COMPETITOR_SPEC, CLIENT_SPEC, SELF_PROFILE_SPEC, COMPARE_SPEC,
         # SENTINEL-014: universal domain specialists
         SOFTWARE_SPEC, FINANCE_SPEC, ACADEMIC_SPEC, NUTRITION_SPEC, TRAVEL_SPEC,
+        # SENTINEL-017: govt proposal + product research
+        GOVT_PROPOSAL_SPEC, PRODUCT_RESEARCH_SPEC,
+        # Per-dept sub-agents + synthesis
+        GOVT_DEPT_RESEARCH_SPEC, GOVT_SYNTHESIS_SPEC,
     )
 }
 
@@ -276,6 +340,7 @@ def build_step_agents(
     search_provider: str = "gemini",
     memory_context: str = "",
     two_tier: bool = False,
+    project_id: str | None = None,
 ) -> list[Agent]:
     """Construct a mode's step-agents from its spec — the single source for every topology.
 
@@ -293,6 +358,15 @@ def build_step_agents(
     cfg = cfg or get_config()
     # Resolve the private toolset once (mirrors the bespoke client builder; avoids double MCP build).
     private_toolset = build_private_toolset() if spec.has_private else None
+    # KB tool: give every search step direct access to the project's indexed KB.
+    # Fail-soft: if no project_id or KB unavailable, kb_tool is None and not added.
+    kb_tool = None
+    if project_id:
+        try:
+            from sentinel.tools.kb_tool import build_kb_tool
+            kb_tool = build_kb_tool(project_id)
+        except Exception:
+            pass
 
     agents: list[Agent] = []
     for step in spec.steps:
@@ -319,6 +393,9 @@ def build_step_agents(
                 max_calls=getattr(cfg.search, "max_calls", 0),
                 stagger_s=getattr(cfg.search, "stagger_s", 0.0),
             )]
+            # Append KB tool so agents can query indexed project documents mid-research.
+            if kb_tool is not None:
+                tools.append(kb_tool)
         else:
             tools = None
 

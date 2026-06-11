@@ -227,6 +227,8 @@ a.gc:hover{border-color:var(--accent-line);transform:translateY(-2px)}
 .legend span{display:inline-flex;align-items:center;gap:7px}
 .swatch{width:11px;height:11px;border-radius:4px;display:inline-block}
 @media(max-width:880px){.cards3,.cards2{grid-template-columns:1fr}}
+@media print{.sidebar,.shell-nav,.proj-subnav,.set-actions,.btn,nav,header{display:none!important}
+  .shell-main{margin:0!important;padding:0!important}body{background:#fff;color:#111}}
 
 /* ---- project subnav ---- */
 .proj-subnav{border-bottom:1px solid var(--line);background:rgba(10,14,22,.88);
@@ -719,9 +721,11 @@ def form_page(*, default_backend: str, private_configured: bool, vllm_model: str
 # --------------------------------------------------------------------------- #
 # Finding / gap fragments
 # --------------------------------------------------------------------------- #
-def _badge(b: Boundary) -> str:
-    cls = "public" if b is Boundary.PUBLIC else "private"
-    return f"<span class='badge {cls}'>{b.value}</span>"
+def _badge(b) -> str:
+    # b may be a Boundary enum or a plain string after JSON round-trip
+    val = b.value if isinstance(b, Boundary) else str(b)
+    cls = "public" if val == Boundary.PUBLIC.value else "private"
+    return f"<span class='badge {cls}'>{val}</span>"
 
 
 def _source(s: Source) -> str:
@@ -944,6 +948,19 @@ def artifacts_page(*, artifacts: list[dict], backend: str, project: str = "sover
         if a.get("entity"):
             name = (f"<a href='{_account_href(a['entity'])}' "
                     f"style='color:var(--accent-2)'>{name}</a>")
+        # "Add to KB" button — available in project context whenever the run has any content
+        kb_btn = ""
+        if project_id and a.get("run_id"):
+            rid = escape(a["run_id"])
+            pid_esc = escape(project_id)
+            kb_btn = (
+                f"<form method='POST' action='/projects/{pid_esc}/kb/sources/artifact' "
+                f"style='display:inline'>"
+                f"<input type='hidden' name='run_id' value='{rid}'>"
+                f"<button type='submit' class='btn' style='font-size:11px;padding:3px 9px' "
+                f"title='Index this artifact into the project Knowledge Base'>"
+                f"{_icon('database')} Add to KB</button></form>"
+            )
         rows += (
             f"<tr><td><b>{name}</b></td><td>{escape(a['kind'])}</td>"
             f"<td><span class='badge public'>{a['public']}</span>"
@@ -951,12 +968,13 @@ def artifacts_page(*, artifacts: list[dict], backend: str, project: str = "sover
             f"<td><span class='dotmark {'v' if a['backend']=='vllm' else 'g'}'></span> "
             f"<span class='mono'>{escape(a['backend'])}</span></td>"
             f"<td class='mono'>{escape(a['reference'])}</td>"
-            f"<td class='mono'>{escape(a['when'])}</td></tr>"
+            f"<td class='mono'>{escape(a['when'])}</td>"
+            f"<td>{kb_btn}</td></tr>"
         )
     content = (
         "<div class='card' style='padding:6px 8px'><table><thead><tr>"
         "<th>Target</th><th>Kind</th><th>Public / Private</th><th>Backend</th>"
-        "<th>Saved to</th><th>When</th></tr></thead>"
+        "<th>Saved to</th><th>When</th><th></th></tr></thead>"
         f"<tbody>{rows}</tbody></table></div>"
     )
     return shell(active=active, title=title, content=content, backend=backend,
@@ -1158,7 +1176,8 @@ def projects_page(*, projects: list, backend: str, ok: str = "") -> str:
     return shell(active="projects", title="Projects", content=banner + form + table, backend=backend)
 
 
-_DOMAINS = ["market", "account", "software", "finance", "academic", "nutrition", "travel"]
+_DOMAINS = ["market", "account", "software", "finance", "academic", "nutrition", "travel",
+            "govt_proposal", "product_research"]
 # Persona = who the output is for (reading level / tone / format). The orchestrated run renders the
 # deliverable for this persona without changing the facts (SENTINEL-012 AC-8/17).
 _PERSONAS = ["enterprise", "developer", "consumer", "student", "doctor", "nurse"]
@@ -1185,11 +1204,37 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
         f"<form class='run' method='get' action='/projects/{escape(project_id)}/plan'>"
         "<div><label class='lbl' for='t-obj'>Objective</label>"
         "<input id='t-obj' name='objective' required "
-        "placeholder='e.g. Profile us, find competitors, and produce a market-capture strategy'></div>"
+        "placeholder='e.g. Research Assam government departments and map BiltIQ capabilities'></div>"
+        "<div><label class='lbl' for='t-ctx'>Research context <span style='font-weight:400;"
+        "color:var(--muted)'>(optional — background injected into every agent)</span></label>"
+        "<textarea id='t-ctx' name='context' rows='3' "
+        "style='width:100%;padding:8px;background:var(--panel-2);border:1px solid var(--accent-line);"
+        "border-radius:6px;color:var(--ink);font-size:13px;resize:vertical' "
+        "placeholder='e.g. Vendor is BiltIQ AI — sovereign on-premise AI platform; "
+        "buyer needs 16GB RAM + 1TB SSD under ₹1 lakh; target government is Assam state …'>"
+        "</textarea></div>"
+        # Client/partner URL — crawled into KB before agents run
+        "<div id='client-url-row'>"
+        "<label class='lbl' for='t-curl'>Client / research website "
+        "<span style='font-weight:400;color:var(--muted)'>(optional — crawled into KB before agents run)</span>"
+        "</label>"
+        "<input id='t-curl' name='client_url' type='url' "
+        "style='width:100%;padding:8px;background:var(--panel-2);border:1px solid var(--accent-line);"
+        "border-radius:6px;color:var(--ink);font-size:13px' "
+        "placeholder='https://assam.gov.in  or  https://client-site.com'></div>"
+        "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px'>"
         "<div><label class='lbl' for='t-dom'>Domain</label>"
-        f"<select id='t-dom' name='domain'>{domains}</select></div>"
+        f"<select id='t-dom' name='domain' onchange=\""
+        "var d=this.value;"
+        "var r=document.getElementById('client-url-row');"
+        "var i=document.getElementById('t-curl');"
+        "if(d==='govt_proposal'){r.style.borderLeft='3px solid var(--accent-2)';r.style.paddingLeft='8px';"
+        "if(!i.value)i.placeholder='https://assam.gov.in — client site will be indexed into KB';}"
+        "else{r.style.borderLeft='';r.style.paddingLeft='';}"
+        f"\">{domains}</select></div>"
         "<div><label class='lbl' for='t-per'>Persona</label>"
         f"<select id='t-per' name='persona'>{personas}</select></div>"
+        "</div>"
         "<div><label class='lbl'>Reasoning backend</label>"
         "<div class='seg'>"
         f"<input class='cloud' type='radio' id='tb-gemini' name='backend' value='gemini' "
@@ -1203,9 +1248,7 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
         f"{sovereign_note}"
         f"<div><button class='btn' type='submit'>{_icon('bolt')} Plan task</button></div>"
         "</form>"
-        "<div class='note' style='margin-top:8px'>Domain selects the research skills + output shape; "
-        "persona adapts the output's reading level &amp; tone (facts unchanged). The planner proposes a "
-        "step-DAG; you review and approve before anything runs (unless the project is autonomous).</div></div>"
+        "</div>"
     )
 
 
@@ -1265,8 +1308,10 @@ def _task_row(task, pid: str, show_full_obj: bool = False) -> str:
             f"{_icon('bolt')} Re-run</button></form>"
         )
     del_btn = (
-        f"<form method='post' action='/projects/{pid}/tasks/{tid}/delete' style='display:inline'>"
-        f"<button class='btn-sm bad' type='submit' title='Delete task'>&times;</button></form>"
+        f"<form method='post' action='/projects/{pid}/tasks/{tid}/delete' style='display:inline'"
+        f" onsubmit='return confirm(\"Delete this task and all its data?\")'>"
+        f"<button class='btn-sm bad' type='submit' style='font-size:11px;padding:3px 8px'>"
+        f"Delete</button></form>"
     )
 
     return (
@@ -1280,66 +1325,339 @@ def _task_row(task, pid: str, show_full_obj: bool = False) -> str:
     )
 
 
+def _result_brief_card(task, pid: str) -> str:
+    """Compact deliverable card for a completed task on the overview page.
+
+    Shows: objective, domain, a 1-2 sentence summary from the result, and key metrics
+    extracted from the artifact (dept count, product count, citation count, etc.).
+    """
+    tid = escape(task.id)
+    obj = escape(task.objective or "")
+    domain = task.domain.name if task.domain else ""
+
+    # Pull summary text from result
+    result = getattr(task, "result", None)
+    summary = ""
+    metrics: list[str] = []
+    if result:
+        summary = escape(getattr(result, "summary", "") or "")
+        payload = getattr(result, "dashboard_payload", {}) or {}
+        arts = payload.get("artifacts") or payload
+        if isinstance(arts, dict):
+            # Domain-specific metrics
+            for v in arts.values():
+                if not isinstance(v, dict):
+                    continue
+                if "department_mappings" in v:
+                    n = len(v.get("department_mappings") or [])
+                    if n:
+                        metrics.append(f"{n} departments mapped")
+                    chals = len(v.get("client_challenges") or [])
+                    if chals:
+                        metrics.append(f"{chals} client challenges")
+                if "products_found" in v:
+                    n = len(v.get("products_found") or [])
+                    if n:
+                        metrics.append(f"{n} products found")
+                    winner = (v.get("winner_rationale") or "")[:80]
+                    if winner:
+                        metrics.append(f"Winner: {escape(winner)}")
+                if "strengths" in v:
+                    n = len(v.get("strengths") or [])
+                    if n:
+                        metrics.append(f"{n} strengths identified")
+                if "key_findings" in v:
+                    n = len(v.get("key_findings") or [])
+                    if n:
+                        metrics.append(f"{n} key findings")
+            cites = getattr(result, "citations", []) or []
+            if cites:
+                metrics.append(f"{len(cites)} citations")
+
+    metrics_html = ""
+    if metrics:
+        chips = "".join(
+            f"<span class='tag' style='color:var(--accent-2);margin-right:6px'>{m}</span>"
+            for m in metrics[:5]
+        )
+        metrics_html = f"<div style='margin-top:8px'>{chips}</div>"
+
+    summary_html = (
+        f"<p style='margin:8px 0 0;font-size:13px;color:var(--text-secondary);line-height:1.5'>{summary}</p>"
+        if summary else ""
+    )
+
+    domain_color = {
+        "govt_proposal": "#a78bfa",
+        "product_research": "#2dd4bf",
+        "market": "#4ea1ff",
+        "software": "#fb923c",
+        "finance": "#5bd07f",
+        "academic": "#d4a800",
+    }.get(domain, "var(--muted)")
+
+    rerun_btn = (
+        f"<form method='post' action='/projects/{pid}/tasks/{tid}/run' style='display:inline'>"
+        f"<button class='btn-sm ghost' type='submit' title='Run this task again'>"
+        f"{_icon('bolt')} Re-run</button></form>"
+    )
+    del_btn = (
+        f"<form method='post' action='/projects/{pid}/tasks/{tid}/delete' style='display:inline;margin-left:4px'"
+        f" onsubmit='return confirm(\"Delete this task and all its data?\")'>"
+        f"<button class='btn-sm' type='submit' "
+        f"style='background:transparent;border-color:rgba(220,38,38,.3);color:#f87171;"
+        f"padding:3px 8px;font-size:11px'>Delete</button></form>"
+    )
+    return (
+        f"<div class='card' style='border-left:3px solid {domain_color};margin-bottom:10px'>"
+        f"<div style='display:flex;align-items:flex-start;justify-content:space-between;gap:12px'>"
+        f"<div style='flex:1'>"
+        f"<a href='/projects/{pid}/tasks/{tid}' style='font-weight:600;font-size:14px;"
+        f"color:var(--text);text-decoration:none;line-height:1.4'>{obj}</a>"
+        f"<div style='margin-top:6px'>"
+        f"<span class='tag' style='color:{domain_color}'>{escape(domain)}</span>"
+        f"<span class='tag' style='color:#5bd07f'>done</span>"
+        f"</div>"
+        f"{summary_html}"
+        f"{metrics_html}"
+        f"</div>"
+        f"<div style='display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end'>"
+        f"<a class='btn-sm ok' href='/projects/{pid}/tasks/{tid}'>{_icon('doc')} View</a>"
+        f"<div>{rerun_btn}{del_btn}</div>"
+        f"</div>"
+        f"</div></div>"
+    )
+
+
+def _pending_task_row(task, pid: str) -> str:
+    """Compact row for a task that hasn't produced a result yet."""
+    tid = escape(task.id)
+    obj = escape(task.objective or "")
+    domain = task.domain.name if task.domain else ""
+    status = task.status
+    badge = _task_status_badge(status, False)
+    run_btn = ""
+    if status in ("planned", "created"):
+        run_btn = (
+            f"<form method='post' action='/projects/run-plan' style='display:inline;margin-left:6px'>"
+            f"<input type='hidden' name='task_id' value='{tid}'>"
+            f"<input type='hidden' name='backend' value='gemini'>"
+            f"<button class='btn-sm' type='submit'>{_icon('bolt')} Run</button></form>"
+        )
+    elif status == "failed":
+        run_btn = (
+            f"<form method='post' action='/projects/run-plan' style='display:inline;margin-left:6px'>"
+            f"<input type='hidden' name='task_id' value='{tid}'>"
+            f"<input type='hidden' name='backend' value='gemini'>"
+            f"<button class='btn-sm warn' type='submit'>{_icon('bolt')} Retry</button></form>"
+        )
+    del_btn = (
+        f"<form method='post' action='/projects/{pid}/tasks/{tid}/delete' style='display:inline;margin-left:6px'"
+        f" onsubmit='return confirm(\"Delete this task and all its data?\")'>"
+        f"<button class='btn-sm' type='submit' "
+        f"style='background:transparent;border-color:rgba(220,38,38,.4);color:#f87171'>"
+        f"Delete</button></form>"
+    )
+    return (
+        f"<div class='task-row'>"
+        f"<div><a class='tr-obj' href='/projects/{pid}/tasks/{tid}'>{obj}</a>"
+        f"<div class='tr-meta'>{badge}"
+        f"<span class='tag' style='color:var(--muted)'>{escape(domain)}</span></div></div>"
+        f"<div class='tr-actions'>{run_btn}{del_btn}</div></div>"
+    )
+
+
 def project_detail_page(*, project, tasks: list, backend: str,
-                        vllm_model: str = "gemma-4-12b-it", sovereign: bool = False) -> str:
-    """Overview tab — project info card + quick stats + recent tasks list (no creation form)."""
+                        vllm_model: str = "gemma-4-12b-it", sovereign: bool = False,
+                        ok: str = "", err: str = "",
+                        kb_source_count: int = 0) -> str:
+    """Overview tab — project CRUD, context, quick-add source, built/building tasks."""
     pid = escape(project.id)
     site = (f"<a href='{escape(project.website)}' rel='noopener' target='_blank' "
             f"style='color:var(--accent-2)'>{escape(project.website)}</a>") if project.website else "—"
 
-    done  = sum(1 for t in tasks if t.status == "done")
-    fail  = sum(1 for t in tasks if t.status == "failed")
+    done_tasks  = [t for t in tasks if t.status == "done"]
+    pending     = [t for t in tasks if t.status not in ("done",)]
+    fail_count  = sum(1 for t in tasks if t.status == "failed")
+
+    flash = ""
+    if ok:
+        flash = f"<div class='flash ok' style='margin-bottom:12px'>{escape(ok)}</div>"
+    elif err:
+        flash = f"<div class='flash err' style='margin-bottom:12px'>{escape(err)}</div>"
+
+    # ── Edit project form (toggled by button, hidden by default) ──────────────
+    _proj_desc = escape(getattr(project, "description", "") or "")
+    _proj_ctx  = escape(getattr(project, "context", "") or "")
+    _proj_site = escape(project.website or "")
+    edit_form = (
+        f"<div id='proj-edit-panel' style='display:none;margin-top:12px'>"
+        f"<form method='post' action='/projects/{pid}/edit' "
+        f"style='display:grid;gap:12px;max-width:600px'>"
+        f"<div><label class='lbl'>Project name</label>"
+        f"<input name='name' value='{escape(project.name)}' style='width:100%'></div>"
+        f"<div><label class='lbl'>Website / primary source URL</label>"
+        f"<input name='website' value='{_proj_site}' "
+        f"placeholder='https://example.com' style='width:100%'></div>"
+        f"<div><label class='lbl'>Description</label>"
+        f"<input name='description' value='{_proj_desc}' "
+        f"placeholder='What is this project researching?' style='width:100%'></div>"
+        f"<div><label class='lbl'>Agent context "
+        f"<span class='note' style='font-weight:400'>"
+        f"— prepended to every research task in this project</span></label>"
+        f"<textarea name='context' rows='3' style='width:100%;resize:vertical' "
+        f"placeholder='e.g. Focus on the Indian market. Prioritise recent data from 2024-2025. "
+        f"This research is for an enterprise pitch deck.'>"
+        f"{_proj_ctx}</textarea></div>"
+        f"<div style='display:flex;gap:8px'>"
+        f"<button class='btn' type='submit'>Save changes</button>"
+        f"<button type='button' class='btn ghost' "
+        f"onclick=\"document.getElementById('proj-edit-panel').style.display='none';"
+        f"document.getElementById('proj-edit-btn').style.display=''\">Cancel</button>"
+        f"</div></form></div>"
+        f"<script>function _toggleEdit(){{"
+        f"var p=document.getElementById('proj-edit-panel'),"
+        f"b=document.getElementById('proj-edit-btn');"
+        f"p.style.display=p.style.display==='none'?'block':'none';"
+        f"b.style.display=p.style.display==='block'?'none':'';}}</script>"
+    )
+
+    # ── Project header ────────────────────────────────────────────────────────
     fail_pill = (
         f"<span class='pill' style='border-color:rgba(234,67,53,.4);color:#ff6b6b'>"
-        f"Failed: <b>{fail}</b></span>"
-    ) if fail else ""
+        f"Failed: <b>{fail_count}</b></span>"
+    ) if fail_count else ""
+
+    desc_html = ""
+    proj_desc = getattr(project, "description", "") or ""
+    if proj_desc:
+        desc_html = f"<p class='note' style='margin:8px 0 0'>{escape(proj_desc)}</p>"
+
+    proj_ctx = getattr(project, "context", "") or ""
+    ctx_pill = (
+        f"<span class='pill' style='border-color:rgba(99,102,241,.4);color:#a5b4fc' "
+        f"title='{escape(proj_ctx[:200])}'>📋 Agent context set</span>"
+    ) if proj_ctx else ""
+
     header = (
-        "<div class='card'><div class='section-h' style='margin-top:0'>"
-        f"<h2>{escape(project.name)}</h2>"
+        f"<div class='card'>{flash}"
+        f"<div class='section-h' style='margin-top:0'>"
+        f"<div style='display:flex;align-items:center;gap:10px'>"
+        f"<h2 style='margin:0'>{escape(project.name)}</h2>"
+        f"<button id='proj-edit-btn' type='button' class='btn ghost' "
+        f"style='padding:4px 10px;font-size:12px' onclick='_toggleEdit()'>✏ Edit</button>"
+        f"</div>"
         f"<a class='btn' href='/projects/{pid}/tasks'>{_icon('bolt')} New Research Task</a></div>"
         f"<div style='display:flex;gap:10px;flex-wrap:wrap;margin-top:8px'>"
-        f"<span class='pill'>Website: <b>{site}</b></span>"
-        f"<span class='pill'>Autonomy: <b>{escape(project.settings.autonomy)}</b></span>"
-        f"<span class='pill'>Tasks: <b>{len(tasks)}</b></span>"
-        f"<span class='pill' style='border-color:rgba(52,168,83,.4);color:#5bd07f'>Done: <b>{done}</b></span>"
-        f"{fail_pill}</div></div>"
+        + (f"<span class='pill'>Website: <b>{site}</b></span>" if project.website else "")
+        + f"<span class='pill' style='border-color:rgba(52,168,83,.4);color:#5bd07f'>"
+        f"Completed: <b>{len(done_tasks)}</b></span>"
+        f"<span class='pill'>In progress / planned: <b>{len(pending)}</b></span>"
+        f"{fail_pill}{ctx_pill}</div>"
+        f"{desc_html}"
+        f"{edit_form}"
+        f"</div>"
     )
 
-    if tasks:
-        recent = tasks[:5]
-        rows = "".join(_task_row(t, pid) for t in recent)
-        failed_note = (
-            f"<span class='tag' style='color:#ff6b6b;margin-left:6px'>"
-            f"{fail} failed — Re-run to retry</span>"
-        ) if fail else ""
-        tasks_html = (
-            "<div class='section-h'>"
-            f"<h2>Recent Research{failed_note}</h2>"
-            f"<a class='btn ghost' href='/projects/{pid}/tasks'>View all</a></div>"
-            f"<div class='card' style='padding:0'>{rows}</div>"
+    # ── Quick-add source (compact inline form) ────────────────────────────────
+    quick_source = (
+        f"<div class='card' style='margin-top:16px'>"
+        f"<div style='font-weight:600;font-size:13px;margin-bottom:12px'>📎 Add sources for the agent to use</div>"
+        f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px'>"
+
+        # ── Left: URL input (type auto-inferred server-side) ──
+        f"<div>"
+        f"<label class='lbl' style='margin-bottom:4px;display:block'>🔗 Paste a URL</label>"
+        f"<form method='post' action='/projects/{pid}/kb/sources' style='display:flex;gap:6px'>"
+        f"<input type='hidden' name='redirect' value='overview'>"
+        f"<input name='url' placeholder='Website, article, or PDF link…' style='flex:1;min-width:0'>"
+        f"<button class='btn' type='submit' style='white-space:nowrap;padding:8px 14px'>"
+        f"{_icon('bolt')} Add</button>"
+        f"</form>"
+        f"<p class='note' style='margin:5px 0 0;font-size:11px'>Type is detected automatically — web, PDF, or social</p>"
+        f"</div>"
+
+        # ── Right: File upload (multiple files) ──
+        f"<div>"
+        f"<label class='lbl' style='margin-bottom:4px;display:block'>📄 Upload files <span class='note' style='font-weight:400'>&nbsp;·&nbsp;PDF, TXT, MD</span></label>"
+        f"<form method='post' action='/projects/{pid}/kb/upload' enctype='multipart/form-data' style='display:flex;gap:6px'>"
+        f"<input type='hidden' name='redirect' value='overview'>"
+        f"<input type='file' name='files' multiple accept='.pdf,.txt,.md' "
+        f"style='flex:1;min-width:0;font-size:12px;padding:6px 8px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;color:var(--text)'>"
+        f"<button class='btn' type='submit' style='white-space:nowrap;padding:8px 14px'>"
+        f"{_icon('bolt')} Upload</button>"
+        f"</form>"
+        f"<p class='note' style='margin:5px 0 0;font-size:11px'>Select one or more files to index into the Knowledge Base</p>"
+        f"</div>"
+
+        f"</div>"
+        f"<p class='note' style='margin:10px 0 0'>Need to chat with your sources? "
+        f"<a href='/projects/{pid}/kb' style='color:var(--accent-2)'>Open the full Knowledge Base</a></p>"
+        f"</div>"
+    )
+
+    # ── What has been built (completed tasks with actual findings) ─────────────
+    if done_tasks:
+        brief_cards = "".join(_result_brief_card(t, pid) for t in done_tasks)
+        built_html = (
+            "<div class='section-h' style='margin-top:24px'>"
+            "<h2>What we have built</h2>"
+            f"<a class='btn ghost' href='/projects/{pid}/artifacts'>All artifacts</a></div>"
+            + brief_cards
         )
     else:
-        tasks_html = (
-            "<div class='section-h'><h2>Recent Research</h2></div>"
-            "<div class='card'><div class='empty'>No research tasks yet. "
-            f"<a href='/projects/{pid}/tasks' style='color:var(--accent-2)'>Open the Research tab</a> "
-            "to create your first task.</div></div>"
+        built_html = ""
+
+    # ── What we are building (pending / in-progress tasks) ────────────────────
+    if pending:
+        p_rows = "".join(_pending_task_row(t, pid) for t in pending)
+        building_html = (
+            "<div class='section-h' style='margin-top:24px'>"
+            "<h2>What we are building</h2>"
+            f"<a class='btn ghost' href='/projects/{pid}/tasks'>Manage</a></div>"
+            f"<div class='card' style='padding:0'>{p_rows}</div>"
+        )
+    else:
+        building_html = ""
+
+    # ── Empty state ────────────────────────────────────────────────────────────
+    if not tasks:
+        building_html = (
+            "<div class='card' style='margin-top:16px;text-align:center;padding:32px 16px'>"
+            f"<div style='font-size:32px;margin-bottom:12px'>🔬</div>"
+            f"<div style='font-weight:600;margin-bottom:8px'>No research tasks yet</div>"
+            "<p class='note' style='max-width:400px;margin:0 auto 16px'>Add your first research task — "
+            "define what you want to investigate, choose a domain, and the agent pipeline does the rest.</p>"
+            f"<a class='btn' href='/projects/{pid}/tasks'>{_icon('bolt')} Create first task</a>"
+            "</div>"
         )
 
-    kb_cta = (
-        "<div class='card' style='margin-top:16px'>"
-        "<div class='section-h' style='margin-top:0'><h2>Knowledge Base</h2>"
-        f"<a class='btn ghost' href='/projects/{pid}/kb'>Open</a></div>"
-        "<p class='note'>Add documents, PDFs, URLs, and data sources that ground every research run "
-        "in this project. Connected sources are cited in every artifact.</p></div>"
+    # ── Quick-links row ────────────────────────────────────────────────────────
+    _kb_count_label = (
+        f"<span style='color:var(--accent-2);font-weight:600'>{kb_source_count}</span> source{'s' if kb_source_count != 1 else ''} indexed"
+        if kb_source_count else "No sources yet"
     )
-    memory_cta = (
-        "<div class='card' style='margin-top:16px'>"
-        "<div class='section-h' style='margin-top:0'><h2>Memory</h2>"
-        f"<a class='btn ghost' href='/projects/{pid}/memory'>Open</a></div>"
-        "<p class='note'>Episodic run records, semantic entity facts, and preferences "
-        "accumulated across all research tasks in this project.</p></div>"
+    quicklinks = (
+        "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:24px'>"
+        f"<a href='/projects/{pid}/kb' style='display:block;text-decoration:none'>"
+        "<div class='card' style='text-align:center;padding:16px 10px'>"
+        "<div style='font-size:20px;margin-bottom:6px'>📚</div>"
+        "<div style='font-weight:600;font-size:13px'>Knowledge Base</div>"
+        f"<p class='note' style='margin:4px 0 0;font-size:12px'>{_kb_count_label}</p></div></a>"
+        f"<a href='/projects/{pid}/memory' style='display:block;text-decoration:none'>"
+        "<div class='card' style='text-align:center;padding:16px 10px'>"
+        "<div style='font-size:20px;margin-bottom:6px'>🧠</div>"
+        "<div style='font-weight:600;font-size:13px'>Memory</div>"
+        "<p class='note' style='margin:4px 0 0;font-size:12px'>Facts &amp; episodic records</p></div></a>"
+        f"<a href='/projects/{pid}/report' style='display:block;text-decoration:none'>"
+        "<div class='card' style='text-align:center;padding:16px 10px'>"
+        "<div style='font-size:20px;margin-bottom:6px'>📄</div>"
+        "<div style='font-weight:600;font-size:13px'>Report</div>"
+        "<p class='note' style='margin:4px 0 0;font-size:12px'>Full compiled report</p></div></a>"
+        "</div>"
     )
+
+    # ── Danger zone ────────────────────────────────────────────────────────────
     danger_zone = (
         "<div class='card' style='margin-top:32px;border-color:#5a1f1f;background:#140c0c'>"
         "<div style='display:flex;align-items:center;gap:10px;margin-bottom:14px'>"
@@ -1352,7 +1670,7 @@ def project_detail_page(*, project, tasks: list, backend: str,
         "<div style='font-weight:650;font-size:14px;margin-bottom:6px'>Delete this project</div>"
         "<p class='note' style='margin:0;max-width:520px'>Permanently removes the project, "
         "all its tasks, plans, and KB sources. "
-        "Episodic memory run records are kept (they belong to the entity, not the project).</p>"
+        "Episodic memory run records are kept.</p>"
         "</div>"
         f"<form method='post' action='/projects/{pid}/delete' "
         f"onsubmit='return confirm(\"Delete project \" + {escape(json.dumps(project.name), quote=True)} + \"? All tasks and data will be permanently removed.\")'>"
@@ -1363,7 +1681,7 @@ def project_detail_page(*, project, tasks: list, backend: str,
         "</div></div>"
     )
 
-    content = header + "<div style='margin-top:16px'></div>" + tasks_html + kb_cta + memory_cta + danger_zone
+    content = header + quick_source + built_html + building_html + quicklinks + danger_zone
     return shell(
         active="projects", title=project.name, content=content, backend=backend,
         project=project.name,
@@ -1378,6 +1696,23 @@ def project_tasks_page(*, project, tasks: list, backend: str,
     form_html = _task_form(project.id, default_backend=backend,
                            vllm_model=vllm_model, sovereign=sovereign)
     failed_count = sum(1 for t in tasks if t.status == "failed")
+
+    # When tasks already exist, collapse the form behind a toggle button so the
+    # task list is immediately visible on load.
+    if tasks:
+        form_block = (
+            "<div style='margin-bottom:24px'>"
+            "<div class='section-h' style='margin-bottom:0'>"
+            "<button type='button' class='btn ghost' style='font-size:13px' "
+            "onclick=\"var p=document.getElementById('new-task-panel');"
+            "p.style.display=p.style.display==='none'?'block':'none'\">"
+            "＋ New research task</button></div>"
+            "<div id='new-task-panel' style='display:none;margin-top:12px'>"
+            f"{form_html}</div></div>"
+        )
+    else:
+        form_block = form_html + "<div style='margin-top:24px'></div>"
+
     if tasks:
         rows = "".join(_task_row(t, pid, show_full_obj=True) for t in tasks)
         failed_note = (
@@ -1393,12 +1728,32 @@ def project_tasks_page(*, project, tasks: list, backend: str,
             "<div class='section-h'><h2>Tasks</h2></div>"
             "<div class='card'><div class='empty'>No tasks yet — create one above.</div></div>"
         )
-    content = form_html + "<div style='margin-top:24px'></div>" + tasks_html
+    content = form_block + tasks_html
     return shell(
         active="projects", title=f"{project.name} · Research", content=content,
         backend=backend, project=project.name,
         subnav=_project_subnav(project.id, "tasks", project.name),
     )
+
+
+def _kb_error_friendly(raw: str) -> str:
+    """Translate a raw embed/crawl error string into a human-readable one-liner."""
+    if not raw:
+        return ""
+    low = raw.lower()
+    if "401" in low or "unauthorized" in low:
+        return "Embedding unavailable — API key rejected. Check VLLM_API_KEY in .env."
+    if "403" in low or "forbidden" in low:
+        return "Access denied by embedding server."
+    if "404" in low:
+        return "Embedding endpoint not found. Check EMBED_API_BASE in .env."
+    if "connect" in low or "connection" in low or "refused" in low:
+        return "Cannot reach embedding server. Is it running?"
+    if "timeout" in low:
+        return "Embedding server timed out."
+    if "empty" in low or "nothing to index" in low:
+        return "No content found to index."
+    return raw[:120]
 
 
 def project_kb_page(*, project, sources: list, backend: str, ok: str = "", err: str = "") -> str:
@@ -1424,10 +1779,11 @@ def project_kb_page(*, project, sources: list, backend: str, ok: str = "", err: 
     add_form = (
         "<div class='card'>"
         "<div class='section-h' style='margin-top:0'><h2>Add Knowledge Source</h2></div>"
+        # URL crawl
         f"<form method='post' action='/projects/{pid}/kb/sources' "
-        "style='display:grid;gap:14px;max-width:640px'>"
-        "<div><label class='lbl'>URL</label>"
-        f"<input name='url' required placeholder='https://biltiq.ai  or  https://linkedin.com/company/biltiq'{website_prefill} "
+        "style='display:grid;gap:12px;max-width:640px'>"
+        "<div><label class='lbl'>URL — website, article, or remote PDF</label>"
+        f"<input name='url' required placeholder='https://example.com  or  https://example.com/report.pdf'{website_prefill} "
         "style='width:100%'></div>"
         "<div><label class='lbl'>Source type</label>"
         "<select name='source_type'>"
@@ -1438,61 +1794,146 @@ def project_kb_page(*, project, sources: list, backend: str, ok: str = "", err: 
         f"<div><button class='btn' type='submit'>{_icon('bolt')} Crawl &amp; index</button>"
         "<span class='note' style='margin-left:12px'>Runs in background — refresh to see status.</span></div>"
         "</form>"
-        "<p class='note' style='margin-top:16px'>Each indexed source is embedded with "
+        # File upload divider
+        "<div style='display:flex;align-items:center;gap:12px;margin:18px 0 14px'>"
+        "<hr style='flex:1;border:0;border-top:1px solid var(--line);margin:0'>"
+        "<span class='note' style='white-space:nowrap'>or upload a file</span>"
+        "<hr style='flex:1;border:0;border-top:1px solid var(--line);margin:0'></div>"
+        # File upload form
+        f"<form method='post' action='/projects/{pid}/kb/upload' "
+        "enctype='multipart/form-data' style='display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;max-width:640px'>"
+        "<div style='flex:1;min-width:240px'><label class='lbl'>PDF, TXT, or MD file</label>"
+        "<input type='file' name='files' multiple accept='.pdf,.txt,.md' required "
+        "style='width:100%;padding:6px 8px;background:var(--panel);border:1px solid var(--line);"
+        "border-radius:6px;color:var(--ink);font-size:13px'></div>"
+        f"<button class='btn' type='submit' style='margin-bottom:2px'>{_icon('bolt')} Upload &amp; index</button>"
+        "</form>"
+        "<p class='note' style='margin-top:14px'>Each source is embedded with "
         "<b>Qwen3-VL-Embedding-2B</b> + BM25 and reranked via your cross-encoder. "
-        "Research agents query this KB automatically via the <code>search_project_kb</code> MCP tool.</p>"
+        "Agents query this KB automatically via the <code>search_project_kb</code> MCP tool.</p>"
         "</div>"
     )
 
     # Sources table
+    _ART_LABELS = {
+        "self_profile": ("Self Profile", "🏢"),
+        "competitor": ("Competitor Intelligence", "🎯"),
+        "compare": ("Head-to-Head Comparison", "⚖️"),
+        "comparison_matrix": ("Comparison Matrix", "⚖️"),
+        "battle_card": ("Battle Card", "⚔️"),
+        "strategy": ("Strategic Plan", "📋"),
+        "program_strategy": ("Program Strategy", "📋"),
+        "market_map": ("Market Map", "🗺️"),
+    }
+
+    def _friendly_artifact_label(raw_url: str) -> str:
+        """Convert artifact://compare:_BiltIQ_AI to 'Head-to-Head Comparison — BiltIQ AI'."""
+        if not raw_url.startswith("artifact://"):
+            return raw_url
+        inner = raw_url[len("artifact://"):]
+        # Format: art_type:_Entity_Name  or  art_type_Entity_Name (old format)
+        if ":" in inner:
+            art_type, entity_part = inner.split(":", 1)
+        else:
+            # Try to split on first _
+            parts = inner.split("_", 1)
+            art_type, entity_part = (parts[0], parts[1]) if len(parts) == 2 else (inner, "")
+        entity = entity_part.replace("_", " ").strip()
+        label_info = _ART_LABELS.get(art_type.lower(), (art_type.replace("_", " ").title(), "📄"))
+        label, icon = label_info
+        return f"{icon} {label}{(' — ' + entity) if entity else ''}"
+
     if sources:
         rows = ""
-        for s in sources:
+        # Separate artifact sources (auto-ingested research) from web sources
+        art_sources = [s for s in sources if s.get("url", "").startswith("artifact://")]
+        web_sources = [s for s in sources if not s.get("url", "").startswith("artifact://")]
+
+        def _build_source_row(s):
             status = s.get("status", "pending")
             colour = _status_colour.get(status, "var(--ink-3)")
             badge = f"<span style='color:{colour};font-weight:600;text-transform:uppercase;font-size:11px'>{escape(status)}</span>"
             chunks = s.get("chunk_count", 0)
             stype = s.get("source_type", "web")
             raw_url = s.get("url", "")
-            url_display = escape(raw_url)
-            # Only emit <a href> for http/https — blocks javascript: URI XSS from stored URLs
-            safe_url = safe_href(raw_url)
-            url_cell = (
-                f"<a href='{escape(safe_url)}' target='_blank' rel='noopener noreferrer'>{url_display}</a>"
-                if safe_url else url_display
+            is_artifact = raw_url.startswith("artifact://")
+            if is_artifact:
+                url_display = escape(_friendly_artifact_label(raw_url))
+                url_cell = f"<span style='color:var(--ink);font-size:13px'>{url_display}</span>"
+            else:
+                url_display = escape(raw_url)
+                safe_url = safe_href(raw_url)
+                url_cell = (
+                    f"<a href='{escape(safe_url)}' target='_blank' rel='noopener noreferrer'>{url_display}</a>"
+                    if safe_url else url_display
+                )
+            raw_err = (s.get("error") or "").split("\n")[0][:200]
+            friendly_err = _kb_error_friendly(raw_err)
+            err_note = (
+                f"<br><span style='color:var(--bad);font-size:11px'>{escape(friendly_err)}</span>"
+                if friendly_err else ""
             )
-            raw_err = (s.get("error") or "").split("\n")[0][:140]
-            err_note = f"<br><span style='color:var(--bad);font-size:11px'>{escape(raw_err)}</span>" if raw_err else ""
+            sid = escape(s["id"])
             delete_btn = (
-                f"<form method='post' action='/projects/{pid}/kb/sources/{escape(s['id'])}/delete' "
+                f"<form method='post' action='/projects/{pid}/kb/sources/{sid}/delete' "
                 "style='display:inline'>"
                 "<button class='btn-sm bad' type='submit' title='Remove source'>×</button></form>"
             )
-            rows += (
-                f"<tr><td style='max-width:340px;word-break:break-all'>"
+            retry_btn = (
+                f"<form method='post' action='/projects/{pid}/kb/sources/{sid}/retry' "
+                "style='display:inline;margin-left:4px'>"
+                "<button class='btn-sm' type='submit' title='Re-index this source'>↺</button></form>"
+                if status == "failed" and not is_artifact else ""
+            )
+            return (
+                f"<tr><td style='max-width:360px;word-break:break-word'>"
                 f"{url_cell}{err_note}</td>"
                 f"<td><span class='pill' style='font-size:11px'>{escape(stype)}</span></td>"
                 f"<td>{badge}</td>"
                 f"<td style='text-align:right'>{chunks:,}</td>"
-                f"<td>{delete_btn}</td></tr>"
+                f"<td style='white-space:nowrap'>{retry_btn}{delete_btn}</td></tr>"
             )
+        def _make_table(src_list, title, note=""):
+            trows = "".join(_build_source_row(s) for s in src_list)
+            header_note = f"<p class='note' style='margin:4px 0 10px'>{note}</p>" if note else ""
+            return (
+                f"<div class='section-h'><h3 style='font-size:14px;margin:0'>{title}</h3></div>"
+                + header_note
+                + "<table style='width:100%;border-collapse:collapse'>"
+                "<thead><tr style='font-size:11px;color:var(--ink-3);text-transform:uppercase'>"
+                "<th style='text-align:left;padding:6px 8px'>Source</th>"
+                "<th style='text-align:left;padding:6px 8px'>Type</th>"
+                "<th style='text-align:left;padding:6px 8px'>Status</th>"
+                "<th style='text-align:right;padding:6px 8px'>Chunks</th>"
+                "<th></th></tr></thead>"
+                f"<tbody>{trows}</tbody></table>"
+            )
+
+        inner = ""
+        if art_sources:
+            inner += _make_table(
+                art_sources,
+                "🤖 Auto-ingested from Research Runs",
+                "Automatically indexed by the agent after each completed research task — searchable by future runs.",
+            )
+        if web_sources:
+            if inner:
+                inner += "<hr style='border:0;border-top:1px solid var(--line);margin:18px 0'>"
+            inner += _make_table(web_sources, "🌐 Web / Document Sources")
+        if not art_sources and not web_sources:
+            inner = "<p class='note' style='margin:0'>No sources indexed yet. Add a URL above to build the KB.</p>"
+
         sources_section = (
-            "<div class='card' style='margin-top:16px'>"
-            "<div class='section-h' style='margin-top:0'><h2>Indexed Sources</h2></div>"
-            "<table style='width:100%;border-collapse:collapse'>"
-            "<thead><tr style='font-size:11px;color:var(--ink-3);text-transform:uppercase'>"
-            "<th style='text-align:left;padding:6px 8px'>URL</th>"
-            "<th style='text-align:left;padding:6px 8px'>Type</th>"
-            "<th style='text-align:left;padding:6px 8px'>Status</th>"
-            "<th style='text-align:right;padding:6px 8px'>Chunks</th>"
-            "<th></th></tr></thead>"
-            f"<tbody>{rows}</tbody></table>"
-            "</div>"
+            f"<div class='card' style='margin-top:16px'>"
+            f"<div class='section-h' style='margin-top:0'><h2>Indexed Knowledge</h2></div>"
+            f"<div style='max-height:420px;overflow-y:auto'>{inner}</div></div>"
         )
     else:
         sources_section = (
             "<div class='card' style='margin-top:16px'>"
-            "<p class='note' style='margin:0'>No sources indexed yet. Add a URL above to build the KB.</p>"
+            "<div class='section-h' style='margin-top:0'><h2>Indexed Knowledge</h2></div>"
+            "<p class='note' style='margin:0'>No sources indexed yet. "
+            "Add a URL above, or run a research task — agent findings auto-populate here.</p>"
             "</div>"
         )
 
@@ -1514,116 +1955,138 @@ def project_kb_page(*, project, sources: list, backend: str, ok: str = "", err: 
         + "</div></div>"
     )
 
-    # KB Chat panel — queries the hybrid search endpoint via JS fetch
+    # KB Chat panel — full conversational interface backed by hybrid search + LLM synthesis
     has_indexed = any(s.get("status") == "indexed" for s in sources)
-    chat_disabled_msg = (
-        "<p class='note' style='margin:0;text-align:center;padding:12px 0'>"
-        "Index a source above, then come back to chat with it.</p>"
+    empty_note = (
+        "<div style='text-align:center;padding:24px 16px;color:var(--ink-3);font-size:13px'>"
+        "Index a source above first — then come back to chat with your knowledge base.</div>"
         if not has_indexed else ""
     )
+    proj_name_esc = escape(project.name)
     chat_panel = f"""
 <div class='card' style='margin-top:16px' id='kb-chat-card'>
-  <div class='section-h' style='margin-top:0;display:flex;align-items:center;gap:10px'>
+  <div class='section-h' style='margin-top:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap'>
     <h2 style='margin:0'>Ask the Knowledge Base</h2>
-    <span class='pill' style='font-size:11px;background:rgba(66,133,244,.14);color:#8ab4f8'>hybrid search</span>
+    <span class='pill' style='font-size:11px;background:rgba(66,133,244,.14);color:#8ab4f8'>AI · grounded answers</span>
+    <button class='btn ghost' id='kb-clear-btn' onclick='kbClearChat()'
+            style='margin-left:auto;font-size:12px;padding:4px 10px'>Clear chat</button>
   </div>
-  {chat_disabled_msg}
-  <div style='display:{"none" if not has_indexed else "block"}' id='kb-chat-ui'>
-    <div style='display:flex;gap:8px;margin-bottom:14px'>
-      <input id='kb-q' placeholder='What products does {escape(project.name)} offer?' autocomplete='off'
-             style='flex:1;padding:9px 12px;font-size:13.5px'
-             onkeydown='if(event.key==="Enter")kbSearch()' {'disabled' if not has_indexed else ''}>
-      <button class='btn' onclick='kbSearch()' id='kb-btn'>{_icon("search")} Search</button>
-    </div>
-    <div id='kb-results'></div>
+  {empty_note}
+  <div id='kb-thread'
+       style='{"display:none" if not has_indexed else "display:flex;flex-direction:column;gap:10px"};min-height:120px;max-height:480px;overflow-y:auto;padding:8px 0;margin-bottom:12px'></div>
+  <div id='kb-input-row' style='{"display:none" if not has_indexed else "display:flex"};gap:8px;align-items:flex-end'>
+    <textarea id='kb-q' rows='2' placeholder='Ask anything about {proj_name_esc}…'
+              autocomplete='off'
+              style='flex:1;resize:vertical;padding:9px 12px;font-size:13.5px;min-height:44px'
+              onkeydown='if(event.key==="Enter"&&!event.shiftKey){{event.preventDefault();kbChat();}}'
+              {"disabled" if not has_indexed else ""}></textarea>
+    <button class='btn' onclick='kbChat()' id='kb-btn'
+            style='height:44px;padding:0 16px' {"disabled" if not has_indexed else ""}
+            >{_icon("search")} Ask</button>
   </div>
+  <p class='note' style='margin:8px 0 0;font-size:11px'>
+    Shift+Enter for new line · Enter to send · Answers grounded in indexed sources only
+  </p>
 </div>
 <script>
 (function(){{
-  function _txt(el, text) {{ el.textContent = text; return el; }}
-  function _el(tag, attrs) {{
+  var _history = [];
+  var _thread = document.getElementById('kb-thread');
+  var _btn = document.getElementById('kb-btn');
+
+  function _el(tag, style, text) {{
     var e = document.createElement(tag);
-    if(attrs) Object.keys(attrs).forEach(function(k){{ e[k] = attrs[k]; }});
+    if(style) e.style.cssText = style;
+    if(text !== undefined) e.textContent = text;
     return e;
   }}
-  function _setMsg(res, text, cls) {{
-    var p = _el('p', {{className: cls||'', style: 'margin:0'}});
-    _txt(p, text);
-    while(res.firstChild) res.removeChild(res.firstChild);
-    res.appendChild(p);
+
+  function _addBubble(role, text) {{
+    var isUser = role === 'user';
+    var wrap = _el('div',
+      'display:flex;justify-content:' + (isUser ? 'flex-end' : 'flex-start'));
+    var bubble = _el('div',
+      'max-width:82%;padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.65;' +
+      'white-space:pre-wrap;word-break:break-word;' +
+      (isUser
+        ? 'background:rgba(66,133,244,.18);color:var(--ink);border-bottom-right-radius:3px'
+        : 'background:var(--panel);border:1px solid var(--line);color:var(--ink);border-bottom-left-radius:3px'),
+      text);
+    wrap.appendChild(bubble);
+    _thread.appendChild(wrap);
+    _thread.scrollTop = _thread.scrollHeight;
+    return bubble;
   }}
 
-  function kbSearch(){{
+  function _addTyping() {{
+    var wrap = _el('div', 'display:flex;justify-content:flex-start');
+    var bubble = _el('div',
+      'padding:10px 14px;border-radius:12px;font-size:13px;background:var(--panel);' +
+      'border:1px solid var(--line);color:var(--ink-3);border-bottom-left-radius:3px',
+      'Thinking…');
+    wrap.appendChild(bubble);
+    wrap.id = 'kb-typing';
+    _thread.appendChild(wrap);
+    _thread.scrollTop = _thread.scrollHeight;
+    return wrap;
+  }}
+
+  function kbChat() {{
     var q = document.getElementById('kb-q').value.trim();
     if(!q) return;
-    var btn = document.getElementById('kb-btn');
-    var res = document.getElementById('kb-results');
-    btn.disabled = true;
-    btn.textContent = 'Searching…';
-    _setMsg(res, 'Searching…', 'note');
-    fetch('/projects/{pid}/kb/search?q=' + encodeURIComponent(q))
-      .then(function(r){{return r.json();}})
-      .then(function(data){{
-        btn.disabled = false;
-        btn.textContent = 'Search';
-        if(data.error){{
-          var p = _el('p'); p.style.color='var(--bad)'; _txt(p, data.error);
-          while(res.firstChild) res.removeChild(res.firstChild);
-          res.appendChild(p);
-          return;
-        }}
-        if(!data.results || !data.results.length){{
-          _setMsg(res, 'No results found. Try a different query.', 'note');
-          return;
-        }}
-        var nodes = data.results.map(function(r, i){{
-          var score = Math.round((r.score || 0) * 100);
-          var rawUrl = r.url || '';
-          var safeUrl = /^https?:\/\//.test(rawUrl) ? rawUrl : '';
+    document.getElementById('kb-q').value = '';
+    _btn.disabled = true;
+    _btn.textContent = '…';
 
-          var wrap = _el('div');
-          wrap.style.cssText = 'padding:12px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;background:var(--panel)';
+    _addBubble('user', q);
+    var typing = _addTyping();
 
-          var hdr = _el('div');
-          hdr.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px';
+    _history.push({{role:'user', content:q}});
 
-          var titleText = r.title || rawUrl || ('Result ' + (i+1));
-          if(safeUrl){{
-            var a = _el('a', {{href: safeUrl, target: '_blank', rel: 'noopener noreferrer'}});
-            a.style.cssText = 'font-size:13px;font-weight:600;color:var(--accent-2)';
-            _txt(a, titleText);
-            hdr.appendChild(a);
-          }} else {{
-            var sp = _el('span'); sp.style.cssText='font-size:13px;font-weight:600;color:var(--accent-2)';
-            _txt(sp, titleText); hdr.appendChild(sp);
-          }}
+    fetch('/projects/{pid}/kb/chat', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{message: q, history: _history.slice(0,-1)}})
+    }})
+    .then(function(r){{ return r.json(); }})
+    .then(function(data) {{
+      var t = document.getElementById('kb-typing');
+      if(t) t.parentNode.removeChild(t);
+      _btn.disabled = false;
+      _btn.textContent = 'Ask';
 
-          var pill = _el('span', {{className:'pill'}}); pill.style.fontSize='10px';
-          _txt(pill, r.source_type || 'web'); hdr.appendChild(pill);
-
-          var sc = _el('span'); sc.style.cssText='margin-left:auto;font-size:11px;color:var(--ink-3)';
-          _txt(sc, score + '% match'); hdr.appendChild(sc);
-          wrap.appendChild(hdr);
-
-          var body = r.text || '';
-          var p = _el('p');
-          p.style.cssText = 'margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.6';
-          _txt(p, body.length > 320 ? body.substring(0,320) + '…' : body);
-          wrap.appendChild(p);
-          return wrap;
-        }});
-        while(res.firstChild) res.removeChild(res.firstChild);
-        nodes.forEach(function(n){{ res.appendChild(n); }});
-      }})
-      .catch(function(e){{
-        btn.disabled = false;
-        btn.textContent = 'Search';
-        var p = _el('p'); p.style.color='var(--bad)'; _txt(p, 'Search failed: ' + e.message);
-        while(res.firstChild) res.removeChild(res.firstChild);
-        res.appendChild(p);
-      }});
+      if(data.error) {{
+        _addBubble('assistant', '⚠ ' + data.error);
+        _history.pop();
+        return;
+      }}
+      var answer = data.answer || '(no answer)';
+      _addBubble('assistant', answer);
+      _history.push({{role:'assistant', content:answer}});
+      if(data.sources_used > 0) {{
+        var srcNote = _el('div',
+          'font-size:11px;color:var(--ink-3);padding:2px 4px;text-align:right',
+          '📚 ' + data.sources_used + ' KB chunk(s) used');
+        _thread.appendChild(srcNote);
+      }}
+    }})
+    .catch(function(e) {{
+      var t = document.getElementById('kb-typing');
+      if(t) t.parentNode.removeChild(t);
+      _btn.disabled = false;
+      _btn.textContent = 'Ask';
+      _addBubble('assistant', '⚠ Request failed: ' + e.message);
+      _history.pop();
+    }});
   }}
-  window.kbSearch = kbSearch;
+
+  function kbClearChat() {{
+    _history = [];
+    while(_thread.firstChild) _thread.removeChild(_thread.firstChild);
+  }}
+
+  window.kbChat = kbChat;
+  window.kbClearChat = kbClearChat;
 }})();
 </script>
 """
@@ -1637,8 +2100,10 @@ def project_kb_page(*, project, sources: list, backend: str, ok: str = "", err: 
 
 
 def project_memory_page(*, project, records: list, backend: str,
-                        ok: str = "", err: str = "") -> str:
+                        ok: str = "", err: str = "",
+                        semantic_facts: list = None) -> str:
     """Memory tab — episodic run records scoped to this project."""
+    semantic_facts = semantic_facts or []
     pid = escape(project.id)
     banner = ""
     if ok:
@@ -1667,16 +2132,22 @@ def project_memory_page(*, project, records: list, backend: str,
             f"</tr>"
         )
 
+    _sem_live = len(semantic_facts) > 0
+    _sem_desc = (
+        f"Entity facts extracted and accumulated across runs ({len(semantic_facts)} facts)"
+        if _sem_live else "Entity facts extracted and accumulated across runs"
+    )
     memory_types = (
         "<div class='grid cards3' style='margin-bottom:24px'>"
         + "".join(
             f"<div class='gc'><div class='gc-ico'>{_icon(ico)}</div>"
             f"<div class='gc-t'>{name}</div><div class='gc-d'>{desc}</div>"
-            f"<div class='gc-tags'><span class='tag {'pv live' if live else 'pv dark'}'>"
-            f"{'live' if live else 'coming soon'}</span></div></div>"
+            f"<div class='gc-tags'><span class='tag pv {'live' if live else 'dark'}' "
+            f"style='{'opacity:.5' if not live else ''}'>"
+            f"{'live' if live else 'phase 2'}</span></div></div>"
             for name, ico, desc, live in [
                 ("Episodic", "spark", "Run records — every research task this project has run", True),
-                ("Semantic", "brain", "Entity facts extracted and accumulated across runs", False),
+                ("Semantic", "brain", _sem_desc, _sem_live),
                 ("Procedural", "cog", "Learned skills and workflow patterns for this domain", False),
             ]
         )
@@ -1702,9 +2173,35 @@ def project_memory_page(*, project, records: list, backend: str,
                 "Complete a research task to populate episodic memory.</div></div>"
         header_line = ""
 
+    # Semantic facts section
+    if semantic_facts:
+        def _fact_row(f) -> str:
+            ts = str(f.created_at or "")[:10]
+            return (
+                f"<tr>"
+                f"<td style='font-weight:500'>{escape(f.entity)}</td>"
+                f"<td>{escape(f.content)}</td>"
+                f"<td><span class='pill' style='font-size:11px'>{escape(f.source_label)}</span></td>"
+                f"<td class='mono' style='color:var(--fg-2);font-size:12px'>{ts}</td>"
+                f"</tr>"
+            )
+        sem_rows = "".join(_fact_row(f) for f in semantic_facts)
+        sem_section = (
+            "<div class='section-h' style='margin-top:24px'><h2>Semantic Memory</h2></div>"
+            f"<p class='note' style='margin-bottom:12px'>{len(semantic_facts)} entity fact(s) "
+            "extracted from completed research tasks.</p>"
+            "<div class='card' style='padding:6px 8px;overflow:auto'>"
+            "<table><thead><tr>"
+            "<th>Entity</th><th>Fact</th><th>Source</th><th>Date</th>"
+            "</tr></thead>"
+            f"<tbody>{sem_rows}</tbody></table></div>"
+        )
+    else:
+        sem_section = ""
+
     content = (banner + memory_types
                + "<div class='section-h'><h2>Episodic Memory</h2></div>"
-               + header_line + table)
+               + header_line + table + sem_section)
     return shell(
         active="projects", title=f"{project.name} · Memory", content=content,
         backend=backend, project=project.name,
@@ -1819,6 +2316,103 @@ def _execution_log(trace: list[str]) -> str:
             + "".join(rows) + "</ul></div>")
 
 
+def _step_timeline(plan) -> str:
+    """Post-run agent execution timeline.
+
+    For each plan step, if the capability maps to a known ResearchModeSpec, we expand the
+    sub-steps so users can see the full attack sequence: planner → search queries → synthesis.
+    This is the primary transparency surface for non-technical users.
+    """
+    # Try to load the skill registry — fail-soft if unavailable
+    try:
+        from sentinel.agent.modes.spec import SKILL_SPECS
+    except Exception:
+        SKILL_SPECS = {}
+
+    _SUBSTEP_LABELS: dict[str, tuple[str, str]] = {
+        "planner":         ("🗺", "Planned search strategy — broke goal into targeted questions"),
+        "public_research": ("🔍", "Searched web — Flipkart, Amazon India, review sites (91mobiles, Digit)"),
+        "ecom_prices":     ("🛒", "Searched ecommerce — compared live prices across Flipkart & Amazon"),
+        "research":        ("🔍", "Searched web — gathered public findings"),
+        "synthesizer":     ("🧠", "Synthesised — assembled final structured output from all findings"),
+        "extractor":       ("🔬", "Extracted facts — structured raw search results into typed data"),
+        "dept_research":   ("🏛",  "Researched department/sector — mapped capabilities to requirements"),
+        "synthesis":       ("🧠", "Synthesised proposal — compiled department findings into final plan"),
+        "competitor":      ("🔍", "Researched competitor — web search for profile, products, pricing"),
+        "compare":         ("⚖",  "Compared entities — side-by-side analysis of gathered profiles"),
+        "self_profile":    ("🏢", "Profiled organisation — gathered public identity and product data"),
+        "client":          ("👤", "Profiled client/account — gathered contact, deal, and context data"),
+    }
+
+    rows = []
+    idx = 0
+    for step in plan.steps:
+        cap = step.capability or step.id
+        plan_status = step.status  # top-level plan step status
+
+        # Expand sub-steps from the skill spec so users see the full pipeline
+        spec = SKILL_SPECS.get(cap)
+        sub_steps = spec.steps if spec else []
+
+        if sub_steps:
+            # Render the skill label as a group header
+            idx += 1
+            rows.append(
+                f"<div style='padding:8px 0 4px;border-bottom:1px solid var(--border)'>"
+                f"<div style='display:flex;gap:8px;align-items:center'>"
+                f"<span style='color:var(--accent-2);font-weight:700;font-size:13px'>#{idx}</span>"
+                f"<span style='font-weight:600;font-size:13px'>{escape(cap)}</span>"
+                f"<span class='tag' style='color:#5bd07f;font-size:11px'>skill pipeline</span>"
+                f"</div></div>"
+            )
+            for ss in sub_steps:
+                sub_key = ss.agent_key.split(".")[-1] if "." in ss.agent_key else ss.agent_key
+                icon, label = _SUBSTEP_LABELS.get(sub_key, ("⚙", f"{escape(sub_key)} step"))
+                rows.append(
+                    f"<div style='display:flex;gap:10px;align-items:flex-start;"
+                    f"padding:6px 0 6px 20px;border-bottom:1px solid var(--border)'>"
+                    f"<div style='font-size:15px;flex:0 0 auto'>{icon}</div>"
+                    f"<div style='flex:1'>"
+                    f"<div style='font-size:12px;font-weight:600'>{escape(sub_key)}</div>"
+                    f"<div style='font-size:11px;color:var(--text-secondary);margin-top:1px'>{label}</div>"
+                    f"</div>"
+                    f"<span style='font-size:13px'>✅</span>"
+                    f"</div>"
+                )
+        else:
+            # Fallback: show plan step directly
+            idx += 1
+            label_key = cap if cap in _SUBSTEP_LABELS else (
+                step.id.split(".")[-1] if "." in step.id else cap)
+            icon, label = _SUBSTEP_LABELS.get(label_key, ("⚙", f"Ran {escape(cap)} step"))
+            status_icon = ("✅" if plan_status == "done"
+                           else "❌" if plan_status == "failed" else "⏳")
+            rows.append(
+                f"<div style='display:flex;gap:10px;align-items:flex-start;padding:8px 0;"
+                f"border-bottom:1px solid var(--border)'>"
+                f"<span style='color:var(--accent-2);font-weight:700;font-size:12px;"
+                f"flex:0 0 24px'>#{idx}</span>"
+                f"<div style='font-size:15px;flex:0 0 auto'>{icon}</div>"
+                f"<div style='flex:1'>"
+                f"<div style='font-weight:600;font-size:13px'>{escape(cap)}</div>"
+                f"<div style='font-size:12px;color:var(--text-secondary);margin-top:2px'>{label}</div>"
+                f"<div style='margin-top:4px'>{_calls_chip(cap)}</div>"
+                f"</div>"
+                f"<span style='font-size:15px'>{status_icon}</span>"
+                f"</div>"
+            )
+
+    return (
+        "<div style='margin-top:16px'>"
+        "<div style='font-weight:600;font-size:13px;margin-bottom:8px;color:var(--text-secondary)'>"
+        "How the agent worked</div>"
+        "<div style='background:var(--surface-2);border-radius:10px;padding:4px 12px'>"
+        + ("".join(rows) if rows else
+           "<div class='note' style='padding:8px 0'>No step details available.</div>")
+        + "</div></div>"
+    )
+
+
 def _provenance_bar(public: int, private: int) -> str:
     """A compact public/private split — the signature provenance view (boundary made visible)."""
     total = public + private
@@ -1870,8 +2464,27 @@ def _art_wrap(title: str, body: str) -> str:
 def _findings_block(title: str, items: list) -> str:
     if not items:
         return ""
-    lis = "".join(f"<li>{escape(f.get('text', '') if isinstance(f, dict) else str(f))}</li>" for f in items)
+    lis = "".join(f"<li>{escape(_clean_text(f.get('text', '') if isinstance(f, dict) else str(f)))}</li>" for f in items)
     return f"<div style='margin-top:8px'><b>{escape(title)}</b><ul class='find'>{lis}</ul></div>"
+
+
+def _clean_text(s: str) -> str:
+    """Decode literal \\uXXXX sequences that LLMs sometimes emit in text fields."""
+    if not s:
+        return ""
+    import re as _ure
+    return _ure.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), s)
+
+
+def _text_paras(s: str) -> str:
+    """Render a long text field as HTML paragraphs with unicode + newline cleanup."""
+    s = _clean_text(s or "")
+    parts = [p.strip() for p in s.replace("\\n", "\n").split("\n\n") if p.strip()]
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return f"<div class='note' style='white-space:pre-wrap'>{escape(parts[0])}</div>"
+    return "".join(f"<p class='note' style='margin:4px 0 6px'>{escape(p)}</p>" for p in parts)
 
 
 def _artifact_html(key: str, art) -> str:
@@ -1926,12 +2539,15 @@ def _artifact_html(key: str, art) -> str:
                    if art.get("assessment") else ""))
         return _art_wrap(f"Software brief — {escape(art.get('target', '') or key)}", body)
 
-    if "action_plan" in art and "assessment" in art:            # ProgramStrategy
-        rows = "".join(
-            f"<tr><td>{_prio_badge(a.get('priority', ''))}</td>"
-            f"<td><b>{escape(a.get('action', ''))}</b>"
-            f"<div class='note'>{escape(a.get('rationale', ''))}</div></td>"
-            f"<td>{escape(a.get('timeline', ''))}</td></tr>" for a in art.get("action_plan", []))
+    if "action_plan" in art and "assessment" in art and "products_found" not in art and "department_mappings" not in art:  # ProgramStrategy
+        def _action_row(a):
+            if isinstance(a, dict):
+                return (f"<tr><td>{_prio_badge(a.get('priority', ''))}</td>"
+                        f"<td><b>{escape(a.get('action', ''))}</b>"
+                        f"<div class='note'>{escape(a.get('rationale', ''))}</div></td>"
+                        f"<td>{escape(a.get('timeline', ''))}</td></tr>")
+            return f"<tr><td></td><td>{escape(str(a))}</td><td></td></tr>"
+        rows = "".join(_action_row(a) for a in art.get("action_plan", []))
         body = (f"<div class='note'>{escape(art.get('assessment', ''))}</div>"
                 + (f"<table style='margin-top:8px'><thead><tr><th>Priority</th><th>Action</th>"
                    f"<th>Timeline</th></tr></thead><tbody>{rows}</tbody></table>" if rows else ""))
@@ -1992,6 +2608,145 @@ def _artifact_html(key: str, art) -> str:
                 + _findings_block("Safety notes", art.get("safety_notes", [])))
         return _art_wrap(f"Travel brief — {escape(art.get('destination', '') or key)}", body)
 
+    if "department_mappings" in art and "executive_summary" in art:              # GovernmentProposal
+        dept_maps = [dm for dm in (art.get("department_mappings") or []) if isinstance(dm, dict)]
+
+        # Derive client_challenges from dept_mappings when model left them blank
+        client_challenges = art.get("client_challenges") or []
+        if not client_challenges and dept_maps:
+            client_challenges = [
+                {"text": f"{dm.get('department', 'Dept')}: {dm.get('challenge', '')}"}
+                for dm in dept_maps if dm.get("challenge")
+            ]
+
+        # Derive vendor_capabilities from dept_mappings solutions when blank
+        vendor_capabilities = art.get("vendor_capabilities") or []
+        if not vendor_capabilities and dept_maps:
+            vendor_capabilities = [
+                {"text": f"{dm.get('department', 'Dept')}: {dm.get('solution', '')} → {dm.get('impact', '')}"}
+                for dm in dept_maps if dm.get("solution")
+            ]
+
+        def _dept_row(dm):
+            if not isinstance(dm, dict):
+                return ""
+            impact = dm.get("impact", "")
+            impact_cell = (f"<span style='color:#5bd07f'>{escape(impact)}</span>"
+                           if impact else "—")
+            return (f"<tr>"
+                    f"<td><b>{escape(dm.get('department', ''))}</b></td>"
+                    f"<td>{escape(dm.get('challenge', ''))}</td>"
+                    f"<td style='color:var(--accent-2)'>{escape(dm.get('solution', ''))}</td>"
+                    f"<td>{impact_cell}</td>"
+                    f"</tr>")
+
+        dept_rows = "".join(_dept_row(dm) for dm in dept_maps)
+        body = (
+            f"<div class='note'>{escape(_clean_text(art.get('one_line_summary', '')))}</div>"
+            + f"<div style='margin:8px 0 4px;display:flex;gap:8px;flex-wrap:wrap'>"
+              f"<span class='pill'>🏛 Client: <b>{escape(art.get('client', ''))}</b></span>"
+              f"<span class='pill'>🏢 Vendor: <b>{escape(art.get('vendor', ''))}</b></span>"
+              f"<span class='pill' style='color:#5bd07f'>✓ {len(dept_maps)} departments mapped</span>"
+              f"</div>"
+            + (f"<div class='card' style='margin:8px 0;padding:12px 14px'>"
+               f"<div style='font-weight:600;margin-bottom:6px'>📄 Executive Summary</div>"
+               + _text_paras(art.get("executive_summary", ""))
+               + "</div>" if art.get("executive_summary") else "")
+            + (f"<div style='margin-top:14px'>"
+               f"<div style='font-weight:600;margin-bottom:8px'>Department Mappings — Challenge → Solution → Impact</div>"
+               f"<div style='overflow-x:auto'>"
+               f"<table style='margin-top:4px;min-width:700px'><thead><tr>"
+               f"<th>Department</th><th>Challenge</th><th>AI Solution</th><th>Expected Impact</th>"
+               f"</tr></thead><tbody>{dept_rows}</tbody></table></div></div>"
+               if dept_rows else "")
+            + _findings_block("Client challenges", client_challenges)
+            + _findings_block("Vendor capabilities", vendor_capabilities)
+            + (f"<div class='card' style='margin-top:10px;padding:12px 14px;"
+               f"border-left:3px solid var(--accent-2)'>"
+               f"<div style='font-weight:600;margin-bottom:6px'>🏆 Competitive Advantage</div>"
+               + _text_paras(art.get("competitive_advantage", ""))
+               + "</div>" if art.get("competitive_advantage") else "")
+            + (f"<div class='card' style='margin-top:10px;padding:12px 14px;"
+               f"border-left:3px solid #5bd07f'>"
+               f"<div style='font-weight:600;margin-bottom:6px'>🗓 90-Day Pilot Plan</div>"
+               + _text_paras(art.get("pilot_plan", ""))
+               + "</div>" if art.get("pilot_plan") else "")
+        )
+        return _art_wrap(f"Government proposal — {escape(art.get('client', '') or key)}", body)
+
+    if "products_found" in art and "winner_rationale" in art:                    # ProductResearch
+        def _prod_row(p):
+            if not isinstance(p, dict):
+                return ""
+            score = p.get("score", "")
+            # Score may be "9.2/10" or 9.2 — normalise to float for sorting
+            try:
+                score_f = float(str(score).split("/")[0])
+            except (ValueError, TypeError):
+                score_f = 0.0
+            score_str = f"{score}" if score else "—"
+            pros = "; ".join(p.get("pros", [])) if p.get("pros") else "—"
+            cons = "; ".join(p.get("cons", [])) if p.get("cons") else "—"
+            src = p.get("source_url", "")
+            name_cell = (f"<a href='{escape(src)}' rel='noopener' target='_blank' "
+                         f"style='color:var(--accent-2)'>{escape(p.get('name', ''))}</a>"
+                         if src else escape(p.get("name", "")))
+            return (score_f, f"<tr>"
+                    f"<td><b>{name_cell}</b><br><span style='opacity:.7;font-size:.85em'>"
+                    f"{escape(p.get('brand', ''))}</span></td>"
+                    f"<td style='white-space:nowrap'>{escape(str(p.get('price', '—')))}</td>"
+                    f"<td style='font-size:.85em'>{escape(p.get('processor', '—'))}</td>"
+                    f"<td style='white-space:nowrap'>{escape(str(p.get('ram', '—')))} / "
+                    f"{escape(str(p.get('storage', '—')))}</td>"
+                    f"<td style='text-align:center'><b>{escape(score_str)}</b></td>"
+                    f"<td style='font-size:.82em'><span style='color:#16a34a'>{escape(pros)}</span></td>"
+                    f"<td style='font-size:.82em'><span style='color:#dc2626'>{escape(cons)}</span></td>"
+                    f"</tr>")
+        products = [p for p in art.get("products_found", []) if isinstance(p, dict)]
+        # Sort by score descending so highest-scored product is first
+        scored = sorted([_prod_row(p) for p in products], key=lambda x: x[0], reverse=True)
+        prod_rows = "".join(r for _, r in scored)
+        winner = art.get("winner", "")
+        winner_rationale = art.get("winner_rationale", "")
+        # Derive winner from highest-scored product when model left it blank
+        if not winner and products:
+            best = max(products, key=lambda p: (
+                float(str(p.get("score", 0)).split("/")[0]) if p.get("score") else 0
+            ), default=None)
+            if best:
+                winner = best.get("name", "")
+                score_val = best.get("score", "")
+                pros_list = best.get("pros") or []
+                winner_rationale = (winner_rationale or
+                    f"Highest overall score ({score_val}). " +
+                    (f"Key strengths: {pros_list[0]}" if pros_list else ""))
+        value_ranking = art.get("value_ranking", [])
+        body = (
+            f"<div class='note'>{escape(art.get('one_line_summary', ''))}</div>"
+            + (f"<div style='margin:6px 0'><span class='pill'>Criteria: "
+               f"<b>{escape(art.get('criteria', '—'))}</b></span></div>"
+               if art.get("criteria") else "")
+            + (f"<div class='card' style='margin:8px 0;padding:10px 12px;"
+               f"border-left:4px solid #16a34a'>"
+               f"<b>🏆 Winner: {escape(winner)}</b>"
+               f"<div class='note' style='margin-top:6px'>{escape(winner_rationale)}</div>"
+               f"</div>" if winner else "")
+            + (f"<div style='margin-top:12px'><b>All qualifying products</b>"
+               f"<div style='overflow-x:auto'>"
+               f"<table style='margin-top:6px;min-width:700px'><thead><tr>"
+               f"<th>Product</th><th>Price</th><th>Processor</th><th>RAM/Storage</th>"
+               f"<th>Score</th><th>Pros</th><th>Cons</th>"
+               f"</tr></thead><tbody>{prod_rows}</tbody></table></div></div>"
+               if prod_rows else "<div class='empty'>No qualifying products found.</div>")
+            + (f"<div style='margin-top:10px'><b>Value ranking</b>"
+               f"<ol style='margin:4px 0 0 18px;padding:0'>"
+               + "".join(f"<li>{escape(v)}</li>" for v in value_ranking)
+               + f"</ol></div>" if value_ranking else "")
+            + (f"<div class='note' style='margin-top:8px'>{escape(art.get('assessment', ''))}</div>"
+               if art.get("assessment") else "")
+        )
+        return _art_wrap(f"Product research — {escape(art.get('criteria', '') or key)}", body)
+
     if "one_line_summary" in art or ("strengths" in art and "weaknesses" in art):   # Battlecard
         body = (f"<div class='note'>{escape(art.get('one_line_summary', ''))}</div>"
                 + _findings_block("Strengths", art.get("strengths", []))
@@ -2000,6 +2755,30 @@ def _artifact_html(key: str, art) -> str:
                 + _findings_block("Recent developments", art.get("recent_developments", [])))
         return _art_wrap(f"Battlecard — {escape(art.get('target', '') or key)}", body)
 
+    # DeptResearchOutput — per-department findings block from govt_proposal parallel steps
+    if "department" in art and "findings" in art and "gaps" in art:
+        dept_name = (_clean_text(art.get("department", ""))
+                     or key.replace("research_dept_", "").replace("_", " ").title())
+        sources = [s for s in (art.get("sources") or []) if s and isinstance(s, str)]
+        gaps = [g for g in (art.get("gaps") or []) if g and isinstance(g, str)]
+        body = (
+            _text_paras(art.get("findings", ""))
+            + (f"<div style='margin-top:10px;display:flex;gap:6px;flex-wrap:wrap'>"
+               + "".join(
+                   f"<span class='pill' style='font-size:11px'>📎 {escape(_clean_text(s)[:80])}</span>"
+                   for s in sources[:6])
+               + "</div>" if sources else "")
+            + (f"<details style='margin-top:8px'>"
+               f"<summary style='font-size:12px;cursor:pointer;color:var(--muted);"
+               f"user-select:none'>Research gaps ({len(gaps)})</summary>"
+               f"<ul class='find' style='margin-top:4px'>"
+               + "".join(f"<li style='color:var(--muted);font-size:12px'>"
+                         f"{escape(_clean_text(g))}</li>" for g in gaps)
+               + "</ul></details>" if gaps else "")
+        )
+        return _art_wrap(f"🏛 {dept_name}", body)
+
+    # Generic unknown shape — pretty JSON (last resort, should rarely fire)
     return _art_wrap(key, "<pre style='white-space:pre-wrap;overflow:auto;font-size:.82em'>"
                      f"{escape(json.dumps(art, indent=2, default=str))}</pre>")
 
@@ -2030,7 +2809,7 @@ def _findings_to_prose(html: str) -> str:
     return _FIND_UL_RE.sub(_ul_to_p, html)
 
 
-def _result_card(result) -> str:
+def _result_card(result, *, task_id: str = "", project_id: str = "") -> str:
     """Render an orchestrated Result inline (the deliverable): summary + honesty flags, each produced
     artifact, the cited sources by boundary, and any persona-adapted prose / model grade. This is what
     makes 'the run produced something' visible instead of a dead link."""
@@ -2039,9 +2818,23 @@ def _result_card(result) -> str:
            "<span class='badge' style='background:rgba(22,163,74,.16);color:#16a34a'>complete</span>")
     pub = sum(1 for c in result.citations if getattr(c.boundary, "value", c.boundary) == "public")
     prv = len(result.citations) - pub
+    if task_id and project_id:
+        _exp = f"/projects/{project_id}/tasks/{task_id}/export.html"
+        export_btns = (
+            "<div style='display:flex;gap:8px;margin-top:10px'>"
+            f"<button class='btn ghost' style='font-size:12px;padding:4px 12px' "
+            f"onclick=\"var w=window.open('{_exp}','_blank');"
+            f"w.addEventListener('load',function(){{w.print();}})\">"
+            "⬇ Export PDF</button>"
+            f"<a class='btn ghost' href='{_exp}' download style='font-size:12px;padding:4px 12px'>"
+            "⬇ Export HTML</a>"
+            "</div>"
+        )
+    else:
+        export_btns = ""
     head = (f"<div class='card'><div class='section-h' style='margin-top:0'><h2>Result</h2>{deg}</div>"
             f"<div class='note' style='margin:6px 0 10px'>{escape(result.summary)}</div>"
-            f"{_provenance_bar(pub, prv)}</div>")
+            f"{_provenance_bar(pub, prv)}{export_btns}</div>")
 
     arts = (result.dashboard_payload or {}).get("artifacts", {}) or {}
     _fmt = getattr(result, "preferred_format", None) or "bullets"
@@ -2051,29 +2844,77 @@ def _result_card(result) -> str:
             raw_html = _findings_to_table(raw_html)
         elif _fmt == "prose":
             raw_html = _findings_to_prose(raw_html)
-        arts_html = ("<div class='section-h'><h2>Deliverables</h2></div>"
-                     f"<div style='display:grid;gap:10px'>{raw_html}</div>")
+        arts_html = (
+            "<details open style='margin-top:8px'>"
+            "<summary style='font-weight:700;font-size:14px;padding:6px 0 4px;"
+            "cursor:pointer;user-select:none'>Deliverables</summary>"
+            f"<div id='sentinel-deliverables' style='display:grid;gap:10px;margin-top:6px;"
+            f"max-height:520px;overflow-y:auto;padding-right:4px'>{raw_html}</div>"
+            "</details>"
+        )
     else:
         arts_html = ("<div class='section-h'><h2>Artifacts</h2></div>"
                      "<div class='card'><div class='empty'>No artifact content produced (the run "
                      "degraded — see the missing steps above).</div></div>")
 
-    if result.citations:
+    # Build citation list: primary = result.citations (model-produced);
+    # fallback = mine URL-bearing sub-fields from artifact data (for runs where
+    # the 26B model left sources:[] empty but did fill e.g. products_found[].source_url)
+    _cite_list = list(result.citations or [])
+    if not _cite_list:
+        _seen_urls: set[str] = set()
+        for _art in arts.values():
+            if not isinstance(_art, dict):
+                continue
+            # ProductResearch: per-product source_url
+            for p in (_art.get("products_found") or []):
+                if isinstance(p, dict):
+                    url = (p.get("source_url") or "").strip()
+                    if url.startswith("http") and url not in _seen_urls:
+                        _seen_urls.add(url)
+                        _cite_list.append(type("_S", (), {
+                            "boundary": "public",
+                            "label": f"{p.get('name','Product')} — {p.get('brand','')}".strip(" —"),
+                            "url": url,
+                        })())
+            # GovernmentProposal: dept_mappings don't carry URLs, but check action_plan
+            for a in (_art.get("action_plan") or []):
+                if isinstance(a, dict):
+                    url = (a.get("url") or a.get("source_url") or "").strip()
+                    if url.startswith("http") and url not in _seen_urls:
+                        _seen_urls.add(url)
+                        _cite_list.append(type("_S", (), {
+                            "boundary": "public",
+                            "label": a.get("action", "Reference"),
+                            "url": url,
+                        })())
+
+    if _cite_list:
         cites = "".join(
             f"<li>{_badge(c.boundary)}{escape(c.label or '—')}"
             + (f" · <a href='{escape(c.url)}' rel='noopener' target='_blank' "
                f"style='color:var(--accent-2)'>{escape(c.url)}</a>" if c.url else "")
-            + "</li>" for c in result.citations)
-        cites_html = (f"<div class='section-h'><h2>Citations ({len(result.citations)})</h2></div>"
-                      f"<div class='card'><ul class='find'>{cites}</ul></div>")
+            + "</li>" for c in _cite_list)
+        cites_html = (
+            f"<details style='margin-top:8px'>"
+            f"<summary style='font-weight:700;font-size:14px;padding:6px 0 4px;"
+            f"cursor:pointer;user-select:none'>Citations ({len(_cite_list)})</summary>"
+            f"<div class='card' style='margin-top:6px'><ul class='find'>{cites}</ul></div>"
+            f"</details>"
+        )
     else:
-        cites_html = ("<div class='section-h'><h2>Citations</h2></div>"
-                      "<div class='card'><div class='empty'>No sources cited in this run.</div></div>")
+        cites_html = ""
 
     extra = ""
-    if getattr(result, "persona_rendered", None):
+    _pr = getattr(result, "persona_rendered", None) or ""
+    _pr_broken = (not _pr or "<<" in _pr or ">>" in _pr
+                  or _pr.lower().startswith("please provide")
+                  or _pr.lower().startswith("i will adapt")
+                  or _pr.lower().startswith("once you provide")
+                  or "established findings" in _pr.lower())
+    if _pr and not _pr_broken:
         extra += ("<div class='section-h'><h2>Persona view</h2></div>"
-                  f"<div class='card'><div class='note'>{escape(result.persona_rendered)}</div></div>")
+                  f"<div class='card'><div class='note'>{escape(_pr)}</div></div>")
     if getattr(result, "grade", None) is not None:
         g = result.grade
         verdict = "pass" if getattr(g, "passed", False) else "review"
@@ -2121,9 +2962,106 @@ def _feedback_bar(task) -> str:
     )
 
 
+def _task_context_pill(task) -> str:
+    """Render a pill showing the task's research context, or empty string if none set."""
+    ctx = getattr(task, "context", None) or ""
+    if not ctx:
+        return ""
+    short = ctx[:60] + ("…" if len(ctx) > 60 else "")
+    return (
+        f"<span class='pill' title='{escape(ctx)}' "
+        "style='max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>"
+        f"context: <b>{escape(short)}</b></span>"
+    )
+
+
+def _chat_panel(task) -> str:
+    """Conversational refinement panel — shown after a task has run (Claude.ai-style follow-up).
+
+    Renders the persisted chat history plus a JS-powered input that posts to
+    /projects/{pid}/tasks/{tid}/chat without a full page reload.
+    """
+    pid = escape(getattr(task, "project_id", "") or "")
+    tid = escape(task.id)
+    history = list(getattr(task, "chat", []) or [])
+
+    msgs_html = ""
+    for msg in history:
+        role = str(msg.get("role", "user"))
+        content = escape(str(msg.get("content", "")))
+        align = "flex-end" if role == "user" else "flex-start"
+        bg = "var(--accent-line)" if role == "user" else "var(--card)"
+        border = "2px solid var(--accent-2)" if role == "user" else "1px solid var(--line)"
+        label = "You" if role == "user" else "Sentinel"
+        msgs_html += (
+            f"<div style='display:flex;justify-content:{align};margin-bottom:10px'>"
+            f"<div style='max-width:80%;padding:10px 14px;border-radius:10px;"
+            f"background:{bg};border:{border};font-size:13px'>"
+            f"<div style='font-size:11px;color:var(--muted);margin-bottom:4px'>{label}</div>"
+            f"<div style='white-space:pre-wrap'>{content}</div></div></div>"
+        )
+
+    chat_js = f"""
+<script>
+(function(){{
+  var form = document.getElementById('sentinel-chat-form-{tid}');
+  var msgs = document.getElementById('sentinel-chat-msgs-{tid}');
+  var input = document.getElementById('sentinel-chat-input-{tid}');
+  var btn = document.getElementById('sentinel-chat-btn-{tid}');
+  if (!form) return;
+  form.addEventListener('submit', function(e) {{
+    e.preventDefault();
+    var msg = input.value.trim();
+    if (!msg) return;
+    btn.disabled = true; btn.textContent = 'Thinking…';
+    var userDiv = document.createElement('div');
+    userDiv.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:10px';
+    userDiv.innerHTML = '<div style="max-width:80%;padding:10px 14px;border-radius:10px;background:var(--accent-line);border:2px solid var(--accent-2);font-size:13px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px">You</div><div style="white-space:pre-wrap">' + msg.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div></div>';
+    msgs.appendChild(userDiv);
+    msgs.scrollTop = msgs.scrollHeight;
+    input.value = '';
+    var fd = new FormData();
+    fd.append('message', msg);
+    fetch('/projects/{pid}/tasks/{tid}/chat', {{method:'POST', body:fd}})
+      .then(function(r){{ return r.json(); }})
+      .then(function(d){{
+        btn.disabled = false; btn.textContent = 'Send';
+        var reply = d.reply || d.error || '(no reply)';
+        var botDiv = document.createElement('div');
+        botDiv.style.cssText = 'display:flex;justify-content:flex-start;margin-bottom:10px';
+        botDiv.innerHTML = '<div style="max-width:80%;padding:10px 14px;border-radius:10px;background:var(--card);border:1px solid var(--line);font-size:13px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Sentinel</div><div style="white-space:pre-wrap">' + reply.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div></div>';
+        msgs.appendChild(botDiv);
+        msgs.scrollTop = msgs.scrollHeight;
+      }})
+      .catch(function(err){{ btn.disabled=false; btn.textContent='Send'; console.error(err); }});
+  }});
+}})();
+</script>"""
+
+    empty_note = "" if history else (
+        "<div class='empty' style='text-align:center;padding:20px 0'>Ask a question about these findings, request a deeper dive on any section, or ask for next steps.</div>"
+    )
+    return (
+        "<div id='sentinel-chat-section' style='margin-top:16px'></div>"
+        "<div class='section-h'><h2>Refine &amp; Ask</h2>"
+        "<span class='badge' style='background:rgba(66,133,244,.12);color:var(--accent-2)'>AI chat on results</span></div>"
+        "<div class='card' style='padding:0;overflow:hidden'>"
+        f"<div id='sentinel-chat-msgs-{tid}' style='padding:16px;max-height:360px;overflow-y:auto;min-height:80px'>"
+        f"{empty_note}{msgs_html}</div>"
+        "<div style='border-top:1px solid var(--line);padding:12px 16px'>"
+        f"<form id='sentinel-chat-form-{tid}' style='display:flex;gap:8px'>"
+        f"<input id='sentinel-chat-input-{tid}' type='text' style='flex:1;background:var(--rail);"
+        "border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:inherit;font-size:13px' "
+        "placeholder='Ask about the findings, request follow-up research, explore next steps…'>"
+        f"<button id='sentinel-chat-btn-{tid}' type='submit' class='btn' style='padding:8px 18px'>Send</button>"
+        "</form></div></div>"
+        + chat_js
+    )
+
+
 def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool = False,
                      result=None, trace: list[str] | None = None,
-                     selected_backend: str = "") -> str:
+                     selected_backend: str = "", kb_sources: list | None = None) -> str:
     """The plan-review screen (SENTINEL-012 Step 16, AC-13): the proposed DAG + each step's assigned
     agent and what it calls (web/MCP), any new agents to create, the explicit run/approval control, and
     — once run — the execution trace + the typed/cited/persona-adapted Result. In ``propose`` mode a
@@ -2152,13 +3090,60 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
         "<div class='card'><div class='section-h' style='margin-top:0'><h2>Plan review</h2>"
         f"<span class='badge'>autonomy: {escape(autonomy)}</span></div>"
         f"<div style='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap'>"
-        f"<span class='pill'>objective: <b>{escape(task.objective)}</b></span>"
+        f"<span class='pill' title='{escape(task.objective)}'>objective: <b>{escape(task.objective[:72] + ('…' if len(task.objective) > 72 else ''))}</b></span>"
         f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span>"
         f"<span class='pill'>persona: <b>{escape(task.persona.name)}</b></span>"
         f"<span class='pill'>steps: <b>{len(plan.steps)}</b></span>"
         f"<span class='pill'>new agents: <b>{len(created)}</b></span>"
-        f"{be_pill}</div></div>"
+        f"{be_pill}"
+        + _task_context_pill(task)
+        + "</div></div>"
     )
+
+    # ── KB context panel ─────────────────────────────────────────────────────
+    kb_panel = ""
+    _sources = kb_sources or []
+    if _sources:
+        _STATUS_STYLE = {
+            "indexed":  ("var(--good,#16a34a)", "✓ indexed"),
+            "pending":  ("var(--warn,#ca8a04)", "⏳ indexing…"),
+            "crawling": ("var(--warn,#ca8a04)", "⏳ crawling…"),
+            "failed":   ("var(--bad,#dc2626)",  "✗ failed"),
+        }
+        _any_loading = any(s.get("status") in ("pending", "crawling") for s in _sources)
+        _auto_reload = (
+            "<script>setTimeout(function(){location.reload()},6000)</script>"
+            if _any_loading and not ran else ""
+        )
+        _rows = ""
+        for _s in _sources:
+            _status = _s.get("status", "pending")
+            _color, _label = _STATUS_STYLE.get(_status, ("var(--fg-2)", _status))
+            _url_disp = (_s.get("url") or "")[:64]
+            _type_pill = f"<span class='pill' style='font-size:11px'>{escape(_s.get('source_type','web'))}</span>"
+            _chunks = _s.get("chunk_count") or 0
+            _chunk_note = f" · {_chunks} chunks" if _chunks else ""
+            _rows += (
+                f"<tr>"
+                f"<td>{_type_pill}</td>"
+                f"<td style='font-size:12px;font-family:var(--mono);color:var(--fg-2)'>{escape(_url_disp)}</td>"
+                f"<td style='color:{_color};font-weight:500;white-space:nowrap'>{_label}{_chunk_note}</td>"
+                f"</tr>"
+            )
+        _loading_note = (
+            "<p class='note' style='margin:6px 0 0'>KB crawls running in background — "
+            "page auto-refreshes every 6 s until complete.</p>" if _any_loading else ""
+        )
+        kb_panel = (
+            "<div class='section-h' style='margin-top:0'>"
+            "<h2>KB context</h2>"
+            "<span class='badge' style='background:rgba(66,133,244,.12);color:var(--accent-2)'>"
+            f"{len(_sources)} source(s)</span></div>"
+            "<div class='card' style='padding:6px 8px;margin-bottom:0'>"
+            "<table><tbody>" + _rows + "</tbody></table>"
+            + _loading_note + "</div>"
+            + _auto_reload
+        )
 
     graph_html = _dag_graph(plan)
     rows = "".join(_plan_step_row(s) for s in plan.steps)
@@ -2184,29 +3169,86 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
             "</div></div>"
         )
 
+    proj_id = getattr(task, "project_id", "") or ""
+
     if not ran:
+        # ── Pre-run: show full plan for approval ──────────────────────────────
         be_hidden = (f"<input type='hidden' name='backend' value='{escape(selected_backend)}'>"
                      if selected_backend else "")
-        action = (
+        approve_btn = (
             f"<form method='post' action='/projects/{escape(task.project_id)}/tasks/{escape(task.id)}/run' "
             "style='margin-top:16px'>"
             f"{be_hidden}"
             "<button class='btn' type='submit'>" + _icon("bolt") + " Approve &amp; run</button></form>"
         )
-    else:
-        exec_html = ("<div style='margin-top:16px'></div>" + _execution_log(trace)) if trace else ""
-        result_html = ("<div style='margin-top:16px'></div>" + _result_card(result)) if result else ""
-        fb_html = ("<div style='margin-top:10px'></div>" + _feedback_bar(task)) if result else ""
-        action = (exec_html + result_html + fb_html + "<div style='margin-top:16px'><a class='btn ghost' "
-                  f"href='/projects/{escape(task.project_id)}'>Back to project</a> "
-                  f"<a class='btn ghost' href='/projects/{escape(task.project_id)}/artifacts'>"
-                  "Project artifacts</a></div>")
+        kb_block = ("<div style='margin-top:16px'></div>" + kb_panel) if kb_panel else ""
+        content = (banner + "<div style='margin-top:16px'></div>" + header
+                   + kb_block
+                   + "<div style='margin-top:16px'></div>" + dag_html
+                   + "<div style='margin-top:16px'></div>" + created_html + approve_btn)
+        return shell(active="projects", title="Plan review", content=content, backend=backend,
+                     subnav=_project_subnav(proj_id, "tasks") if proj_id else "")
 
-    content = (banner + "<div style='margin-top:16px'></div>" + header
-               + "<div style='margin-top:16px'></div>" + dag_html
-               + "<div style='margin-top:16px'></div>" + created_html + action)
-    proj_id = getattr(task, "project_id", "") or ""
-    return shell(active="projects", title="Plan review", content=content, backend=backend,
+    # ── Post-run: result-first layout ─────────────────────────────────────────
+    _obj_short = escape(task.objective[:80] + ("…" if len(task.objective) > 80 else ""))
+    deg_badge = (
+        "<span class='badge' style='background:rgba(234,179,8,.16);color:#d4a017'>partial</span>"
+        if (result and getattr(result, "degraded", False)) else
+        "<span class='badge' style='background:rgba(22,163,74,.16);color:#16a34a'>complete</span>"
+    )
+    status_bar = (
+        f"<div class='card' style='margin-bottom:12px'>"
+        f"<div style='display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px'>"
+        f"<div>"
+        f"<div style='font-weight:700;font-size:15px;margin-bottom:6px'>{_obj_short}</div>"
+        f"<div style='display:flex;gap:8px;flex-wrap:wrap'>"
+        f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span>"
+        f"<span class='pill'>persona: <b>{escape(task.persona.name)}</b></span>"
+        f"{be_pill}{deg_badge}"
+        + _task_context_pill(task)
+        + f"</div></div>"
+        f"<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>"
+        f"<a class='btn ghost' href='/projects/{escape(proj_id)}' style='font-size:12px'>← Project</a>"
+        f"<a class='btn ghost' href='/projects/{escape(proj_id)}/artifacts' style='font-size:12px'>Artifacts</a>"
+        f"<a class='btn' href='#sentinel-chat-section' style='font-size:12px'>💬 Ask AI</a>"
+        f"<a class='btn ghost' href='/projects/{escape(proj_id)}/tasks/{escape(task.id)}/export.html' "
+        f"style='font-size:12px'>📄 Download Report</a>"
+        f"</div></div></div>"
+    )
+
+    result_html = _result_card(result, task_id=task.id, project_id=proj_id) if result else ""
+    fb_html = ("<div style='margin-top:10px'></div>" + _feedback_bar(task)) if result else ""
+    chat_html = _chat_panel(task) if result else ""
+    exec_html = ("<div style='margin-top:16px'></div>" + _execution_log(trace)) if trace else ""
+
+    # Step timeline — visible immediately so users can see what the agent did
+    timeline_html = _step_timeline(plan)
+
+    # Full DAG behind a toggle (for debugging / power users)
+    plan_toggle = (
+        "<div style='margin-top:16px'>"
+        "<button type='button' class='btn ghost' style='font-size:12px' "
+        "onclick=\"var p=document.getElementById('plan-detail-panel');"
+        "p.style.display=p.style.display==='none'?'block':'none'\">▸ View full plan &amp; agent assignments</button>"
+        "<div id='plan-detail-panel' style='display:none;margin-top:12px'>"
+        + dag_html + "</div></div>"
+    )
+
+    _details_style = ("style='font-weight:700;font-size:14px;padding:6px 0 4px;"
+                      "cursor:pointer;user-select:none'")
+    kb_post = (
+        "<details style='margin-top:12px'>"
+        f"<summary {_details_style}>KB context used</summary>"
+        "<div style='margin-top:6px'>" + kb_panel + "</div></details>"
+    ) if kb_panel else ""
+    timeline_details = (
+        "<details style='margin-top:12px'>"
+        f"<summary {_details_style}>Agent timeline</summary>"
+        "<div style='margin-top:6px'>" + timeline_html + "</div></details>"
+    )
+    content = (status_bar + result_html + fb_html + chat_html
+               + timeline_details + kb_post + exec_html + plan_toggle)
+    return shell(active="projects", title=task.objective[:60], content=content, backend=backend,
                  subnav=_project_subnav(proj_id, "tasks") if proj_id else "")
 
 
@@ -2326,7 +3368,7 @@ def account_detail_page(*, summary, runs: list, public_mem: list, private_mem: l
         banner
         + "<div style='margin-bottom:16px'><a href='/accounts' style='color:var(--muted)'>"
         "← All accounts</a></div>"
-        + f"<div class='two-col'>{left}{donut}</div>"
+        + f"<div class='two-col'><div>{left}</div>{donut}</div>"
     )
     return shell(active="accounts", title=summary.display_name, content=content,
                  backend=backend, body_scripts=js)
@@ -2637,18 +3679,30 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         "<div class='row2'>"
         f"<div><label class='lbl' for='gemini_model'>Gemini model</label>"
         f"<input id='gemini_model' name='gemini_model' value='{escape(cfg.backend.gemini.model)}'></div>"
-        f"<div><label class='lbl' for='vllm_model'>vLLM model</label>"
+        f"<div><label class='lbl' for='vllm_model'>vLLM tool-caller model <span class='muted' style='font-size:11px'>(12B — planners, extractors)</span></label>"
         f"<input id='vllm_model' name='vllm_model' value='{escape(cfg.backend.vllm.model)}'></div>"
         "</div>"
-        f"<div><label class='lbl' for='vllm_api_base'>vLLM API base</label>"
+        f"<div><label class='lbl' for='vllm_api_base'>vLLM API base (tool-caller)</label>"
         f"<input id='vllm_api_base' name='vllm_api_base' "
         f"value='{escape(cfg.backend.vllm.api_base or '')}'></div>"
-        f"<div class='set-actions'>{key_pill}"
+        + (lambda _r, _ra: (
+            f"<div class='row2' style='margin-top:8px'>"
+            f"<div><label class='lbl' for='vllm_reasoning_model'>vLLM reasoning model <span class='muted' style='font-size:11px'>(26B — synthesizers, strategists)</span></label>"
+            f"<input id='vllm_reasoning_model' name='vllm_reasoning_model' value='{escape(_r)}'></div>"
+            f"<div><label class='lbl' for='vllm_reasoning_api_base'>vLLM API base (reasoning)</label>"
+            f"<input id='vllm_reasoning_api_base' name='vllm_reasoning_api_base' value='{escape(_ra)}'></div>"
+            f"</div>"
+        ))(
+            (cfg.backend.roles or {}).get("synthesizer", cfg.backend.vllm).model,
+            (cfg.backend.roles or {}).get("synthesizer", cfg.backend.vllm).api_base or "",
+        )
+        + f"<div class='set-actions'>{key_pill}"
         "<span style='flex:1'></span><button class='btn' type='submit'>Save backends</button></div>"
         "<p class='note'><b>One source of truth:</b> API keys live in <span class='mono'>.env</span> "
         "(shown here only as set / not-set, never the value); models, endpoints and the default "
         "backend live here and are saved to <span class='mono'>sentinel.config.yaml</span>. The "
-        "topbar pill and every run read this same saved default — no env override.</p>"
+        "topbar pill and every run read this same saved default — no env override. "
+        "Leave the reasoning model blank to use the same model for all roles.</p>"
         "</form></div>"
     )
 
@@ -3155,8 +4209,337 @@ def _rpt_table(headers: list[str], rows: list[list[str]]) -> str:
     return f"<div class='card' style='padding:0;overflow:auto;margin:16px 0'><table><thead><tr>{ths}</tr></thead><tbody>{trs}</tbody></table></div>"
 
 
+def _src_link(src: dict) -> str:
+    """Render a Finding.source dict as a compact linked badge for report tables.
+
+    Only emits an <a href> for http/https URLs — blocks javascript: and data: scheme injection.
+    """
+    if not src or not isinstance(src, dict):
+        return "<span style='color:var(--muted);font-size:11px'>—</span>"
+    label = escape(str(src.get("label") or "source"))
+    url   = str(src.get("url") or "").strip()
+    if url and (url.startswith("https://") or url.startswith("http://")):
+        return (f"<a href='{escape(url)}' target='_blank' rel='noopener' "
+                f"style='font-size:11px;color:var(--accent-2)'>{label}</a>")
+    return f"<span style='font-size:11px;color:var(--muted)'>{label}</span>"
+
+
 def project_report_page(*, project, tasks: list, backend: str) -> str:
-    """Consulting-grade report tab — compiled from all task results for this project."""
+    """Research Intelligence Report — compiled dynamically from actual task artifacts."""
+    pname = escape(project.name)
+    subnav = _project_subnav(project.id, "report", project.name)
+
+    done_tasks = [t for t in tasks if t.get("status") == "done" and t.get("result")]
+
+    cover = (
+        "<div class='rpt-cover'>"
+        "<div class='rpt-firm'>Sentinel Intelligence Platform · Sovereign Research Division</div>"
+        f"<h1>{pname}</h1>"
+        "<p class='rpt-sub'>Research Intelligence Report — on-premise sovereign AI, zero cloud dependency</p>"
+        "<div class='rpt-meta'>"
+        "<span class='rpt-tag'>Confidential</span>"
+        "<span class='rpt-tag green'>Sovereign On-Premise</span>"
+        f"<span class='rpt-tag' style='background:var(--panel-2)'>"
+        f"{len(done_tasks)} Research Task{'s' if len(done_tasks) != 1 else ''} Complete</span>"
+        "</div>"
+        "</div>"
+    )
+
+    if not done_tasks:
+        return shell(
+            active="projects", title=f"{project.name} · Report",
+            content=(cover
+                     + "<div style='margin:32px 0'><div class='card'>"
+                     "<div class='empty' style='padding:48px;text-align:center;font-size:15px'>"
+                     "No completed research tasks yet — run a task to populate this report."
+                     "</div></div></div>"),
+            backend=backend, subnav=subnav, project=project.name,
+        )
+
+    _SUB = "font-size:13px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)"
+    sections: list[str] = []
+
+    for i, task in enumerate(done_tasks, 1):
+        result  = task.get("result") or {}
+        payload = result.get("dashboard_payload") or {}
+        obj_raw = task.get("objective") or ""
+
+        # Support both dashboard_payload shapes produced by the DAG:
+        #   shape A (BiltIQ plan):  {"map": profile, "matrix": [cm, …], "strategy": strategy}
+        #   shape B (generic plan): {"artifacts": {output_key: artifact, …}}
+        if "artifacts" in payload:
+            arts = payload["artifacts"] or {}
+            self_prof   = next((v for v in arts.values()
+                                if isinstance(v, dict) and "products" in v and "org" in v), None)
+            comparisons = [v for v in arts.values()
+                           if isinstance(v, dict) and "axes" in v and "subject" in v]
+            strategy    = next((v for v in arts.values()
+                                if isinstance(v, dict) and "action_plan" in v and "assessment" in v), None)
+            # New specialist domains
+            govt_art    = next((v for v in arts.values()
+                                if isinstance(v, dict) and "department_mappings" in v
+                                and "executive_summary" in v), None)
+            prod_art    = next((v for v in arts.values()
+                                if isinstance(v, dict) and "products_found" in v
+                                and "winner_rationale" in v), None)
+        else:
+            self_prof   = payload.get("map") if isinstance(payload.get("map"), dict) else None
+            comparisons = [m for m in (payload.get("matrix") or []) if isinstance(m, dict)]
+            strategy    = payload.get("strategy") if isinstance(payload.get("strategy"), dict) else None
+            govt_art    = None
+            prod_art    = None
+
+        citations = result.get("citations") or []
+
+        obj_trunc_display = obj_raw[:80] + ("…" if len(obj_raw) > 80 else "")
+        body = (f"<div class='note' style='margin-bottom:16px'>"
+                f"<b>Objective:</b> {escape(obj_trunc_display)}</div>")
+
+        # ── Domain-aware metric row ───────────────────────────────────────────
+        if govt_art:
+            depts   = [d for d in (govt_art.get("department_mappings") or []) if isinstance(d, dict)]
+            client  = escape(str(govt_art.get("client") or "Client"))
+            vendor  = escape(str(govt_art.get("vendor") or "Vendor"))
+            pilot   = "Defined" if govt_art.get("pilot_plan") else "—"
+            body += (
+                "<div class='rpt-metrics' style='grid-template-columns:repeat(3,1fr)'>"
+                + _rpt_metric(str(len(depts)) if depts else "—", "Departments Mapped")
+                + _rpt_metric(pilot,                             "Pilot Plan")
+                + _rpt_metric(str(len(citations)),               "Sources Cited")
+                + "</div>"
+                + f"<div style='margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap'>"
+                + f"<span class='pill'>client: <b>{client}</b></span>"
+                + f"<span class='pill'>vendor: <b>{vendor}</b></span>"
+                + "</div>"
+            )
+        elif prod_art:
+            prods  = [p for p in (prod_art.get("products_found") or []) if isinstance(p, dict)]
+            winner = escape(str(prod_art.get("winner") or "—"))
+            body += (
+                "<div class='rpt-metrics' style='grid-template-columns:repeat(3,1fr)'>"
+                + _rpt_metric(str(len(prods)) if prods else "—", "Products Found")
+                + _rpt_metric(winner if winner != "—" else "—",   "Recommended")
+                + _rpt_metric(str(len(citations)),                 "Sources Cited")
+                + "</div>"
+            )
+        else:
+            n_prods = len([p for p in (self_prof.get("products") or []) if isinstance(p, dict)]) \
+                      if self_prof else 0
+            n_cmps  = len(comparisons)
+            body += (
+                "<div class='rpt-metrics' style='grid-template-columns:repeat(3,1fr)'>"
+                + _rpt_metric(str(n_prods) if n_prods else "—", "Products Profiled")
+                + _rpt_metric(str(n_cmps),                       "Competitor(s) Compared")
+                + _rpt_metric(str(len(citations)),               "Sources Cited")
+                + "</div>"
+            )
+
+        # ── GovernmentProposal content ────────────────────────────────────────
+        if govt_art:
+            exec_sum = str(govt_art.get("executive_summary") or "")
+            if exec_sum:
+                body += _rpt_callout("Executive Summary", escape(exec_sum), "green")
+
+            challenges = [f for f in (govt_art.get("client_challenges") or []) if isinstance(f, dict)]
+            if challenges:
+                body += f"<h3 style='{_SUB}'>Client Challenges ({len(challenges)})</h3>"
+                ch_rows = [
+                    [escape(str(f.get("text") or ""))[:160],
+                     _src_link(f.get("source") or {})]
+                    for f in challenges[:8]
+                ]
+                body += _rpt_table(["Challenge", "Source"], ch_rows)
+
+            capabilities = [f for f in (govt_art.get("vendor_capabilities") or []) if isinstance(f, dict)]
+            if capabilities:
+                body += f"<h3 style='{_SUB}'>Vendor Capabilities ({len(capabilities)})</h3>"
+                cap_rows = [
+                    [escape(str(f.get("text") or ""))[:160],
+                     _src_link(f.get("source") or {})]
+                    for f in capabilities[:8]
+                ]
+                body += _rpt_table(["Capability", "Source"], cap_rows)
+
+            depts = [d for d in (govt_art.get("department_mappings") or []) if isinstance(d, dict)]
+            if depts:
+                body += f"<h3 style='{_SUB}'>Department Mappings ({len(depts)})</h3>"
+                dept_rows = [
+                    [escape(str(d.get("department") or ""))[:50],
+                     escape(str(d.get("challenge") or ""))[:120],
+                     escape(str(d.get("solution") or ""))[:120],
+                     escape(str(d.get("impact") or ""))[:80]]
+                    for d in depts
+                ]
+                body += _rpt_table(["Department", "Challenge", "BiltIQ Solution", "Impact"], dept_rows)
+
+            comp_adv = str(govt_art.get("competitive_advantage") or "")
+            if comp_adv:
+                body += _rpt_callout("Competitive Advantage — Sovereign AI", escape(comp_adv), "")
+
+            pilot = str(govt_art.get("pilot_plan") or "")
+            if pilot:
+                body += _rpt_callout("90-Day Pilot Plan", escape(pilot), "green")
+
+        # ── ProductResearch content ───────────────────────────────────────────
+        elif prod_art:
+            summary_txt = str(prod_art.get("one_line_summary") or "")
+            if summary_txt:
+                body += _rpt_callout("Summary", escape(summary_txt), "green")
+
+            winner      = str(prod_art.get("winner") or "")
+            winner_why  = str(prod_art.get("winner_rationale") or "")
+            if winner:
+                body += (
+                    f"<h3 style='{_SUB}'>Recommended Product</h3>"
+                    "<div class='card' style='border-left:3px solid #5bd07f;padding:14px 18px'>"
+                    f"<div style='font-size:18px;font-weight:700;color:#5bd07f'>{escape(winner)}</div>"
+                    + (f"<div style='margin-top:6px;font-size:13px;color:var(--muted)'>"
+                       f"{escape(winner_why)}</div>" if winner_why else "")
+                    + "</div>"
+                )
+
+            prods = [p for p in (prod_art.get("products_found") or []) if isinstance(p, dict)]
+            if prods:
+                body += f"<h3 style='{_SUB}'>Products Compared ({len(prods)})</h3>"
+                prod_rows = [
+                    [escape(str(p.get("name") or ""))[:50],
+                     escape(str(p.get("brand") or ""))[:30],
+                     escape(str(p.get("price") or ""))[:20],
+                     escape(str(p.get("processor") or ""))[:40],
+                     escape(f"{p.get('ram') or '—'} / {p.get('storage') or '—'}")[:30],
+                     escape(str(p.get("score") or "—"))[:10]]
+                    for p in prods
+                ]
+                body += _rpt_table(
+                    ["Model", "Brand", "Price", "Processor", "RAM / Storage", "Score"],
+                    prod_rows
+                )
+
+            ranking = [r for r in (prod_art.get("value_ranking") or []) if r]
+            if ranking:
+                body += f"<h3 style='{_SUB}'>Value Ranking</h3>"
+                rank_html = "".join(
+                    f"<li><b>#{j+1}</b> {escape(str(r))}</li>"
+                    for j, r in enumerate(ranking[:8])
+                )
+                body += f"<div class='card'><ol style='margin:0;padding-left:20px'>{rank_html}</ol></div>"
+
+        # ── Market / competitor research content ──────────────────────────────
+        else:
+            if self_prof:
+                org   = escape(str(self_prof.get("org") or ""))
+                prods = [p for p in (self_prof.get("products") or []) if isinstance(p, dict)]
+                body += f"<h3 style='{_SUB}'>Entity Profile: {org}</h3>"
+                if prods:
+                    rows = [
+                        [escape(str(p.get("name") or ""))[:60],
+                         escape(str(p.get("category") or ""))[:40],
+                         escape(str(p.get("positioning") or ""))[:140],
+                         escape(", ".join(str(s) for s in p.get("strengths") or [])[:100])]
+                        for p in prods
+                    ]
+                    body += _rpt_table(["Product / Model", "Category", "Positioning", "Key Strengths"], rows)
+                else:
+                    gaps     = self_prof.get("gaps") or []
+                    gap_note = (" ".join(
+                        (g.get("description") or str(g)) if isinstance(g, dict) else str(g)
+                        for g in gaps[:2]
+                    ))
+                    body += (
+                        "<div class='card'><div class='empty' style='padding:16px'>"
+                        f"No product data extracted for <b>{org}</b>."
+                        + (f" ({escape(gap_note)})" if gap_note else "")
+                        + " The entity may lack a strong public web presence, or the research queries"
+                        " need refinement for this product category."
+                        "</div></div>"
+                    )
+
+            for cm in comparisons:
+                subj  = escape(str(cm.get("subject") or "Us"))
+                rival = escape(str(cm.get("rival") or "Rival"))
+                axes  = [a for a in (cm.get("axes") or []) if isinstance(a, dict)]
+                body += f"<h3 style='{_SUB}'>Head-to-Head: {subj} vs {rival}</h3>"
+                if axes:
+                    rows = [
+                        [escape(str(a.get("axis") or "")),
+                         escape(str(a.get("ours") or "—")),
+                         escape(str(a.get("theirs") or "—")),
+                         _verdict_badge(str(a.get("verdict") or ""))]
+                        for a in axes
+                    ]
+                    body += _rpt_table(["Dimension", subj, rival, "Verdict"], rows)
+                    w = sum(1 for a in axes if a.get("verdict") == "win")
+                    l = sum(1 for a in axes if a.get("verdict") == "lose")
+                    p = sum(1 for a in axes if a.get("verdict") == "parity")
+                    clr = "#5bd07f" if w > l else "#ff6b6b" if l > w else "#fbbf24"
+                    body += (
+                        f"<div style='font-size:12px;color:var(--muted);margin-top:4px;margin-bottom:8px'>"
+                        f"Score vs {rival}: "
+                        f"<span style='color:{clr};font-weight:700'>{w}&nbsp;Win / {l}&nbsp;Lose / {p}&nbsp;Parity</span>"
+                        "</div>"
+                    )
+                else:
+                    body += "<div class='card'><div class='empty'>No comparison dimensions produced.</div></div>"
+
+            if strategy:
+                assessment = str(strategy.get("assessment") or "")
+                actions    = [a for a in (strategy.get("action_plan") or []) if isinstance(a, dict)]
+                if assessment:
+                    body += _rpt_callout(
+                        "Research Conclusion & Recommendation",
+                        f"<strong>{escape(assessment)}</strong>",
+                        "green",
+                    )
+                if actions:
+                    act_rows = [
+                        [_prio_badge(str(a.get("priority") or "med")),
+                         escape(str(a.get("action") or ""))[:120],
+                         escape(str(a.get("rationale") or ""))[:120],
+                         escape(str(a.get("timeline") or ""))]
+                        for a in actions
+                    ]
+                    body += (
+                        f"<h3 style='{_SUB}'>Recommended Actions</h3>"
+                        + _rpt_table(["Priority", "Action", "Rationale", "Timeline"], act_rows)
+                    )
+
+        # ── Sources (all domains) ─────────────────────────────────────────────
+        if citations:
+            pub_style  = "background:rgba(66,133,244,.14);color:var(--accent-2)"
+            priv_style = "background:rgba(251,191,36,.14);color:#fbbf24"
+            cites = "".join(
+                "<li>"
+                + (f"<span class='badge' style='font-size:9px;margin-right:4px;"
+                   + (pub_style if str(c.get("boundary") or "").lower() == "public" else priv_style)
+                   + f"'>{escape(str(c.get('boundary') or '?').upper())}</span>"
+                   + f"<b>{escape(str(c.get('label') or '—'))}</b>"
+                   + (f" · <a href='{escape(str(c['url']))}' target='_blank' rel='noopener' "
+                      f"style='color:var(--accent-2)'>{escape(str(c['url']))}</a>"
+                      if c.get("url") else "")
+                   if isinstance(c, dict) else escape(str(c)))
+                + "</li>"
+                for c in citations[:20]
+            )
+            body += (
+                f"<h3 style='{_SUB}'>Sources ({len(citations)})</h3>"
+                f"<div class='card'><ul class='find'>{cites}</ul></div>"
+            )
+
+        obj_trunc = obj_raw[:70] + ("…" if len(obj_raw) > 70 else "")
+        sections.append(_rpt_section(str(i).zfill(2), f"Task {i}: {obj_trunc}", body))
+
+    return shell(
+        active="projects",
+        title=f"{project.name} · Report",
+        content=cover + "".join(sections),
+        backend=backend,
+        subnav=subnav,
+        project=project.name,
+    )
+
+
+def _project_report_page_LEGACY(*, project, tasks: list, backend: str) -> str:
+    """Kept for reference — hardcoded BiltIQ AI consulting report (replaced by dynamic version above)."""
     pid = escape(project.id)
     pname = escape(project.name)
     subnav = _project_subnav(project.id, "report", project.name)

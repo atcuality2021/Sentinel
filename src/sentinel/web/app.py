@@ -15,7 +15,8 @@ import os
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, Form, Request
+from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
+from typing import List
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 try:  # load .env (GOOGLE_API_KEY, backend config) if python-dotenv is present
@@ -413,7 +414,7 @@ async def create_project(
 
 
 @app.get("/projects/{project_id}", response_class=HTMLResponse)
-async def project_detail(project_id: str) -> str:
+async def project_detail(project_id: str, ok: str = "", err: str = "") -> str:
     store = ProjectStore()
     try:
         proj = store.get_project(project_id)
@@ -425,10 +426,16 @@ async def project_detail(project_id: str) -> str:
         tasks = store.tasks_for_project(project_id)
     except Exception:
         tasks = []
+    try:
+        kb_source_count = len(KBStore().list_for_project(project_id))
+    except Exception:
+        kb_source_count = 0
     return render.project_detail_page(
         project=proj, tasks=tasks, backend=_active(),
         vllm_model=_vllm_model(),
         sovereign=get_config().governance.compliance_mode == "on_prem_required",
+        ok=ok, err=err,
+        kb_source_count=kb_source_count,
     )
 
 
@@ -440,6 +447,31 @@ async def delete_project_route(project_id: str) -> RedirectResponse:
     except Exception:
         pass
     return RedirectResponse(url="/projects?ok=Project+deleted.", status_code=303)
+
+
+@app.post("/projects/{project_id}/edit")
+async def edit_project(
+    project_id: str,
+    name: str = Form(""),
+    website: str = Form(""),
+    description: str = Form(""),
+    context: str = Form(""),
+) -> RedirectResponse:
+    """Update project name, website, description, and agent context."""
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return RedirectResponse(f"/projects/{project_id}?err=Project+not+found", status_code=303)
+    if name.strip():
+        proj.name = name.strip()
+    proj.website = website.strip() or None
+    proj.description = description.strip()
+    proj.context = context.strip()
+    store.save_project(proj)
+    return RedirectResponse(f"/projects/{project_id}?ok=Project+updated", status_code=303)
 
 
 @app.get("/projects/{project_id}/tasks", response_class=HTMLResponse)
@@ -483,12 +515,23 @@ async def project_kb(project_id: str, ok: str = "", err: str = "") -> str:
     return render.project_kb_page(project=proj, sources=sources, backend=_active(), ok=ok, err=err)
 
 
+def _infer_source_type(url: str) -> str:
+    """Auto-detect source type from URL so users don't need a type dropdown."""
+    low = url.lower()
+    if any(d in low for d in ("linkedin.com", "youtube.com", "twitter.com", "instagram.com", "crunchbase.com")):
+        return "social"
+    if low.endswith(".pdf") or "/pdf/" in low:
+        return "document"
+    return "web"
+
+
 @app.post("/projects/{project_id}/kb/sources")
 async def project_kb_add_source(
     project_id: str,
     background_tasks: BackgroundTasks,
     url: str = Form(...),
-    source_type: str = Form("web"),
+    source_type: str = Form("auto"),
+    redirect: str = Form("kb"),
 ) -> RedirectResponse:
     """Start a background crawl + index job for the given URL."""
     store = ProjectStore()
@@ -508,11 +551,12 @@ async def project_kb_add_source(
             status_code=303,
         )
 
+    resolved_type = source_type if source_type in ("web", "social", "document") else _infer_source_type(url)
     kb_store = KBStore()
     source = KBSource(
         project_id=project_id,
         url=url,
-        source_type=SourceType(source_type) if source_type in ("web", "social", "document") else SourceType.WEB,
+        source_type=SourceType(resolved_type),
     )
     kb_store.save({
         "id": source.id,
@@ -534,10 +578,9 @@ async def project_kb_add_source(
         )
 
     background_tasks.add_task(_run_crawl, source.id, project_id, url, source.source_type.value)
-    return RedirectResponse(
-        f"/projects/{project_id}/kb?ok=Crawl+started+for+{quote(url, safe='')}",
-        status_code=303,
-    )
+    ok_msg = quote(f"Indexing {url} in background", safe="")
+    dest = f"/projects/{project_id}/?ok={ok_msg}" if redirect == "overview" else f"/projects/{project_id}/kb?ok={ok_msg}"
+    return RedirectResponse(dest, status_code=303)
 
 
 @app.post("/projects/{project_id}/kb/sources/{source_id}/delete")
@@ -545,6 +588,120 @@ async def project_kb_delete_source(project_id: str, source_id: str) -> RedirectR
     """Remove a KB source record (does not delete vector data for now)."""
     KBStore().delete(source_id, project_id)
     return RedirectResponse(f"/projects/{project_id}/kb?ok=Source+removed", status_code=303)
+
+
+@app.post("/projects/{project_id}/kb/sources/{source_id}/retry")
+async def project_kb_retry_source(
+    project_id: str, source_id: str, background_tasks: BackgroundTasks
+) -> RedirectResponse:
+    """Re-queue a failed KB source for crawling and indexing."""
+    src = KBStore().get(source_id)
+    if not src or src.get("project_id") != project_id:
+        return RedirectResponse(f"/projects/{project_id}/kb?err=Source+not+found", status_code=303)
+    if src.get("url", "").startswith("artifact://"):
+        return RedirectResponse(
+            f"/projects/{project_id}/kb?err=Artifact+sources+cannot+be+re-crawled", status_code=303
+        )
+    KBStore().update_status(source_id, "pending", 0, None)
+
+    async def _run_crawl(src_id: str, pid: str, crawl_url: str, stype: str) -> None:
+        manager = KBManager(_kb_data_dir())
+        result = await manager.add_source(pid, crawl_url, SourceType(stype))
+        KBStore().update_status(src_id, result.status.value, result.chunk_count, result.error)
+
+    background_tasks.add_task(_run_crawl, source_id, project_id, src["url"], src.get("source_type", "web"))
+    return RedirectResponse(
+        f"/projects/{project_id}/kb?ok=Re-indexing+started", status_code=303
+    )
+
+
+@app.post("/projects/{project_id}/kb/sources/artifact")
+async def project_kb_add_artifact(
+    project_id: str,
+    run_id: str = Form(...),
+) -> RedirectResponse:
+    """Ingest a completed research artifact back into this project's KB.
+
+    Fetches the run's finding_texts (boundary-tagged facts), joins them into a
+    single document, and indexes it via KBManager.add_text() so future research
+    tasks can ground against prior findings via search_project_kb.
+    """
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return RedirectResponse(f"/projects/{project_id}/kb?err=Project+not+found", status_code=303)
+
+    run = RunStore().get(run_id)
+    if run is None or run.project_id != project_id:
+        return RedirectResponse(f"/projects/{project_id}/kb?err=Run+not+found", status_code=303)
+
+    # Primary: boundary-tagged finding sentences from the run record.
+    text = "\n\n".join(run.finding_texts) if run.finding_texts else ""
+
+    # Fallback: if findings are empty (e.g. partial run), pull structured content from the
+    # matching task's dashboard_payload so even partial artifacts are indexable.
+    if not text.strip():
+        try:
+            tasks = store.tasks_for_project(project_id)
+            match = next((t for t in tasks if t.objective == run.target and t.result), None)
+            if match and match.result:
+                r = match.result
+                parts: list[str] = []
+                if r.summary:
+                    parts.append(r.summary)
+                if r.persona_rendered:
+                    parts.append(r.persona_rendered)
+                payload = r.dashboard_payload or {}
+                arts = payload.get("artifacts") or payload
+                if isinstance(arts, dict):
+                    for v in arts.values():
+                        if isinstance(v, dict):
+                            for fld in ("one_line_summary", "financial_summary", "description",
+                                        "overview", "findings"):
+                                val = v.get(fld)
+                                if val and isinstance(val, str):
+                                    parts.append(val)
+                            products = v.get("products") or []
+                            for p in (products if isinstance(products, list) else []):
+                                if isinstance(p, dict):
+                                    for fld in ("name", "description", "differentiators"):
+                                        val = p.get(fld)
+                                        if val and isinstance(val, str):
+                                            parts.append(val)
+                text = "\n\n".join(p for p in parts if p.strip())
+        except Exception:
+            pass
+
+    if not text.strip():
+        return RedirectResponse(
+            f"/projects/{project_id}/kb?err=No+content+to+ingest+for+this+run",
+            status_code=303,
+        )
+
+    label = run.target[:120]
+    manager = KBManager(_kb_data_dir())
+    source = manager.add_text(project_id, text, label)
+
+    from urllib.parse import quote as _q
+    kb_store = KBStore()
+    kb_store.save({
+        "id": source.id,
+        "project_id": project_id,
+        "url": source.url,
+        "source_type": source.source_type.value,
+        "status": source.status.value,
+        "chunk_count": source.chunk_count,
+        "error": source.error,
+    })
+
+    if source.status.value == "indexed":
+        msg = f"ok=Artifact+indexed+({source.chunk_count}+chunks)"
+    else:
+        msg = f"err={_q(source.error or 'indexing failed', safe='')}"
+    return RedirectResponse(f"/projects/{project_id}/kb?{msg}", status_code=303)
 
 
 from fastapi.responses import JSONResponse  # noqa: E402
@@ -569,6 +726,156 @@ async def kb_search(project_id: str, q: str = "") -> JSONResponse:
         return JSONResponse({"error": str(exc), "results": []})
 
 
+@app.post("/projects/{project_id}/kb/upload")
+async def project_kb_upload(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(default=[]),
+    redirect: str = Form("kb"),
+) -> RedirectResponse:
+    """Upload one or more PDF/TXT/MD files, extract text, and index into the project KB."""
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return RedirectResponse(f"/projects/{project_id}/kb?err=Project+not+found", status_code=303)
+
+    dest_base = f"/projects/{project_id}/" if redirect == "overview" else f"/projects/{project_id}/kb"
+
+    _MAX_BYTES = 100 * 1024 * 1024  # 100 MB per file hard cap
+
+    def _extract_and_ingest(pid: str, raw: bytes, ext: str, lbl: str, src_id: str) -> None:
+        """Run in background — CPU-heavy extraction never blocks the request loop."""
+        try:
+            if ext == "pdf":
+                import io
+                from pypdf import PdfReader
+                reader = PdfReader(io.BytesIO(raw))
+                text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+            else:
+                text = raw.decode("utf-8", errors="replace")
+            if not text.strip():
+                KBStore().update_status(src_id, "error", 0, "No text could be extracted")
+                return
+            result = KBManager(_kb_data_dir()).add_text(pid, text, lbl)
+            KBStore().update_status(src_id, result.status.value, result.chunk_count, result.error)
+        except Exception as exc:
+            KBStore().update_status(src_id, "error", 0, str(exc)[:200])
+
+    queued: list[str] = []
+    for file in files:
+        filename = (file.filename or "").strip()
+        if not filename:
+            continue
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in ("pdf", "txt", "md"):
+            continue
+
+        # Read bytes async — non-blocking even for large files
+        raw_bytes = await file.read()
+        if not raw_bytes:
+            continue
+        if len(raw_bytes) > _MAX_BYTES:
+            continue  # silently skip files over 100 MB
+
+        label = filename.rsplit(".", 1)[0][:80]
+        kb_store = KBStore()
+        source_rec = KBSource(
+            project_id=project_id,
+            url=f"upload://{label}",
+            source_type=SourceType.DOCUMENT,
+        )
+        # Register immediately so UI shows "pending" — extraction happens in background
+        kb_store.save({
+            "id": source_rec.id,
+            "project_id": project_id,
+            "url": f"upload://{label}",
+            "source_type": "document",
+            "status": "pending",
+            "chunk_count": 0,
+            "error": None,
+        })
+        background_tasks.add_task(_extract_and_ingest, project_id, raw_bytes, ext, label, source_rec.id)
+        queued.append(filename)
+
+    if not queued:
+        return RedirectResponse(
+            f"{dest_base}?err=No+valid+files+found+(PDF,+TXT,+MD+up+to+100+MB)",
+            status_code=303,
+        )
+    names = ", ".join(queued[:3]) + ("…" if len(queued) > 3 else "")
+    ok_msg = quote(f"Queued {len(queued)} file(s) for indexing: {names} — refresh in a moment to see status", safe="")
+    return RedirectResponse(f"{dest_base}?ok={ok_msg}", status_code=303)
+
+
+@app.post("/projects/{project_id}/kb/chat")
+async def project_kb_chat(project_id: str, request: Request) -> JSONResponse:
+    """KB conversational chat — searches the KB, then synthesises a grounded answer via LLM."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    message = (body.get("message") or "").strip()
+    history = body.get("history") or []
+    if not message:
+        return JSONResponse({"error": "empty message"}, status_code=400)
+
+    store = ProjectStore()
+    try:
+        proj = store.get_project(project_id)
+    except Exception:
+        proj = None
+    if proj is None:
+        return JSONResponse({"error": "project not found"}, status_code=404)
+
+    # Search KB for relevant context
+    hits: list = []
+    kb_context = ""
+    try:
+        from sentinel.kb.search import hybrid_search
+        hits = hybrid_search(project_id, _kb_data_dir(), message, rerank_top_k=6)
+        if hits:
+            kb_context = "\n\n---\n\n".join(
+                f"[{h.title or h.url}]\n{h.text}" for h in hits[:6]
+            )
+    except Exception:
+        pass
+
+    proj_name = proj.name if proj else "this project"
+    system_prompt = (
+        f"You are a research assistant for the project '{proj_name}'. "
+        "Answer questions using ONLY the knowledge base excerpts provided below. "
+        "Be specific, cite the source title when referencing a fact, and say 'not in the knowledge base' "
+        "if the answer cannot be found in the provided excerpts.\n\n"
+        + (f"KNOWLEDGE BASE:\n{kb_context}" if kb_context else
+           "KNOWLEDGE BASE: (empty — no sources indexed yet)")
+    )
+
+    messages = [{"role": "system", "content": system_prompt}]
+    for turn in (history or [])[-10:]:  # last 10 turns for context
+        if isinstance(turn, dict) and turn.get("role") in ("user", "assistant"):
+            messages.append({"role": turn["role"], "content": turn["content"]})
+    messages.append({"role": "user", "content": message})
+
+    try:
+        import litellm as _litellm
+        resp = await _litellm.acompletion(
+            model=f"gemini/{get_config().backend.gemini.model}",
+            messages=messages,
+            max_tokens=1024,
+            temperature=0.3,
+            drop_params=True,
+        )
+        answer = resp.choices[0].message.content or ""
+    except Exception as exc:
+        answer = f"Could not generate answer: {exc}"
+
+    return JSONResponse({"answer": answer, "sources_used": len(hits) if kb_context else 0})
+
+
 @app.get("/projects/{project_id}/memory", response_class=HTMLResponse)
 async def project_memory(project_id: str, ok: str = "", err: str = "") -> str:
     """Memory tab — episodic run records scoped to this project."""
@@ -583,8 +890,14 @@ async def project_memory(project_id: str, ok: str = "", err: str = "") -> str:
         records = RunStore().all(project_id=project_id)
     except Exception:
         records = []
+    try:
+        from sentinel.memory.store import MemoryStore
+        semantic_facts = MemoryStore().list_semantic_facts(project_id)
+    except Exception:
+        semantic_facts = []
     return render.project_memory_page(
         project=proj, records=records, backend=_active(), ok=ok, err=err,
+        semantic_facts=semantic_facts,
     )
 
 
@@ -633,7 +946,8 @@ async def project_artifacts(project_id: str) -> str:
         return render.not_found_page(what=f"project {project_id}", backend=_active())
     items = [
         {"target": r.target, "entity": r.entity, "kind": r.kind, "public": r.public,
-         "private": r.private, "backend": r.backend, "reference": r.reference, "when": _when(r)}
+         "private": r.private, "backend": r.backend, "reference": r.reference, "when": _when(r),
+         "run_id": r.id, "finding_texts": r.finding_texts}
         for r in _runs(project_id=project_id)
     ]
     return render.artifacts_page(
@@ -694,17 +1008,44 @@ def _plan_seeds(task, plan, project=None) -> dict:
     # else the project name. Falls back to the objective only if none resolve.
     site = (getattr(project, "website", None) or "").strip()
     host = site.split("//", 1)[-1].split("/", 1)[0].lstrip("www.") if site else ""
-    org = _extract(
+    def _cap(s: str | None, max_words: int = 4) -> str | None:
+        """Truncate an extracted phrase to the entity name — strips leading articles, then
+        stops at the first preposition/descriptor that signals a phrase boundary."""
+        if not s:
+            return s
+        words = s.split()
+        _LEAD = {"and", "the", "a", "an"}
+        _STOP = {"for", "in", "at", "under", "with", "by", "from", "to", "of", "on",
+                 "over", "via", "available", "currently", "based", "across"}
+        while words and words[0].lower() in _LEAD:
+            words = words[1:]
+        clean: list[str] = []
+        for w in words[:max_words]:
+            if clean and w.lower() in _STOP:
+                break
+            clean.append(w)
+        return " ".join(clean) if clean else " ".join(words[:max_words])
+
+    org = _cap(_extract(
         obj,
         [r"\b(?:profile|research|analy(?:se|ze)|assess|about)\s+(.+?)"
          r"(?:\s+(?:and|,|vs\.?|versus|against|compared?\b|to\b)|$)"],
         host or getattr(project, "name", None) or obj,
-    )
-    rival = _extract(
+    ))
+    rival = _cap(_extract(
         obj,
         [r"\b(?:against|vs\.?|versus|compared?\s+(?:to|with)|competitor[s]?:?)\s+(.+?)(?:\s+(?:and|,|\.)|$)"],
-        obj,
-    )
+        None,  # None = no rival found (don't fall back to full objective)
+    ))
+    # When no specific rival is named, synthesize a focused target from the org identity so the
+    # competitor synthesizer gets a concrete anchor instead of the full multi-sentence objective.
+    # Use org only when it looks like a company name (≤3 words, not a phrase extracted from obj).
+    if rival is None or rival == obj:
+        _org_words = (org or "").split()
+        if org and org != obj and len(_org_words) <= 3:
+            rival = f"{org} top competitor"
+        else:
+            rival = "top competitor in the market"
     # inject_org_prefs: when the config flag is on, enrich every step's vertical_context with
     # the project name and website so the synthesizer knows WHO we are researching FOR.
     # The existing prompt templates already surface vertical_context — no prompt edits needed.
@@ -718,15 +1059,27 @@ def _plan_seeds(task, plan, project=None) -> dict:
             if site:
                 org_ctx += f" ({site})"
 
+    # Task context > project context, both appended to vertical_context.
+    task_ctx = getattr(task, "context", None) or ""
+    proj_ctx = getattr(project, "context", None) or "" if project is not None else ""
+    combined_ctx = (task_ctx or proj_ctx).strip()
+    extra_ctx = f"\n\nAdditional context: {combined_ctx}" if combined_ctx else ""
+
     out = {}
     for s in plan.steps:
         if s.capability == "self_profile":
             target = org
         elif s.capability in ("competitor", "client"):
             target = rival
+        elif s.capability == "govt_dept_research":
+            # Decode dept slug from step ID: "research_dept_flood_management" → "flood management"
+            slug = s.id.removeprefix("research_dept_").replace("_", " ")
+            target = f"{slug} — {obj}"
+        elif s.capability == "govt_synthesis":
+            target = obj
         else:
             target = obj
-        seed = {"target": target, "vertical_context": obj + org_ctx}
+        seed = {"target": target, "vertical_context": obj + org_ctx + extra_ctx}
         if site:
             seed["website"] = site
         out[s.id] = seed
@@ -739,6 +1092,60 @@ def _grade_sample() -> bool:
     return os.getenv("SENTINEL_GRADE_SAMPLE", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _extract_finding_texts(result) -> list[str]:
+    """Extract plain-text findings from a Result's dashboard_payload.
+
+    Walks every artifact dict in the payload and collects string-typed leaf values
+    from known text fields (strengths, weaknesses, positioning, description, etc.)
+    so the RunRecord.finding_texts is populated for Memory/KB reuse even when the
+    artifact uses a domain-specific schema (not Battlecard/AccountBrief).
+    """
+    _TEXT_FIELDS = (
+        "text", "description", "positioning", "financial_summary", "overview",
+        "assessment", "rationale", "content", "summary",
+    )
+    _LIST_TEXT_FIELDS = (
+        "strengths", "weaknesses", "differentiators", "opportunities", "risks",
+        "key_findings", "recommendations", "recent_developments", "pricing_signals",
+    )
+    texts: list[str] = []
+    payload = result.dashboard_payload or {}
+    arts = payload.get("artifacts") or payload
+    if not isinstance(arts, dict):
+        return texts
+
+    for art in arts.values():
+        if not isinstance(art, dict):
+            continue
+        for field in _TEXT_FIELDS:
+            val = art.get(field)
+            if val and isinstance(val, str):
+                texts.append(val)
+        for field in _LIST_TEXT_FIELDS:
+            items = art.get(field) or []
+            for item in (items if isinstance(items, list) else []):
+                if isinstance(item, str) and item:
+                    texts.append(item)
+                elif isinstance(item, dict):
+                    t = item.get("text") or item.get("description") or ""
+                    if t:
+                        texts.append(t)
+        for product in (art.get("products") or []):
+            if not isinstance(product, dict):
+                continue
+            for field in _TEXT_FIELDS:
+                val = product.get(field)
+                if val and isinstance(val, str):
+                    texts.append(val)
+            for field in _LIST_TEXT_FIELDS:
+                items = product.get(field) or []
+                for item in (items if isinstance(items, list) else []):
+                    if isinstance(item, str) and item:
+                        texts.append(item)
+
+    return [t for t in texts if t.strip()]
+
+
 def _persist_run(task, result, backend: str) -> None:
     """Persist an orchestrated Result to the durable RunStore (ADR-0003) so it surfaces on the
     project's artifacts/dashboard — the run is otherwise ephemeral. Mapped onto the existing
@@ -748,11 +1155,22 @@ def _persist_run(task, result, backend: str) -> None:
 
     public = sum(1 for c in result.citations if c.boundary == Boundary.PUBLIC)
     private = sum(1 for c in result.citations if c.boundary == Boundary.PRIVATE)
+    # Use the extracted org name from self_profile artifact (cleaner than the full objective text).
+    _payload = result.dashboard_payload or {}
+    if isinstance(_payload.get("map"), dict):
+        _entity = str(_payload["map"].get("org") or task.objective)
+    elif "artifacts" in _payload:
+        _sp = next((v for v in (_payload["artifacts"] or {}).values()
+                    if isinstance(v, dict) and "org" in v), None)
+        _entity = str(_sp.get("org") or task.objective) if _sp else task.objective
+    else:
+        _entity = task.objective
     rec = RunRecord(
-        entity=task.objective, target=task.objective, mode="orchestrated", backend=backend,
+        entity=_entity, target=_entity, mode="orchestrated", backend=backend,
         kind=task.domain.name, public=public, private=private, gaps=len(result.missing_inputs),
         reference=", ".join(result.artifacts), sources=list(result.citations),
         project_id=task.project_id,
+        finding_texts=_extract_finding_texts(result),
     )
     RunStore().save(rec)
     # G-06: save entity relations from compare/competitor artifacts (fail-soft).
@@ -816,6 +1234,197 @@ def _persist_run(task, result, backend: str) -> None:
     except Exception:
         pass
 
+    # Auto-ingest research artifacts into the KB per artifact type so each appears
+    # as a labelled, searchable entry on the Knowledge tab (fail-soft always).
+    import threading as _threading
+
+    def _artifact_to_text(art_key: str, art: dict) -> str:
+        """Flatten an artifact dict into readable text for KB embedding."""
+        lines: list[str] = [f"## {art_key.upper().replace('_', ' ')}"]
+        if art_key == "self_profile":
+            lines.append(f"Organization: {art.get('org', '')}")
+            for p in art.get("products", []):
+                lines.append(f"\nProduct: {p.get('name', '')} ({p.get('category', '')})")
+                if p.get("description"):
+                    lines.append(f"Description: {p['description']}")
+                if p.get("price_range"):
+                    lines.append(f"Price range: {p['price_range']}")
+                specs = p.get("specs") or {}
+                if isinstance(specs, dict):
+                    lines.extend(f"{k}: {v}" for k, v in specs.items())
+                elif isinstance(specs, list):
+                    lines.extend(f"Spec: {s}" for s in specs)
+                st = p.get("strengths") or []
+                if st:
+                    lines.append("Strengths: " + (", ".join(st) if isinstance(st, list) else str(st)))
+            for field in ("positioning", "pricing_signals", "recent_momentum"):
+                if art.get(field):
+                    lines.append(f"\n{field.replace('_', ' ').title()}: {art[field]}")
+        elif art_key == "competitor":
+            lines.append(f"Competitor: {art.get('target', '')}")
+            lines.append(f"Summary: {art.get('one_line_summary', '')}")
+            for field in ("positioning", "strengths", "pricing_signals", "recent_momentum"):
+                val = art.get(field)
+                if val:
+                    lines.append(f"{field.replace('_', ' ').title()}: {str(val)[:600]}")
+            bc = art.get("battle_card") or art.get("battlecard") or {}
+            if isinstance(bc, dict):
+                for k, v in bc.items():
+                    lines.append(f"Battle card — {k}: {str(v)[:300]}")
+        elif art_key in ("compare", "comparison_matrix"):
+            lines.append(f"Subject: {art.get('subject', '')}  vs  Rival: {art.get('rival', '')}")
+            for axis in art.get("axes", []):
+                lines.append(f"\n### {axis.get('axis', '')}")
+                lines.append(f"Ours: {axis.get('ours', '')}")
+                lines.append(f"Rival: {axis.get('rival') or axis.get('theirs', '')}")
+                lines.append(f"Verdict: {axis.get('verdict', '')} — {axis.get('win_rationale') or axis.get('note', '')}")
+            if art.get("recommendation"):
+                lines.append(f"\nRecommendation: {art['recommendation']}")
+            if art.get("assessment"):
+                lines.append(f"\nAssessment: {art['assessment']}")
+        elif art_key == "govt_proposal":
+            lines.append(f"Client: {art.get('client', '')}  |  Vendor: {art.get('vendor', '')}")
+            lines.append(f"Summary: {art.get('one_line_summary', '')}")
+            if art.get("executive_summary"):
+                lines.append(f"\nExecutive Summary:\n{art['executive_summary']}")
+            for f_name in ("client_challenges", "vendor_capabilities"):
+                for f in art.get(f_name, []):
+                    if isinstance(f, dict):
+                        lines.append(f"{f_name.replace('_', ' ').title()}: {f.get('text', '')}")
+            for dm in art.get("department_mappings", []):
+                if isinstance(dm, dict):
+                    lines.append(f"\nDepartment: {dm.get('department', '')}")
+                    lines.append(f"  Challenge: {dm.get('challenge', '')}")
+                    lines.append(f"  Solution: {dm.get('solution', '')}")
+                    lines.append(f"  Impact: {dm.get('impact', '')}")
+            if art.get("competitive_advantage"):
+                lines.append(f"\nCompetitive Advantage: {art['competitive_advantage']}")
+            if art.get("pilot_plan"):
+                lines.append(f"\nPilot Plan: {art['pilot_plan']}")
+        elif art_key == "product_research":
+            lines.append(f"Criteria: {art.get('criteria', '')}")
+            lines.append(f"Summary: {art.get('one_line_summary', '')}")
+            lines.append(f"Winner: {art.get('winner', '')} — {art.get('winner_rationale', '')}")
+            for p in art.get("products_found", []):
+                if isinstance(p, dict):
+                    lines.append(
+                        f"\nProduct: {p.get('name', '')} ({p.get('brand', '')}) — "
+                        f"₹{p.get('price', '?')} — RAM: {p.get('ram', '')} / "
+                        f"Storage: {p.get('storage', '')} — Score: {p.get('score', '')}/10"
+                    )
+                    pros = p.get("pros") or []
+                    cons = p.get("cons") or []
+                    if pros:
+                        lines.append(f"  Pros: {', '.join(pros) if isinstance(pros, list) else pros}")
+                    if cons:
+                        lines.append(f"  Cons: {', '.join(cons) if isinstance(cons, list) else cons}")
+            if art.get("value_ranking"):
+                lines.append(f"\nValue ranking: " + " > ".join(art["value_ranking"]))
+            if art.get("assessment"):
+                lines.append(f"\nAssessment: {art['assessment']}")
+        else:
+            def _flat(d: dict, prefix: str = "") -> list[str]:
+                out: list[str] = []
+                for k, v in d.items():
+                    key = f"{prefix}.{k}" if prefix else k
+                    if isinstance(v, (str, int, float)):
+                        out.append(f"{key}: {v}")
+                    elif isinstance(v, list):
+                        for item in v[:5]:
+                            if isinstance(item, str):
+                                out.append(f"{key}: {item}")
+                            elif isinstance(item, dict):
+                                out.extend(_flat(item, key))
+                    elif isinstance(v, dict):
+                        out.extend(_flat(v, key))
+                return out
+            lines.extend(_flat(art))
+        return "\n".join(lines)
+
+    def _auto_kb_ingest() -> None:
+        try:
+            from sentinel.kb import SourceType
+            arts = (result.dashboard_payload or {}).get("artifacts") or {}
+            if not arts:
+                # Fallback to finding_texts if no per-artifact data
+                text = "\n\n".join(rec.finding_texts) if rec.finding_texts else ""
+                if not text.strip():
+                    return
+                manager = KBManager(_kb_data_dir())
+                source = manager.add_text(task.project_id, text, _entity[:120], SourceType.ARTIFACT)
+                KBStore().save({
+                    "id": source.id, "project_id": task.project_id, "url": source.url,
+                    "source_type": source.source_type.value, "status": source.status.value,
+                    "chunk_count": source.chunk_count, "error": source.error,
+                })
+                return
+            manager = KBManager(_kb_data_dir())
+            for art_key, art in arts.items():
+                if not isinstance(art, dict):
+                    continue
+                text = _artifact_to_text(art_key, art)
+                if not text.strip():
+                    continue
+                org = art.get("org") or art.get("target") or art.get("subject") or _entity
+                label = f"{art_key}: {org}"
+                source = manager.add_text(task.project_id, text, label, SourceType.ARTIFACT)
+                KBStore().save({
+                    "id": source.id, "project_id": task.project_id, "url": source.url,
+                    "source_type": source.source_type.value, "status": source.status.value,
+                    "chunk_count": source.chunk_count, "error": source.error,
+                })
+        except Exception:
+            pass  # KB ingestion is always fail-soft
+
+    _threading.Thread(target=_auto_kb_ingest, daemon=True).start()
+
+    # Minimal Semantic memory: extract key facts from structured artifact fields and
+    # store them as MemoryType.SEMANTIC_FACT entries scoped to this project.
+    try:
+        from sentinel.memory.store import MemoryStore as _MemStore
+        _artifacts = (result.dashboard_payload or {}).get("artifacts") or {}
+        _mem = _MemStore()
+        for _art_key, _art in _artifacts.items():
+            if not isinstance(_art, dict):
+                continue
+            if _art_key == "product_research":
+                winner = str(_art.get("winner") or "").strip()
+                rationale = str(_art.get("winner_rationale") or "").strip()
+                summary = str(_art.get("one_line_summary") or "").strip()
+                if winner:
+                    fact = f"Winner: {winner}"
+                    if rationale:
+                        fact += f" — {rationale[:120]}"
+                    _mem.write_semantic_fact(task.project_id, winner, fact, "product_research")
+                if summary:
+                    _mem.write_semantic_fact(task.project_id, task.objective[:80], summary, "product_research")
+            elif _art_key == "govt_proposal":
+                client = str(_art.get("client") or "").strip()
+                one_line = str(_art.get("one_line_summary") or "").strip()
+                if client and one_line:
+                    _mem.write_semantic_fact(task.project_id, client, one_line, "govt_proposal")
+            elif _art_key == "self_profile":
+                org = str(_art.get("org") or "").strip()
+                products = [p.get("name", "") for p in (_art.get("products") or [])
+                            if isinstance(p, dict) and p.get("name")]
+                if org and products:
+                    _mem.write_semantic_fact(
+                        task.project_id, org,
+                        f"{org} products: {', '.join(products[:5])}", "self_profile",
+                    )
+            elif _art_key == "compare":
+                winner = str(_art.get("winner") or _art.get("winner_entity") or "").strip()
+                subject = str(_art.get("subject") or "").strip()
+                rival = str(_art.get("rival") or "").strip()
+                if winner and subject:
+                    _mem.write_semantic_fact(
+                        task.project_id, subject,
+                        f"{winner} wins vs {rival}" if rival else f"Winner: {winner}",
+                        "compare",
+                    )
+    except Exception:
+        pass  # semantic extraction is always fail-soft
+
 
 def _plan_is_stale(task, plan) -> bool:
     """True when a saved plan no longer matches what the deterministic template would now produce for a
@@ -843,7 +1452,8 @@ def _persona_for(name: str) -> Persona:
 @app.get("/projects/{project_id}/plan", response_class=HTMLResponse)
 async def plan_review(project_id: str, objective: str = "", domain: str = "market",
                       persona: str = "enterprise", backend: str = "",
-                      user_id: str = "") -> str:
+                      user_id: str = "", context: str = "",
+                      client_url: str = "") -> str:
     proj = ProjectStore().get_project(project_id)
     if proj is None:
         return render.not_found_page(what=f"project {project_id}", backend=_active())
@@ -860,12 +1470,49 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
         now = utcnow().isoformat()
         task = Task(id=f"task-{now}", project_id=project_id, objective=objective,
                     domain=Domain(name=dom), persona=_persona_for(persona), created_at=now,
-                    user_id=user_id.strip() or None)
+                    user_id=user_id.strip() or None,
+                    context=context.strip() or None)
     else:
         task.persona = _persona_for(persona)
         if user_id.strip():
             task.user_id = user_id.strip()
+        if context.strip():
+            task.context = context.strip()
     cloud_allowed = _cloud_allowed_for(proj)
+
+    # KB enrichment: if a client_url was supplied, start a background crawl so agents have
+    # real content from the client's site before the plan runs.  The crawl runs in parallel
+    # with plan generation — by the time the user hits "Approve", it's usually done.
+    if client_url.strip():
+        try:
+            _client_url_clean = validate_crawl_url(client_url.strip())
+            kb_store = KBStore()
+            _existing = [s for s in kb_store.list_for_project(project_id)
+                         if s.get("url") == _client_url_clean]
+            if not _existing:
+                from sentinel.kb.schema import KBSource as _KBS, SourceType as _ST
+                _src = _KBS(project_id=project_id, url=_client_url_clean,
+                            source_type=_ST.WEB)
+                kb_store.save({
+                    "id": _src.id, "project_id": project_id, "url": _client_url_clean,
+                    "source_type": "web", "status": "pending", "chunk_count": 0, "error": None,
+                })
+                import asyncio as _asyncio
+                import threading as _t2
+
+                async def _crawl_client(src_id: str, pid: str, u: str) -> None:
+                    result = await KBManager(_kb_data_dir()).add_source(pid, u, SourceType.WEB)
+                    KBStore().update_status(src_id, result.status.value,
+                                            result.chunk_count, result.error)
+
+                def _run_crawl(src_id: str, pid: str, u: str) -> None:
+                    _asyncio.run(_crawl_client(src_id, pid, u))
+
+                _t2.Thread(target=_run_crawl, args=(_src.id, project_id, _client_url_clean),
+                           daemon=True).start()
+        except Exception:
+            pass  # KB enrichment is always fail-soft
+
     # Validate and apply user-chosen backend, honouring sovereignty (never allow cloud when blocked).
     backend = backend.strip().lower()
     if backend not in ("gemini", "vllm"):
@@ -905,7 +1552,7 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
 
 @app.get("/projects/{project_id}/tasks/{task_id}", response_class=HTMLResponse)
 async def task_detail(project_id: str, task_id: str, backend: str = "",
-                      from_plan: str = "") -> str:
+                      from_plan: str = "", client_url: str = "") -> str:
     """The canonical per-task page (PRG target): its plan DAG + assigned agents + call boundaries,
     the Approve & run control, and — once run — the persisted Result + execution trace. Both planning
     (GET /plan) and running (POST .../run) redirect here, so each task's output lives at its own URL
@@ -930,10 +1577,15 @@ async def task_detail(project_id: str, task_id: str, backend: str = "",
     result = task.result
     # Sanitise backend: only carry forward a valid choice from the plan redirect.
     selected_be = backend.strip().lower() if backend.strip().lower() in ("gemini", "vllm") else ""
+    try:
+        kb_sources = KBStore().list_for_project(project_id)
+    except Exception:
+        kb_sources = []
     return render.plan_review_page(task=task, proposal=PlanProposal(plan=plan, created_specs=[]),
                                    autonomy=autonomy, backend=_active(),
                                    ran=result is not None, result=result,
-                                   selected_backend=selected_be)
+                                   selected_backend=selected_be,
+                                   kb_sources=kb_sources)
 
 
 @app.post("/projects/{project_id}/tasks/{task_id}/delete")
@@ -989,6 +1641,11 @@ async def _approve_and_run(task_id: str, override_backend: str = "") -> Redirect
     plan = store.plan_for_task(task_id)
     if plan is None:
         return render.error_page("No plan found for this task — re-plan it first.", backend=_active())
+    # Reset step statuses so a re-run doesn't skip steps that completed on a prior attempt.
+    for _s in plan.steps:
+        _s.status = "pending"
+        _s.started_at = None
+        _s.finished_at = None
     proj = store.get_project(task.project_id)
     cloud_allowed = _cloud_allowed_for(proj) if proj is not None else True
     proposal = PlanProposal(plan=plan, created_specs=[])
@@ -1030,6 +1687,166 @@ async def run_plan_route(task_id: str = Form(...),
     return await _approve_and_run(task_id, override_backend=backend.strip().lower())
 
 
+@app.post("/projects/{project_id}/tasks/{task_id}/chat")
+async def task_chat(project_id: str, task_id: str,
+                    message: str = Form(...)):
+    """Conversational refinement on a completed task — Claude.ai-style post-run chat."""
+    from fastapi.responses import JSONResponse as _J
+    import litellm as _litellm
+
+    store = ProjectStore()
+    task = store.get_task(task_id)
+    if task is None:
+        return _J({"error": "Task not found"}, status_code=404)
+
+    # Build system context from the task's artifact
+    artifact_ctx = ""
+    if task.result and task.result.dashboard_payload:
+        payload = task.result.dashboard_payload
+        arts = payload.get("artifacts") or payload
+        if isinstance(arts, dict):
+            import json as _json
+            try:
+                artifact_ctx = _json.dumps(arts, indent=2)[:6000]
+            except Exception:
+                artifact_ctx = str(arts)[:3000]
+
+    system_prompt = (
+        f"You are a research assistant helping refine and discuss findings from a Sentinel research task.\n"
+        f"Task objective: {task.objective}\n"
+        f"Domain: {task.domain.name}\n"
+    )
+    if artifact_ctx:
+        system_prompt += f"\nResearch findings (summarized):\n{artifact_ctx}\n"
+    system_prompt += (
+        "\nAnswer questions, suggest improvements, and help the user act on these findings. "
+        "Be concise and cite specific data from the findings where relevant."
+    )
+
+    # Build message history
+    history = list(getattr(task, "chat", []) or [])
+    history.append({"role": "user", "content": message.strip()})
+
+    messages = [{"role": "system", "content": system_prompt}] + history
+
+    try:
+        resp = await _litellm.acompletion(
+            model=f"gemini/{get_config().backend.gemini.model}",
+            messages=messages,
+            api_key=os.environ.get("GOOGLE_API_KEY"),
+            max_tokens=1024,
+            drop_params=True,
+        )
+        reply = resp.choices[0].message.content or ""
+    except Exception as exc:
+        return _J({"error": f"LLM error: {type(exc).__name__}: {exc}"}, status_code=500)
+
+    history.append({"role": "assistant", "content": reply})
+    task.chat = history
+    store.save_task(task)
+    return _J({"reply": reply, "success": True})
+
+
+@app.get("/projects/{project_id}/tasks/{task_id}/export.html", response_class=HTMLResponse)
+async def export_task_html(project_id: str, task_id: str) -> str:
+    """Download a clean standalone HTML report — fully formatted, no raw JSON."""
+    from html import escape as _esc
+    from sentinel.web import render as _render
+    store = ProjectStore()
+    task = store.get_task(task_id)
+    if task is None or task.result is None:
+        return HTMLResponse("<html><body>No result found for this task.</body></html>", status_code=404)
+
+    result = task.result
+    arts = (result.dashboard_payload or {}).get("artifacts", {}) or {}
+
+    # Reuse the same _artifact_html renderer used in the live UI —
+    # strips the dark-mode CSS classes via inline-style substitution for print
+    arts_html = ""
+    for key, art in arts.items():
+        raw = _render._artifact_html(key, art)
+        # Replace CSS variables with print-safe values so it renders in any browser
+        raw = (raw
+               .replace("var(--accent-2)", "#1a56db")
+               .replace("var(--card)", "#fff")
+               .replace("var(--line)", "#e5e7eb")
+               .replace("var(--muted)", "#6b7280")
+               .replace("var(--public)", "#16a34a")
+               .replace("var(--good,#16a34a)", "#16a34a")
+               .replace("var(--warn,#ca8a04)", "#ca8a04")
+               .replace("var(--bad,#dc2626)", "#dc2626")
+               .replace("var(--bad)", "#dc2626")
+               .replace("var(--ink)", "#1a1a1a")
+               .replace("var(--ink-3)", "#6b7280")
+               .replace("var(--border)", "#e5e7eb")
+               .replace("var(--fg-2)", "#6b7280")
+               .replace("var(--accent-line)", "#eff6ff")
+               .replace("var(--rail)", "#f9fafb")
+               .replace("var(--panel)", "#f3f4f6")
+               .replace("var(--mono)", "monospace")
+               # Translate card/section-h/find/note/pill/badge class patterns
+               .replace("class='card'", "style='border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:10px 0'")
+               .replace("class='note'", "style='color:#374151;font-size:14px;line-height:1.6'")
+               .replace("class='find'", "style='padding-left:18px;margin:4px 0'")
+               .replace("class='pill'", "style='display:inline-block;background:#f3f4f6;border-radius:99px;padding:2px 10px;font-size:12px;margin:2px'")
+               .replace("class='badge'", "style='display:inline-block;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600'")
+               .replace("class='section-h'", "style='margin:12px 0 6px'")
+               .replace("class='tag'", "style='font-size:11px;opacity:.7'")
+               )
+        arts_html += arts_html and "<hr style='border:0;border-top:1px solid #e5e7eb;margin:20px 0'>" or ""
+        arts_html += raw
+
+    cites_html = ""
+    if result.citations:
+        cites_html = "<h2 style='font-size:15px;border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:24px'>📎 Sources</h2><ul style='padding-left:20px'>"
+        for c in result.citations:
+            url = getattr(c, "url", "") or ""
+            label = getattr(c, "label", url) or url
+            cites_html += (f"<li style='margin:4px 0'><a href='{_esc(url)}' style='color:#1a56db'>{_esc(label)}</a></li>"
+                           if url else f"<li style='margin:4px 0'>{_esc(label)}</li>")
+        cites_html += "</ul>"
+
+    html = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>{_esc(task.objective[:80])}</title>
+<style>
+*{{box-sizing:border-box}}
+body{{font-family:system-ui,sans-serif;max-width:960px;margin:40px auto;padding:0 24px;color:#1a1a1a;line-height:1.6}}
+h1{{font-size:22px;margin-bottom:4px;color:#111}}
+h2,h3{{color:#222}}
+h3{{font-size:15px;margin:0 0 8px}}
+.meta{{font-size:13px;color:#6b7280;margin-bottom:28px;padding-bottom:12px;border-bottom:1px solid #e5e7eb}}
+table{{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}}
+td,th{{border:1px solid #e5e7eb;padding:8px 10px;text-align:left}}
+th{{background:#f9fafb;font-weight:600;color:#374151}}
+a{{color:#1a56db;text-decoration:none}}
+a:hover{{text-decoration:underline}}
+ul{{padding-left:20px}} li{{margin:4px 0;font-size:13px}}
+p{{margin:4px 0 8px;font-size:14px;color:#374151}}
+details summary{{cursor:pointer;font-size:13px;color:#6b7280;padding:4px 0}}
+@media print{{body{{margin:20px;padding:0}}}}
+</style></head>
+<body>
+<h1>{_esc(task.objective)}</h1>
+<div class="meta">
+  <strong>Domain:</strong> {_esc(task.domain.name)} &nbsp;·&nbsp;
+  <strong>Persona:</strong> {_esc(task.persona.name)} &nbsp;·&nbsp;
+  {_esc((task.created_at or '')[:19].replace('T', ' '))} UTC
+</div>
+<h2 style='font-size:16px;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:12px'>📊 Summary</h2>
+<p style='font-size:15px'>{_esc(_render._clean_text(result.summary or ''))}</p>
+<h2 style='font-size:16px;border-bottom:1px solid #ddd;padding-bottom:4px;margin:24px 0 12px'>📦 Deliverables</h2>
+{arts_html}
+{cites_html}
+</body></html>"""
+    from fastapi.responses import Response as _Resp
+    return _Resp(
+        content=html,
+        media_type="text/html",
+        headers={"Content-Disposition": f"attachment; filename=\"sentinel-{task_id[:8]}.html\""},
+    )
+
+
 @app.post("/run", response_class=HTMLResponse)
 async def run(
     target: str = Form(...),
@@ -1042,15 +1859,16 @@ async def run(
     target = target.strip()
     if not target:
         return render.error_page("Target is required.", backend=_active())
-    if mode not in ({"competitor", "client"} | _SINGLE_STEP_DOMAINS):
+    _DAG_MODES = _SINGLE_STEP_DOMAINS | {"govt_proposal"}
+    if mode not in ({"competitor", "client"} | _DAG_MODES):
         return render.error_page(f"Unknown mode {mode!r}.", backend=_active())
     backend = backend.strip().lower()
     if backend not in ("", "gemini", "vllm"):
         return render.error_page(f"Unknown backend {backend!r}.", backend=_active())
 
-    if mode in _SINGLE_STEP_DOMAINS:
+    if mode in _DAG_MODES:
         # Domain modes route through the orchestrated DAG path — _template_plan produces a
-        # deterministic 1-step plan (no LLM call), so this is fast and reliable.
+        # deterministic plan (no LLM call), so this is fast and reliable.
         task = Task(
             id=f"run-{mode}-{uuid4().hex[:8]}",
             project_id="legacy",
@@ -1147,12 +1965,24 @@ async def settings_backends(
     gemini_model: str = Form(...),
     vllm_model: str = Form(...),
     vllm_api_base: str = Form(...),
+    vllm_reasoning_model: str = Form(""),
+    vllm_reasoning_api_base: str = Form(""),
 ) -> str:
     try:
         cfg = settings_helpers.apply_backends(
             get_config(), default=default, gemini_model=gemini_model,
             vllm_model=vllm_model, vllm_api_base=vllm_api_base,
         )
+        # Wire the reasoning model to synthesizer + strategist roles if provided
+        if vllm_reasoning_model.strip():
+            cfg = settings_helpers.apply_models(cfg, {
+                "synthesizer": {"model": vllm_reasoning_model.strip(),
+                                "api_base": vllm_reasoning_api_base.strip() or vllm_api_base.strip()},
+                "strategist":  {"model": vllm_reasoning_model.strip(),
+                                "api_base": vllm_reasoning_api_base.strip() or vllm_api_base.strip()},
+            })
+        else:
+            cfg = settings_helpers.apply_models(cfg, {})  # clears roles → single-model mode
         set_config(cfg, persist=True)
     except ValueError as exc:
         return _settings_html(err=str(exc))

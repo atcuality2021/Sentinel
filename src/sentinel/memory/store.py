@@ -680,6 +680,46 @@ class MemoryStore:
         except Exception:
             return []
 
+    # ---------------------------------------------------------------------- #
+    # Semantic memory (minimal Phase 1)
+    # ---------------------------------------------------------------------- #
+
+    def write_semantic_fact(
+        self,
+        project_id: str,
+        entity: str,
+        content: str,
+        source_label: str = "",
+    ) -> str:
+        """Store one extracted entity fact for a project. Dedup by content_hash. Fail-soft."""
+        from sentinel.memory.schema import MemoryType
+        try:
+            entry = MemoryEntry(
+                entity=entity,
+                boundary=DataBoundary.PUBLIC,
+                memory_type=MemoryType.SEMANTIC_FACT,
+                content=content,
+                source_label=source_label,
+                project_id=project_id,
+            )
+            return self.write(entry)
+        except Exception:
+            return ""
+
+    def list_semantic_facts(self, project_id: str) -> list[MemoryEntry]:
+        """Return all semantic facts for a project, newest first. Fail-soft → []."""
+        try:
+            with _connect(self.path) as conn:
+                rows = conn.execute(
+                    "SELECT * FROM memory_entries "
+                    "WHERE project_id=? AND memory_type=? AND quarantined=0 "
+                    "ORDER BY created_at DESC",
+                    (project_id, "semantic_fact"),
+                ).fetchall()
+            return [_row_to_entry(r) for r in rows]
+        except Exception:
+            return []
+
     def purge_entity(self, entity: str) -> None:
         """Remove an entity's memory AND run history (AC-9)."""
         entity = normalize_entity(entity)
@@ -906,6 +946,14 @@ class RunStore:
         with _connect(self.path) as conn:
             rows = conn.execute(sql, params).fetchall()
         return [_row_to_run(r) for r in rows]
+
+    def get(self, run_id: str) -> RunRecord | None:
+        """Fetch a single run record by primary key."""
+        with _connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT * FROM run_records WHERE id=? LIMIT 1", (run_id,)
+            ).fetchone()
+        return _row_to_run(row) if row else None
 
     def all(self, *, project_id: str | None = None) -> list[RunRecord]:
         sql = "SELECT * FROM run_records"
@@ -1152,7 +1200,7 @@ class ProjectStore:
         return [_row_to_project(r) for r in rows]
 
     def delete_project(self, project_id: str) -> bool:
-        """Delete a project and cascade to its tasks and plans. Returns True if the project existed."""
+        """Delete a project and cascade to tasks, plans, run_records, and kb_sources."""
         with _connect(self.path) as conn:
             task_ids = [
                 r["id"] for r in
@@ -1161,6 +1209,8 @@ class ProjectStore:
             for tid in task_ids:
                 conn.execute("DELETE FROM plans WHERE task_id=?", (tid,))
             conn.execute("DELETE FROM tasks WHERE project_id=?", (project_id,))
+            conn.execute("DELETE FROM run_records WHERE project_id=?", (project_id,))
+            conn.execute("DELETE FROM kb_sources WHERE project_id=?", (project_id,))
             cur = conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
             conn.commit()
         return cur.rowcount > 0

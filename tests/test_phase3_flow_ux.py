@@ -108,7 +108,11 @@ def test_plan_seeds_falls_back_when_no_rival_named():
     plan = Plan(id="pl", task_id="t1",
                 steps=[Step(id="s2", capability="competitor", output_key="competitor")])
     seeds = _plan_seeds(task, plan, None)
-    assert seeds["s2"]["target"] == task.objective    # no 'against X' → fail-soft to the objective
+    target = seeds["s2"]["target"]
+    # When no rival is named the fallback is a focused "<org> top competitor" phrase —
+    # shorter and more useful than the full objective, and still contains "competitor".
+    assert "competitor" in target
+    assert len(target) < len(task.objective)
 
 
 # --------------------------------------------------------------------------- #

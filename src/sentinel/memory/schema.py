@@ -61,6 +61,7 @@ class MemoryType(str, Enum):
     PREFERENCE = "preference"
     DECISION = "decision"
     OBSERVATION = "observation"
+    SEMANTIC_FACT = "semantic_fact"
 
 
 class EntityRelation(BaseModel):
