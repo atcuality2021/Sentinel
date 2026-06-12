@@ -4017,15 +4017,17 @@ def _prompt_card(key: str, p) -> str:
     )
 
 
-# Per-role model tiering (SENTINEL-011): role → (tier label, suggested on-prem endpoint).
+# Per-role model tiering (SENTINEL-011): role → tier label. The endpoint *placeholder* shown for
+# an unset role comes from the deployment's own config (settings_page derives it from the flat
+# vLLM api_base) — hardcoding one org's hosts here leaked them into every deployment's UI.
 _ROLE_TIERS = [
-    ("coordinator", "tool-caller · 12B", "https://gemma.atcuality.com/v1"),
-    ("planner", "tool-caller · 12B", "https://gemma.atcuality.com/v1"),
-    ("public_research", "tool-caller · 12B", "https://gemma.atcuality.com/v1"),
-    ("private_research", "tool-caller · 12B", "https://gemma.atcuality.com/v1"),
-    ("extractor", "tool-caller · 12B", "https://gemma.atcuality.com/v1"),
-    ("synthesizer", "reasoner · 26B (no tools)", "https://omni.atcuality.com/v1"),
-    ("strategist", "reasoner · 26B (no tools)", "https://omni.atcuality.com/v1"),
+    ("coordinator", "tool-caller · 12B"),
+    ("planner", "tool-caller · 12B"),
+    ("public_research", "tool-caller · 12B"),
+    ("private_research", "tool-caller · 12B"),
+    ("extractor", "tool-caller · 12B"),
+    ("synthesizer", "reasoner · 26B (no tools)"),
+    ("strategist", "reasoner · 26B (no tools)"),
 ]
 
 
@@ -4208,7 +4210,11 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     role_map = cfg.backend.roles or {}
     tiering_on = bool(role_map)
 
-    def _role_row(role: str, tier: str, endpoint: str) -> str:
+    # Endpoint placeholder for unset roles: this deployment's own vLLM base, never a baked-in host.
+    _ep_hint = cfg.backend.vllm.api_base or "https://your-vllm-host/v1"
+
+    def _role_row(role: str, tier: str, endpoint: str = "") -> str:
+        endpoint = endpoint or _ep_hint
         opt = role_map.get(role)
         model_val = escape(opt.model) if opt else ""
         base_val = escape(opt.api_base) if (opt and opt.api_base) else ""
@@ -4227,7 +4233,7 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     models = (
         "<h2 class='sec'>Models · Gemma-4 role tiering</h2>"
         "<div class='card'><form method='post' action='/settings/models' class='set-grid'>"
-        + "".join(_role_row(r, tier, ep) for r, tier, ep in _ROLE_TIERS)
+        + "".join(_role_row(r, tier) for r, tier in _ROLE_TIERS)
         + f"<div class='set-actions'>{_key_pill('ATCUALITY_API_KEY', atcuality_key_set)}"
         "<span style='flex:1'></span><button class='btn' type='submit'>Save models</button></div>"
         "<p class='note'><b>Capability tiers (verified):</b> tool-callers run on "

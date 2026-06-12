@@ -34,6 +34,39 @@ def test_healthz(client):
     assert r.text == "ok"
 
 
+def test_favicon_served_and_public(client, monkeypatch):
+    """/favicon.ico answers with the SVG brand mark — browsers probe it on every page (including
+    the pre-auth login page, so it must bypass auth like /healthz). It 404'd before (e2e 2026-06-11)."""
+    r = client.get("/favicon.ico")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/svg+xml")
+    assert "<svg" in r.text
+    monkeypatch.delenv("SENTINEL_DISABLE_AUTH", raising=False)
+    from sentinel.config import get_config
+
+    get_config().auth.password_hash = "x"
+    try:
+        assert client.get("/favicon.ico").status_code == 200   # no redirect with auth ON
+    finally:
+        get_config().auth.password_hash = ""
+
+
+def test_healthz_bypasses_auth(client, monkeypatch):
+    """/healthz must answer 200 even with auth ON — uptime probes (systemd, nginx, GCP LB) don't
+    follow redirects, so a gated health check reads as 'down' (found live 2026-06-11: 307 → /login).
+    A protected route still redirects, proving the bypass is healthz-only."""
+    monkeypatch.delenv("SENTINEL_DISABLE_AUTH", raising=False)
+    from sentinel.config import get_config
+
+    get_config().auth.password_hash = "x"  # a password exists → middleware demands a session
+    try:
+        assert client.get("/healthz").status_code == 200
+        r = client.get("/projects", follow_redirects=False)
+        assert r.status_code in (303, 307) and "/login" in r.headers["location"]
+    finally:
+        get_config().auth.password_hash = ""
+
+
 def test_dashboard_renders(client):
     r = client.get("/")
     assert r.status_code == 200

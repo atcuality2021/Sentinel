@@ -105,6 +105,22 @@ def test_apply_agent_blank_model_inherits():
     assert new.agents["competitor.planner"].model is None
 
 
+def test_delete_custom_agent_roundtrip(client):
+    """Create → delete a custom agent through the routes. delete_agent imported a function that
+    doesn't exist (`default_config` — real name `build_default`), so EVERY delete 500'd; only the
+    live e2e walk caught it (2026-06-11). Built-ins must still be protected, not crash."""
+    r = client.post("/agents", data={"key": "e2e.victim", "role": "planner", "model": ""},
+                    follow_redirects=False)
+    assert r.status_code in (200, 303)
+    r = client.post("/agents/e2e.victim/delete", follow_redirects=False)
+    assert r.status_code in (200, 303), f"delete crashed: {r.status_code}"
+    assert "e2e.victim" not in client.get("/agents").text
+    # a built-in agent is refused politely (no 500), and survives
+    r = client.post("/agents/competitor.synthesizer/delete", follow_redirects=False)
+    assert r.status_code != 500
+    assert "competitor.synthesizer" in client.get("/agents").text
+
+
 def test_apply_agent_unknown_key_raises():
     with pytest.raises(ValueError, match="Unknown agent"):
         S.apply_agent(_cfg(), "nope.nope", enabled=True, model=None,
@@ -226,6 +242,18 @@ def test_get_settings_renders_all_sections(client):
     assert "competitor.synthesizer" in body
     # backend default reflected (radio checked)
     assert "id='sb-gemini' name='default' value='gemini' checked" in body
+
+
+def test_role_tier_endpoint_hint_comes_from_config(client):
+    """The Models role-table endpoint placeholder is THIS deployment's vLLM base — hardcoded
+    atcuality hosts used to leak into every deployment's settings UI (e2e audit 2026-06-11)."""
+    client.post("/settings/backends", data={
+        "default": "vllm", "gemini_model": "gemini-2.5-flash",
+        "vllm_model": "meta/llama-3", "vllm_api_base": "http://my-own-gpu:8000/v1",
+    })
+    body = client.get("/settings").text
+    assert "placeholder='http://my-own-gpu:8000/v1'" in body
+    assert "gemma.atcuality.com" not in body and "omni.atcuality.com" not in body
 
 
 def test_get_settings_never_shows_secret(client, monkeypatch):

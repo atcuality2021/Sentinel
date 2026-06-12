@@ -412,8 +412,8 @@ def delete_agent(cfg: SentinelConfig, key: str) -> SentinelConfig:
 
     Built-in agents (those present in the default config) cannot be deleted — disable them instead.
     """
-    from sentinel.config.defaults import default_config
-    defaults = default_config()
+    from sentinel.config.defaults import build_default
+    defaults = build_default()
     new = cfg.model_copy(deep=True)
     if key not in new.agents:
         raise ValueError(f"Unknown agent {key!r}.")

@@ -15,7 +15,7 @@ import os
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, Request, Response, UploadFile
 from typing import List
 from urllib.parse import urlparse
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
@@ -48,8 +48,10 @@ app = FastAPI(title="Sentinel — Sovereign Intelligence Agent", docs_url="/api"
 
 # ---- Auth constants ----
 _COOKIE = "sentinel_session"
-# Routes that bypass auth (login/setup/logout only)
-_PUBLIC_PATHS = {"/login", "/logout", "/setup"}
+# Routes that bypass auth: login/setup/logout, plus /healthz — uptime probes (systemd, nginx,
+# GCP LB) don't follow auth redirects, so a gated health check reads as "down" (found in e2e
+# 2026-06-11: /healthz returned 307 → /login). It returns a constant "ok", no data to protect.
+_PUBLIC_PATHS = {"/login", "/logout", "/setup", "/healthz", "/favicon.ico"}
 
 
 def _safe_next(n: str) -> str:
@@ -281,6 +283,24 @@ def _summary_for(key: str, runs: list):
 @app.get("/healthz", response_class=PlainTextResponse)
 async def healthz() -> str:
     return "ok"
+
+
+# The brand mark, served at the path browsers probe when a page declares no usable icon.
+# The layout's inline data-URI icon is malformed on some browsers (unencoded '<'), and the
+# login/setup pages declare none — both fall back here, which 404'd on every page load
+# (found in e2e 2026-06-11). SVG at /favicon.ico is fine for every modern browser.
+_FAVICON_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+    "<rect x='5' y='5' width='22' height='22' rx='6' fill='#4285f4'/>"
+    "<text x='16' y='23' font-size='17' font-family='sans-serif' font-weight='700'"
+    " fill='#fff' text-anchor='middle'>S</text></svg>"
+)
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    return Response(content=_FAVICON_SVG, media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/", response_class=HTMLResponse)

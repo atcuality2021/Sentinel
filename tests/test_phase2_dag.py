@@ -260,6 +260,40 @@ def test_budget_wall_clock_yields_partial(monkeypatch):
 # --- SENTINEL-013 Phase 2: concurrent level scheduling (AC-4, AC-6) ------------------------- #
 
 
+def test_hung_step_times_out_instead_of_pinning_the_run(monkeypatch):
+    """A step that hangs MID-execution (stuck tool call, gen that never returns) must be cancelled at
+    the wall-clock cap, not pin the run as 'running' forever. The between-wave budget check can't
+    catch this — the gather never returns (seen live 2026-06-11: a dept-research step ran 25+ min).
+    asyncio.wait_for converts the hang into a failed step; siblings and the run still terminate."""
+    monkeypatch.setenv("ATCUALITY_API_KEY", "atc")
+    monkeypatch.setattr(orch, "InMemoryRunner", FakeRunnerFactory())
+
+    real = dag._run_one_step
+
+    async def _hang_profile(step, **kw):
+        if step.id == "s_profile":
+            await asyncio.sleep(3600)  # would hang the old executor for an hour
+        return await real(step, **kw)
+
+    monkeypatch.setattr(dag, "_run_one_step", _hang_profile)
+
+    plan, seeds = biltiq_program_plan("task-hang", our_brand="BiltIQ", rivals=["Datadog"])
+    result = asyncio.run(asyncio.wait_for(  # outer guard: the suite must never hang either
+        run_plan(plan, seeds=seeds, cfg=_tiered_cfg(), backend="vllm", cloud_allowed=False,
+                 search_provider="duckduckgo", use_cache=False,
+                 budget=TaskBudget(wall_clock_s=3)),
+        timeout=90,
+    ))
+    ids = _by_id(plan)
+
+    # The contract under test: the hung step is cancelled at the cap and honestly recorded as a
+    # terminal failure — NOT that siblings finish (the cap is wave-wide; a slow sibling may be
+    # cancelled too, which is the budget working as designed).
+    assert ids["s_profile"].status == "failed"            # cancelled at the cap, honestly recorded
+    assert ids["s_profile"].finished_at is not None       # poller/timeline sees a terminal step
+    assert result.degraded is True                        # partial output, honestly labelled
+
+
 def test_independent_level_steps_run_concurrently(monkeypatch):
     """AC-4: same-level steps overlap rather than running one-after-another. ``self_profile`` and both
     competitor steps are level-0 (the competitors carry no ``depends_on``), so the scheduler fans them

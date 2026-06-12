@@ -923,13 +923,25 @@ async def _execute_plan(
         # ``return_exceptions=True`` keeps one step's unexpected raise from poisoning the whole level;
         # _run_one_step already catches its own run errors, so this is belt-and-suspenders. gather
         # preserves order, so we zip back to run_specs and convert any stray exception to a failed record.
+        #
+        # Each step is HARD-CAPPED at the remaining wall-clock budget (asyncio.wait_for): the budget
+        # check above runs *between* waves, so a step that hangs mid-execution (stuck tool call,
+        # non-streamed gen that never returns) would otherwise pin the whole run as "running" forever —
+        # the budget can never fire because the gather never returns (seen live 2026-06-11: a
+        # govt_dept_research step ran 25+ min). TimeoutError lands in the BaseException branch below
+        # → failed step, degraded result, honest trace; the run always terminates. ``elapsed`` is the
+        # admission-time reading from above — no extra clock() call, so the injectable test clock
+        # still sees exactly one tick per wave.
+        # Floor: late waves still get a beat to finish (30s), but never more than the operator's own
+        # wall-clock setting — a tiny budget must stay tiny (and keeps this testable without sleeping).
+        step_cap = max(min(30.0, budget.wall_clock_s), budget.wall_clock_s - elapsed)
         raw_outcomes = await asyncio.gather(*[
-            _run_one_step(
+            asyncio.wait_for(_run_one_step(
                 step, by_id=by_id, results_snapshot=results, base=base, seeds=seeds,
                 unsatisfied=uns, spec=spec, cache=cache, use_cache=use_cache, cfg=cfg,
                 backend=backend, cloud_allowed=cloud_allowed, search_provider=search_provider,
                 two_tier=two_tier, registry=registry, project_id=project_id,
-            )
+            ), timeout=step_cap)
             for step, spec, uns in run_specs
         ], return_exceptions=True)
         by_step_id: dict[str, _StepOutcome] = {}
