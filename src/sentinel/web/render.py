@@ -1537,11 +1537,17 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
     domains = "".join(f"<option value='{d}'>{d}</option>" for d in _DOMAINS)
     # Option order = resolution story: auto (agent picks by domain, the default) → built-in
     # registry names → saved library personas (/personas) → custom (override fields only).
-    saved_names = [p.name for p in (saved_personas or [])]
     builtins = [p for p in _PERSONAS if p != "custom"]
+    _builtins_lower = {p.lower() for p in builtins}
+    # A saved persona that OVERRIDES a built-in (same name) must not show as a second option —
+    # the built-in option already covers it; its edited profile flows via the profile map below.
+    saved_names = [p.name for p in (saved_personas or [])
+                   if p.name.strip().lower() not in _builtins_lower]
     personas = "<option value='auto' selected>auto — let the agent pick</option>" + "".join(
         f"<option value='{escape(p)}'>{escape(p)}</option>"
         for p in builtins + saved_names + ["custom"])
+    # All saved profiles (incl. built-in overrides) go into the map so the form prefill and the
+    # override both take effect — _persona_profile_map_json applies them over the code defaults.
     saved_profiles = {p.name: {"reading_level": p.reading_level, "tone": p.tone,
                                "format": p.format, "source_policy": p.source_policy or ""}
                       for p in (saved_personas or [])}
@@ -1642,11 +1648,12 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
 
 
 def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
-                  gen: dict | None = None) -> str:
-    """Persona library (/personas): built-in audience profiles (read-only), saved personas
-    (create/delete), and an LLM generator that drafts a full profile from a plain-English
-    audience description. Generated values arrive via gen_* query params (PRG) and prefill
-    the create form — the user always reviews before saving."""
+                  gen: dict | None = None, builtin_overrides: dict | None = None) -> str:
+    """Persona library (/personas): built-in audience profiles (editable via override), saved
+    personas (full CRUD), and an LLM generator that drafts a full profile from a plain-English
+    audience description. Generated values arrive via gen_* query params (PRG) and prefill the
+    create form — the same mechanism powers a built-in's "Edit". ``builtin_overrides`` maps a
+    built-in name → its override SavedPersona (so the card shows the edited profile + Reset)."""
     from sentinel.artifacts.schemas import PERSONA_PROFILES
 
     g = gen or {}
@@ -1719,7 +1726,10 @@ def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
             f"<span>{escape(value)}</span></div>"
             for label, value in rows)
 
-    if saved:
+    # A saved persona whose name matches a built-in is an OVERRIDE — it shows on the built-in
+    # card (as "overridden"), not here, so it isn't listed twice.
+    library = [p for p in saved if p.name.strip().lower() not in PERSONA_PROFILES]
+    if library:
         saved_cards = "".join(
             "<div class='card' style='margin-bottom:10px'>"
             "<div style='display:flex;align-items:center;justify-content:space-between;gap:10px'>"
@@ -1730,30 +1740,63 @@ def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
             "onsubmit=\"return confirm('Delete this persona? Existing tasks keep their copy.')\">"
             "<button class='btn ghost' type='submit' style='font-size:12px;color:#ff6b6b'>Delete</button>"
             "</form></div></div>"
-            for p in saved)
+            for p in library)
     else:
         saved_cards = ("<div class='card'><div class='empty'>No saved personas yet — "
                        "create one above or generate from a description.</div></div>")
 
-    # --- built-in (read-only) cards -------------------------------------------
-    builtin_cards = "".join(
-        "<div class='card' style='margin-bottom:10px'>"
-        f"<div><b>{escape(name)}</b> <span class='note'>— built-in</span>"
-        + _profile_rows(
-            profile.get("reading_level", "professional"), profile.get("tone", "neutral"),
-            profile.get("format", "brief"), profile.get("source_policy", ""))
-        + ("<div class='note' style='margin-top:6px'>Default audience — tasks with this persona "
-           "skip the extra render pass.</div>" if not profile else "")
-        + "</div></div>"
-        for name, profile in PERSONA_PROFILES.items())
+    # --- built-in cards (editable via override; enterprise stays read-only) ---
+    from urllib.parse import quote as _qp
+    ov = {k.strip().lower(): v for k, v in (builtin_overrides or {}).items()}
+
+    def _builtin_card(name: str, profile: dict) -> str:
+        o = ov.get(name)
+        if o is not None:  # an override edits the built-in's effective profile
+            rl, tone, fmt, sp = o.reading_level, o.tone, o.format, (o.source_policy or "")
+        else:
+            rl = profile.get("reading_level", "professional")
+            tone = profile.get("tone", "neutral")
+            fmt = profile.get("format", "brief")
+            sp = profile.get("source_policy", "")
+        # enterprise must stay == Persona() (dag skip-pass invariant) → not editable.
+        editable = name != "enterprise"
+        tag = ("<span class='note' style='color:var(--accent-2)'>— overridden</span>"
+               if o is not None else "<span class='note'>— built-in</span>")
+        controls = ""
+        if editable:
+            edit_url = "/personas?" + "&".join([
+                f"gen_name={_qp(name)}", f"gen_rl={_qp(rl)}", f"gen_tone={_qp(tone)}",
+                f"gen_fmt={_qp(fmt)}", f"gen_sp={_qp(sp)}"]) + "#create"
+            controls += (f"<a class='btn ghost' style='font-size:12px' href='{edit_url}'>Edit</a>")
+            if o is not None:
+                controls += (
+                    f"<form method='post' action='/personas/{escape(o.id)}/delete' style='display:inline'"
+                    " onsubmit=\"return confirm('Reset this persona to its built-in default?')\">"
+                    "<button class='btn ghost' type='submit' "
+                    "style='font-size:12px;color:#d4a017'>Reset to default</button></form>")
+        body = (f"<div><b>{escape(name)}</b> {tag}"
+                + _profile_rows(rl, tone, fmt, sp)
+                + ("<div class='note' style='margin-top:6px'>Default audience — tasks with this "
+                   "persona skip the extra render pass (kept read-only).</div>"
+                   if name == "enterprise" else "")
+                + "</div>")
+        return ("<div class='card' style='margin-bottom:10px'>"
+                "<div style='display:flex;align-items:flex-start;justify-content:space-between;gap:10px'>"
+                + body
+                + (f"<div style='display:flex;gap:6px;flex-shrink:0'>{controls}</div>" if controls else "")
+                + "</div></div>")
+
+    builtin_cards = "".join(_builtin_card(name, profile) for name, profile in PERSONA_PROFILES.items())
 
     content = (
         banner + generator + create_form
-        + f"<div class='section-h'><h2>Saved personas <span class='note'>{len(saved)}</span></h2></div>"
+        + f"<div class='section-h'><h2>Saved personas <span class='note'>{len(library)}</span></h2></div>"
         + saved_cards
         + "<div class='section-h' style='margin-top:24px'><h2>Built-in personas</h2></div>"
-        + "<div class='note' style='margin-bottom:10px'>Defined in code (read-only). Pick "
-        "<b>auto</b> in the task form to let the agent choose one by domain.</div>"
+        + "<div class='note' style='margin-bottom:10px'><b>Edit</b> tweaks a built-in for every "
+        "task (saved as an override); <b>Reset to default</b> restores the code profile. "
+        "<b>enterprise</b> stays read-only. Pick <b>auto</b> in the task form to let the agent "
+        "choose one by domain.</div>"
         + builtin_cards)
     return shell(active="personas", title="Personas", content=content, backend=backend)
 

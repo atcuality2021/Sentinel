@@ -325,20 +325,22 @@ def persona_for(name: str | None, *, reading_level: str = "", tone: str = "",
                 extra_profiles: dict[str, dict[str, str]] | None = None) -> Persona:
     """Build the FULL audience profile for a persona name (render-only fields, AC-17).
 
-    Resolution order: built-in registry profile for ``name`` → ``extra_profiles`` (the persona
-    library's saved audiences, keyed by lowercase name — passed in by the web layer so this module
-    stays storage-free) → ``custom`` starts from defaults; then non-blank keyword overrides win
-    field-by-field (how any persona is customised per task). Unknown/blank names degrade to the
-    default enterprise reader rather than raising: the form constrains the options, but a
-    hand-typed query string must degrade safely.
+    Resolution order: ``extra_profiles`` (the persona library's saved audiences — including
+    *overrides* of a built-in name, keyed by lowercase name; passed in by the web layer so this
+    module stays storage-free) → built-in registry profile for ``name`` → ``custom`` starts from
+    defaults; then non-blank keyword overrides win field-by-field (how any persona is customised
+    per task). A saved entry therefore EDITS the matching built-in (the /personas editor) — except
+    ``enterprise``, which is never overridable so it stays EQUAL to ``Persona()`` and keeps the
+    dag skip-pass invariant. Unknown/blank names degrade to the default enterprise reader rather
+    than raising: the form constrains the options, but a hand-typed query string must degrade safely.
     """
     n = (name or "").strip().lower()
     extra = {k.strip().lower(): v for k, v in (extra_profiles or {}).items()}
-    if n in PERSONA_PROFILES:
-        profile: dict[str, str] = dict(PERSONA_PROFILES[n])
-    elif n in extra:
-        profile = {k: v for k, v in extra[n].items() if k in
-                   ("reading_level", "tone", "format", "source_policy") and v}
+    if n != "enterprise" and n in extra:           # saved persona OR an override of a built-in
+        profile: dict[str, str] = {k: v for k, v in extra[n].items() if k in
+                                   ("reading_level", "tone", "format", "source_policy") and v}
+    elif n in PERSONA_PROFILES:
+        profile = dict(PERSONA_PROFILES[n])
     elif n == "custom":
         profile = {}
     else:

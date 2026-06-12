@@ -2669,9 +2669,22 @@ async def prompts_delete(key: str) -> RedirectResponse:
 # --------------------------------------------------------------------------- #
 
 def _persona_reserved_names() -> set[str]:
-    """Names a saved persona may not shadow: built-ins + the two form sentinels."""
+    """Names no saved persona may take: the two form sentinels plus ``enterprise`` (which must stay
+    == Persona() for the dag skip-pass invariant). The other 5 built-ins ARE editable — saving one
+    creates an override the /personas editor manages, resolved ahead of the code default."""
+    return {"enterprise", "custom", "auto"}
+
+
+def _builtin_overrides(saved: list) -> dict:
+    """Map built-in persona name → its override SavedPersona (newest wins), for cards that show an
+    edited built-in. ``saved`` is PersonaStore().list() (newest-first)."""
     from sentinel.artifacts.schemas import PERSONA_PROFILES
-    return set(PERSONA_PROFILES) | {"custom", "auto"}
+    out: dict = {}
+    for p in saved:
+        k = p.name.strip().lower()
+        if k in PERSONA_PROFILES and k != "enterprise" and k not in out:
+            out[k] = p
+    return out
 
 
 @app.get("/personas", response_class=HTMLResponse)
@@ -2680,7 +2693,8 @@ async def personas_page(request: Request, ok: str = "", err: str = "") -> str:
     saved = PersonaStore().list()
     # gen_* query params carry a generator result into the create form (PRG, no session state)
     gen = {k[4:]: v for k, v in request.query_params.items() if k.startswith("gen_")}
-    return render.personas_page(saved, backend=_active(), ok=ok, err=err, gen=gen or None)
+    return render.personas_page(saved, backend=_active(), ok=ok, err=err, gen=gen or None,
+                                builtin_overrides=_builtin_overrides(saved))
 
 
 @app.post("/personas/create", response_class=HTMLResponse)
@@ -2693,7 +2707,7 @@ async def personas_create(
     source_policy: str = Form(""),
 ) -> RedirectResponse:
     from urllib.parse import quote as _q
-    from sentinel.artifacts.schemas import SavedPersona
+    from sentinel.artifacts.schemas import PERSONA_PROFILES, SavedPersona
     from sentinel.memory.store import PersonaStore
     import re
     n = name.strip()
@@ -2701,14 +2715,20 @@ async def personas_create(
         return RedirectResponse(f"/personas?err={_q('Persona name is required.')}", status_code=303)
     if n.lower() in _persona_reserved_names():
         return RedirectResponse(
-            f"/personas?err={_q(f'{n} is a reserved built-in persona name.')}", status_code=303)
+            f"/personas?err={_q(f'{n} is reserved and cannot be edited.')}", status_code=303)
     # Names flow into <option value> attributes and the task form's <script> profile map —
     # bound the charset here (defense in depth on top of render-side < escaping).
     if not re.fullmatch(r"[A-Za-z0-9 _\-.]{1,64}", n):
         return RedirectResponse(
             f"/personas?err={_q('Persona names may use letters, digits, spaces, _ - . (max 64).')}",
             status_code=303)
-    PersonaStore().save(SavedPersona(
+    store = PersonaStore()
+    # Re-saving an existing name EDITS it (one row per name) rather than stacking duplicates —
+    # this is how both saved personas and built-in overrides get updated in place.
+    for prior in store.list():
+        if prior.name.strip().lower() == n.lower():
+            store.delete(prior.id)
+    store.save(SavedPersona(
         id=uuid4().hex,
         name=n,
         description=description.strip(),
@@ -2718,7 +2738,8 @@ async def personas_create(
         source_policy=source_policy.strip() or None,
         created_at=utcnow().isoformat(),
     ))
-    return RedirectResponse(f"/personas?ok={_q(f'Persona {n} saved.')}", status_code=303)
+    verb = "updated (overrides the built-in)" if n.lower() in PERSONA_PROFILES else "saved"
+    return RedirectResponse(f"/personas?ok={_q(f'Persona {n} {verb}.')}", status_code=303)
 
 
 @app.post("/personas/{persona_id}/delete", response_class=HTMLResponse)

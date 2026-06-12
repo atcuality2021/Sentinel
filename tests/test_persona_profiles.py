@@ -174,9 +174,23 @@ def test_persona_for_resolves_saved_library_profiles():
     assert p.name == "cfo brief"
     assert p.tone == "direct"
     assert p.source_policy is None or p.source_policy == ""  # blank field stays default
-    # built-ins shadow the library: a saved "student" cannot hijack the registry profile
-    p2 = persona_for("student", extra_profiles={"student": {"tone": "sarcastic"}})
-    assert p2.tone == "plain"
+
+
+def test_saved_override_edits_a_builtin_persona():
+    """A saved persona whose name matches an editable built-in OVERRIDES the code default
+    (the /personas built-in editor) — full-profile override replaces the registry profile."""
+    override = {"student": {"reading_level": "PhD", "tone": "sarcastic",
+                            "format": "haiku", "source_policy": "arxiv only"}}
+    p = persona_for("student", extra_profiles=override)
+    assert p.tone == "sarcastic" and p.reading_level == "PhD"   # override won over the registry
+
+
+def test_enterprise_override_is_ignored_to_keep_skip_pass_invariant():
+    """enterprise must stay == Persona() even if a stray override row exists — otherwise every
+    default task silently gains an LLM render pass (dag._finalize_result skip-pass)."""
+    bad = {"enterprise": {"reading_level": "PhD", "tone": "x",
+                          "format": "y", "source_policy": "z"}}
+    assert persona_for("enterprise", extra_profiles=bad) == Persona()
 
 
 # ── agent auto-selection ──────────────────────────────────────────────────────
@@ -284,7 +298,8 @@ def test_personas_create_and_delete_roundtrip():
 
 def test_personas_create_rejects_reserved_and_blank_names():
     client = TestClient(web_app.app)
-    for bad in ("student", "AUTO", "custom", "   "):
+    # Only enterprise + the two form sentinels are reserved now; the other built-ins are editable.
+    for bad in ("enterprise", "AUTO", "custom", "   "):
         resp = client.post("/personas/create", data={"name": bad}, follow_redirects=False)
         assert resp.status_code == 303 and "err=" in resp.headers["location"], bad
     from sentinel.memory.store import PersonaStore
@@ -364,3 +379,84 @@ def test_persona_pill_marks_auto_selected():
     auto.auto_selected = True
     assert "(auto)" in render._persona_label(auto)
     assert "(auto)" not in render._persona_label(persona_for("student"))
+
+
+# ── built-in persona CRUD (override model, 2026-06-12) ────────────────────────
+
+def test_create_route_allows_builtin_name_as_override():
+    """Saving a built-in's name (except enterprise) is now allowed — it creates an override."""
+    from sentinel.memory.store import PersonaStore
+    client = TestClient(web_app.app)
+    resp = client.post("/personas/create",
+                       data={"name": "developer", "reading_level": "PhD", "tone": "snarky",
+                             "format": "haiku", "source_policy": "arxiv"},
+                       follow_redirects=False)
+    assert resp.status_code == 303 and "ok=" in resp.headers["location"]
+    ov = PersonaStore().get_by_name("developer")
+    assert ov is not None and ov.reading_level == "PhD"
+    # and it resolves ahead of the code default
+    assert persona_for("developer", extra_profiles=PersonaStore().profiles_by_name()).tone == "snarky"
+
+
+def test_create_route_still_blocks_enterprise_and_sentinels():
+    from sentinel.memory.store import PersonaStore
+    client = TestClient(web_app.app)
+    for name in ("enterprise", "auto", "custom"):
+        resp = client.post("/personas/create", data={"name": name}, follow_redirects=False)
+        assert resp.status_code == 303 and "err=" in resp.headers["location"], name
+    assert PersonaStore().list() == []
+
+
+def test_create_route_edits_in_place_no_duplicate_rows():
+    """Re-saving the same name replaces the row instead of stacking duplicates."""
+    from sentinel.memory.store import PersonaStore
+    client = TestClient(web_app.app)
+    client.post("/personas/create", data={"name": "developer", "tone": "v1"}, follow_redirects=False)
+    client.post("/personas/create", data={"name": "developer", "tone": "v2"}, follow_redirects=False)
+    rows = [p for p in PersonaStore().list() if p.name.lower() == "developer"]
+    assert len(rows) == 1 and rows[0].tone == "v2"
+
+
+def test_reset_builtin_override_via_delete_restores_default():
+    from sentinel.memory.store import PersonaStore
+    client = TestClient(web_app.app)
+    client.post("/personas/create", data={"name": "developer", "tone": "snarky"}, follow_redirects=False)
+    ov = PersonaStore().get_by_name("developer")
+    client.post(f"/personas/{ov.id}/delete", follow_redirects=False)
+    assert PersonaStore().get_by_name("developer") is None         # override gone
+    assert persona_for("developer").tone == "technical"            # code default restored
+
+
+def test_builtin_card_shows_edit_and_overridden_controls():
+    from sentinel.artifacts.schemas import SavedPersona
+    ov = SavedPersona(id="ov1", name="developer", description="my devs",
+                      reading_level="PhD", tone="snarky", format="haiku",
+                      source_policy="arxiv", created_at=_NOW)
+    html = render.personas_page([ov], backend="vllm", builtin_overrides={"developer": ov})
+    assert ">Edit<" in html
+    assert "Reset to default" in html and "/personas/ov1/delete" in html
+    assert "overridden" in html
+    # enterprise must remain read-only (no Edit affordance on its card row)
+    assert "enterprise" in html and "kept read-only" in html
+
+
+def test_overridden_builtin_not_duplicated_in_task_form():
+    from sentinel.artifacts.schemas import SavedPersona
+    ov = SavedPersona(id="ov2", name="developer", reading_level="PhD", tone="snarky",
+                      format="haiku", source_policy="arxiv", created_at=_NOW)
+    form = render._task_form("proj1", saved_personas=[ov])
+    assert form.count("value='developer'") == 1
+
+
+def test_builtin_override_not_listed_in_saved_section():
+    """An override shows on its built-in card only — not duplicated as a 'Saved personas' card."""
+    from sentinel.artifacts.schemas import SavedPersona
+    ov = SavedPersona(id="ov3", name="developer", reading_level="PhD", tone="snarky",
+                      format="haiku", source_policy="arxiv", created_at=_NOW)
+    lib = SavedPersona(id="lib1", name="CFO brief", reading_level="executive", tone="direct",
+                       format="memo", source_policy=None, created_at=_NOW)
+    html = render.personas_page([ov, lib], backend="vllm", builtin_overrides={"developer": ov})
+    saved_section = html.split("Built-in personas")[0]
+    assert "CFO brief" in saved_section                  # genuine library persona listed
+    assert saved_section.count("/personas/ov3/delete") == 0   # override NOT in saved section
+    assert "/personas/ov3/delete" in html               # but its Reset (delete) IS on the built-in card
