@@ -359,6 +359,57 @@ a.gc:hover{border-color:var(--accent-line);transform:translateY(-2px)}
 @media(max-width:880px){.rpt-metrics{grid-template-columns:1fr 1fr}.comp-grid{grid-template-columns:1fr}
   .acc-grid{grid-template-columns:1fr 1fr}.tier-grid{grid-template-columns:1fr}
   .action-row{grid-template-columns:50px 1fr}}
+
+/* ---- mobile: off-canvas sidebar drawer + responsive layout ---- */
+/* The topbar hamburger and the scrim backdrop are hidden on desktop; they only
+   appear at <=768px where the sidebar leaves the grid flow and slides over content. */
+.mobileNavBtn{display:none}
+.scrim{display:none}
+@media(max-width:768px){
+  /* shell becomes a single column; the sidebar overlays instead of taking a column */
+  .shell,.shell.collapsed{grid-template-columns:1fr}
+  .sidebar{position:fixed;top:0;left:0;height:100dvh;width:min(84vw,290px);z-index:60;
+    transform:translateX(-100%);transition:transform .22s ease}
+  .shell.mobile-open .sidebar{transform:translateX(0);box-shadow:0 18px 50px rgba(0,0,0,.6)}
+  /* a phone always shows full labels in the drawer, even if desktop state was collapsed */
+  .shell.collapsed .brand-text,.shell.collapsed .nav-label,
+  .shell.collapsed .side-foot,.shell.collapsed .nav-group-label{display:revert}
+  .shell.collapsed .side-top{justify-content:flex-start;padding:18px 16px 12px}
+  .shell.collapsed .nav-item{justify-content:flex-start;padding:10px 12px}
+  /* the in-drawer collapse toggle is meaningless on a phone — the hamburger + scrim drive it */
+  .navToggle{display:none}
+  /* backdrop behind the open drawer; tapping it closes the drawer (see _MOBILE_NAV_JS) */
+  .scrim{position:fixed;inset:0;background:rgba(4,6,10,.55);z-index:55}
+  .shell.mobile-open .scrim{display:block}
+  .mobileNavBtn{display:inline-flex;align-items:center;justify-content:center;background:transparent;
+    border:1px solid var(--line);color:var(--ink);width:40px;height:40px;border-radius:9px;
+    cursor:pointer;flex:0 0 auto}
+  .mobileNavBtn:hover{border-color:var(--accent-line)}
+  /* tighten the chrome so content gets the width back */
+  .topbar-inner{padding:12px 16px;gap:10px}
+  .content{padding:18px 16px 56px}
+  .crumb{font-size:12px}
+  .proj-pill{display:none}              /* least-critical bar item — drop it on phones */
+  .proj-subnav{top:53px}
+  .proj-subnav-inner{padding:0 12px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  /* wide tables scroll horizontally instead of crushing their columns */
+  .content table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+  /* per-task control cluster stacks under the objective instead of fighting for width */
+  .task-row{grid-template-columns:1fr}
+  .task-row .tr-actions{flex-wrap:wrap}
+  .btn-sm{padding:8px 12px}             /* >=44px effective touch target */
+  .proj-tab{padding:11px 12px}
+  form.run,.set-grid,.note{max-width:100%}
+}
+@media(max-width:480px){
+  .kpis{grid-template-columns:1fr}
+  .row2{grid-template-columns:1fr}
+  .hero h1{font-size:26px} .hero.left h1{font-size:21px} .hero p{font-size:14px}
+  .topbar h1{font-size:15px}
+  .content{padding:16px 12px 48px}
+  .rpt-cover{padding:28px 20px 24px} .rpt-cover h1{font-size:22px}
+  .rpt-metrics,.acc-grid{grid-template-columns:1fr}
+}
 """
 
 # --------------------------------------------------------------------------- #
@@ -442,6 +493,19 @@ _COLLAPSE_JS = """
 if(localStorage.getItem(KEY)==='1')s.classList.add('collapsed');
 var b=document.getElementById('navToggle');if(b)b.addEventListener('click',function(){
 s.classList.toggle('collapsed');localStorage.setItem(KEY,s.classList.contains('collapsed')?'1':'0');});})();
+"""
+
+# Mobile drawer: the topbar hamburger toggles `.mobile-open` on the shell (which slides the
+# fixed-position sidebar in via CSS); tapping the scrim or any nav link closes it again. No
+# localStorage — a phone drawer should always start closed on each page load.
+_MOBILE_NAV_JS = """
+(function(){var s=document.getElementById('shell');if(!s)return;
+function close(){s.classList.remove('mobile-open');}
+var mb=document.getElementById('mobileNavToggle');
+if(mb)mb.addEventListener('click',function(){s.classList.toggle('mobile-open');});
+var sc=document.getElementById('navScrim');if(sc)sc.addEventListener('click',close);
+s.querySelectorAll('.sidebar a').forEach(function(a){a.addEventListener('click',close);});
+window.addEventListener('keydown',function(e){if(e.key==='Escape')close();});})();
 """
 
 # A full-screen loading overlay shown while a form POSTs (planning/running take ~seconds on the live
@@ -534,6 +598,8 @@ def shell(*, active: str, title: str, content: str, backend: str, head_extra: st
         f"{_sidebar(active)}"
         "<div class='main'>"
         f"<div class='topbar'><div class='topbar-inner'>"
+        "<button class='mobileNavBtn' id='mobileNavToggle' aria-label='Open menu'>"
+        f"{_icon('menu')}</button>"
         "<div class='crumb'><span>Agent Platform</span><span class='sep'>/</span>"
         f"<b style='color:var(--ink);font-weight:600'>{escape(title)}</b></div>"
         f"<div class='spacer'></div>"
@@ -542,9 +608,11 @@ def shell(*, active: str, title: str, content: str, backend: str, head_extra: st
         f"{topbar_action}</div></div>"
         f"{subnav}"
         f"<div class='content'>{content}</div>"
-        "</div></div>"
+        "</div>"
+        "<div class='scrim' id='navScrim'></div>"
+        "</div>"
         f"{_LOADER_HTML}"
-        f"<script>{_COLLAPSE_JS}{_LOADER_JS}</script>{body_scripts}</body></html>"
+        f"<script>{_COLLAPSE_JS}{_MOBILE_NAV_JS}{_LOADER_JS}</script>{body_scripts}</body></html>"
     )
 
 
@@ -1427,9 +1495,10 @@ def accounts_page(*, accounts: list, backend: str, ok: str = "", project: str = 
 # Projects (SENTINEL-012) — the top-level organising construct. Step 6 ships the
 # shell: create a project, list projects, open one to a task/results placeholder.
 # --------------------------------------------------------------------------- #
-def _project_form() -> str:
+def _project_form_fields() -> str:
+    """The bare create-project form (no card chrome) so it can sit in a card (empty state) or a
+    collapsible <details> (list-first state) without duplicating markup."""
     return (
-        "<div class='card'><div class='section-h' style='margin-top:0'><h2>New project</h2></div>"
         "<form class='run' method='post' action='/projects'>"
         "<div><label class='lbl' for='p-name'>Name</label>"
         "<input id='p-name' name='name' placeholder='e.g. BiltIQ market-capture' required></div>"
@@ -1449,17 +1518,25 @@ def _project_form() -> str:
         "</form>"
         "<div class='note' style='margin-top:8px'>A project is a workspace that groups research tasks. "
         "Add an objective to jump straight into planning your first task; leave it blank to set up the "
-        "workspace and add tasks later.</div></div>"
+        "workspace and add tasks later.</div>"
+    )
+
+
+def _project_form() -> str:
+    """Creation form wrapped in a titled card — used for the empty/first-run state."""
+    return (
+        "<div class='card'><div class='section-h' style='margin-top:0'><h2>New project</h2></div>"
+        f"{_project_form_fields()}</div>"
     )
 
 
 def projects_page(*, projects: list, backend: str, ok: str = "") -> str:
     banner = f"<div class='card banner ok' style='margin-bottom:18px'>{escape(ok)}</div>" if ok else ""
-    form = _project_form()
     if not projects:
         empty = ("<div class='card' style='margin-top:16px'><div class='empty'>No projects yet. "
                  "Create one above — a project groups the tasks and results of a research program.</div></div>")
-        return shell(active="projects", title="Projects", content=banner + form + empty, backend=backend)
+        return shell(active="projects", title="Projects", content=banner + _project_form() + empty,
+                     backend=backend)
     rows = ""
     for p in projects:
         site = (f"<a href='{escape(p.website)}' rel='noopener' target='_blank' "
@@ -1471,12 +1548,25 @@ def projects_page(*, projects: list, backend: str, ok: str = "") -> str:
             f"<td><span class='badge'>{escape(p.settings.autonomy)}</span></td>"
             f"<td class='mono'>{escape(p.created_at)}</td></tr>"
         )
+    header = (
+        "<div class='section-h' style='margin-top:0'>"
+        f"<h2>Your projects <span class='pill' style='margin-left:8px'>{len(projects)}</span></h2></div>"
+    )
     table = (
-        "<div class='card' style='padding:6px 8px;margin-top:16px'><table><thead><tr>"
+        "<div class='card' style='padding:6px 8px;margin-top:4px'><table><thead><tr>"
         "<th>Project</th><th>Website</th><th>Autonomy</th><th>Created</th></tr></thead>"
         f"<tbody>{rows}</tbody></table></div>"
     )
-    return shell(active="projects", title="Projects", content=banner + form + table, backend=backend)
+    # List-first: existing projects are what the user came for. The creation form is tucked into a
+    # collapsible so it stays one click away without pushing the list below the fold.
+    create = (
+        "<details class='card' style='margin-top:18px'>"
+        "<summary style='cursor:pointer;font-weight:600;color:var(--accent-2);list-style:none'>"
+        f"{_icon('bolt')} New project</summary>"
+        f"<div style='margin-top:14px'>{_project_form_fields()}</div></details>"
+    )
+    return shell(active="projects", title="Projects", content=banner + header + table + create,
+                 backend=backend)
 
 
 _DOMAINS = ["market", "account", "software", "finance", "academic", "nutrition", "travel",
