@@ -559,7 +559,7 @@ def _kpi(cls: str, label: str, value, icon: str) -> str:
 
 
 def dashboard_page(*, stats: dict, charts: dict, recent: list[dict], backend: str,
-                   focus: list | None = None) -> str:
+                   focus: list | None = None, project_by_entity: dict | None = None) -> str:
     kpis = (
         "<div class='grid kpis'>"
         + _kpi("run", "Runs (session)", stats["runs"], "spark")
@@ -592,8 +592,8 @@ def dashboard_page(*, stats: dict, charts: dict, recent: list[dict], backend: st
     rows = ""
     for r in recent:
         name = escape(r["target"])
-        if r.get("entity"):
-            name = (f"<a href='{_account_href(r['entity'])}' "
+        if r.get("project_id") or r.get("entity"):
+            name = (f"<a href='{_run_href(r)}' "
                     f"style='color:var(--accent-2)'>{name}</a>")
         rows += (
             f"<tr><td><b>{name}</b></td>"
@@ -640,7 +640,7 @@ def dashboard_page(*, stats: dict, charts: dict, recent: list[dict], backend: st
         )
         scripts = js.replace("__DATA__", data)
 
-    focus_html = focus_card(focus) if focus else ""
+    focus_html = focus_card(focus, project_by_entity) if focus else ""
     content = kpis + charts_html + focus_html + table
     return shell(active="dashboard", title="Dashboard", content=content, backend=backend,
                  body_scripts=scripts)
@@ -948,8 +948,8 @@ def artifacts_page(*, artifacts: list[dict], backend: str, project: str = "sover
     rows = ""
     for a in artifacts:
         name = escape(a["target"])
-        if a.get("entity"):
-            name = (f"<a href='{_account_href(a['entity'])}' "
+        if a.get("project_id") or a.get("entity"):
+            name = (f"<a href='{_run_href(a)}' "
                     f"style='color:var(--accent-2)'>{name}</a>")
         # "Add to KB" button — available in project context whenever the run has any content
         kb_btn = ""
@@ -1370,6 +1370,17 @@ def _account_href(entity: str) -> str:
     """Link to an account by its normalized key. ``safe=''`` encodes spaces/slashes so a key
     like ``acme corp`` round-trips through the path param (AC-10)."""
     return f"/accounts/{quote(entity, safe='')}"
+
+
+def _run_href(run: dict) -> str:
+    """Where a run row should take the operator. Prefer the run's PROJECT — that's where the
+    tasks, artifacts and KB live. The account page is an entity-keyed CRM memory view and a
+    confusing landing target from the dashboard (user feedback 2026-06-12); it stays only as
+    the fallback for legacy/unscoped runs that have no project_id."""
+    pid = run.get("project_id")
+    if pid:
+        return f"/projects/{quote(str(pid), safe='')}"
+    return _account_href(run.get("entity", ""))
 
 
 def _fmt_when(dt) -> str:
@@ -3870,11 +3881,22 @@ def _breakdown_html(breakdown: dict, notes: list) -> str:
     )
 
 
-def _focus_row(rank: int, s) -> str:
+def _entity_href(entity: str, project_by_entity: dict | None) -> str:
+    """Focus rows are entity-keyed (PriorityScore has no project_id), but the operator wants to
+    land on the entity's PROJECT — the account page is a thin memory view (user feedback
+    2026-06-12). The caller passes a {entity: project_id} map resolved from run records;
+    entities with no project (legacy runs) keep the account link."""
+    pid = (project_by_entity or {}).get(entity)
+    if pid:
+        return f"/projects/{quote(str(pid), safe='')}"
+    return _account_href(entity)
+
+
+def _focus_row(rank: int, s, project_by_entity: dict | None = None) -> str:
     reasons = "".join(_reason_html(r) for r in s.reasons[:3]) or "<li class='src'>—</li>"
     return (
         f"<tr><td class='mono'>{rank}</td>"
-        f"<td><a href='{_account_href(s.entity)}' style='color:var(--accent-2)'>"
+        f"<td><a href='{_entity_href(s.entity, project_by_entity)}' style='color:var(--accent-2)'>"
         f"<b>{escape(s.display_name or s.entity)}</b></a></td>"
         f"<td class='mono'><b>{s.score:.0f}</b></td>"
         f"<td>{_tier_badge(s.tier)}</td>"
@@ -3883,7 +3905,8 @@ def _focus_row(rank: int, s) -> str:
     )
 
 
-def focus_page(*, scores: list, backend: str, enabled: bool = True, project: str = "sovereign") -> str:
+def focus_page(*, scores: list, backend: str, enabled: bool = True, project: str = "sovereign",
+               project_by_entity: dict | None = None) -> str:
     """Ranked focus list — highest priority first, each row cited and auditable (AC-9)."""
     if not enabled:
         content = ("<div class='card'><div class='empty'>The focus list is turned off. "
@@ -3898,7 +3921,7 @@ def focus_page(*, scores: list, backend: str, enabled: bool = True, project: str
                    "list ranks every researched account here, with cited reasons.</div></div>")
         return shell(active="focus", title="Focus", content=content, backend=backend,
                  project=project)
-    rows = "".join(_focus_row(i, s) for i, s in enumerate(scores, start=1))
+    rows = "".join(_focus_row(i, s, project_by_entity) for i, s in enumerate(scores, start=1))
     content = (
         "<p class='note'>Who needs attention now — ranked by a deterministic, cited score (no "
         "LLM in the arithmetic). Each reason links to the finding behind it; the breakdown shows "
@@ -3912,13 +3935,13 @@ def focus_page(*, scores: list, backend: str, enabled: bool = True, project: str
                  project=project)
 
 
-def focus_card(scores: list) -> str:
+def focus_card(scores: list, project_by_entity: dict | None = None) -> str:
     """Compact 'Top 5 to focus on' card for the dashboard (OQ-2). Empty string when no scores."""
     top = [s for s in scores if s.tier != "cold"][:5] or scores[:5]
     if not top:
         return ""
     rows = "".join(
-        f"<tr><td><a href='{_account_href(s.entity)}' style='color:var(--accent-2)'>"
+        f"<tr><td><a href='{_entity_href(s.entity, project_by_entity)}' style='color:var(--accent-2)'>"
         f"<b>{escape(s.display_name or s.entity)}</b></a></td>"
         f"<td class='mono'><b>{s.score:.0f}</b></td>"
         f"<td>{_tier_badge(s.tier)}</td></tr>"

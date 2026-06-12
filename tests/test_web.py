@@ -87,6 +87,65 @@ def test_dashboard_has_sidebar_nav(client):
     assert "href='/new'" not in r.text
 
 
+def test_dashboard_run_rows_link_to_project_not_account():
+    """A run row's link must land on the run's PROJECT — the account page is a thin CRM memory
+    view and a confusing target from the dashboard (user feedback 2026-06-12). Account href
+    survives only as the fallback for legacy runs with no project_id."""
+    run = {"target": "BiltIQ AI", "entity": "biltiq ai", "mode": "orchestrated",
+           "backend": "vllm", "public": 3, "private": 1, "when": "10:00:00",
+           "project_id": "770bc417"}
+    html = render.dashboard_page(stats={"runs": 1, "artifacts": 1, "public": 3, "private": 1},
+                                 charts={}, recent=[run], backend="vllm")
+    assert "href='/projects/770bc417'" in html
+    assert "/accounts/" not in html.split("Top to focus on")[0]  # run table itself is account-free
+
+    legacy = dict(run, project_id=None)
+    html = render.dashboard_page(stats={"runs": 1, "artifacts": 1, "public": 3, "private": 1},
+                                 charts={}, recent=[legacy], backend="vllm")
+    assert "href='/accounts/biltiq%20ai'" in html
+
+
+def test_focus_links_prefer_project_when_entity_has_one():
+    """Focus rows are entity-keyed (PriorityScore has no project_id) — the {entity: project_id}
+    map resolved from run records redirects them to the project; unmapped entities keep the
+    account fallback."""
+    from sentinel.priority.engine import PriorityScore
+
+    s = PriorityScore(entity="biltiq ai", display_name="BiltIQ AI", score=80.0, tier="hot")
+    card = render.focus_card([s], {"biltiq ai": "770bc417"})
+    assert "href='/projects/770bc417'" in card and "/accounts/" not in card
+    assert "href='/accounts/biltiq%20ai'" in render.focus_card([s], {})
+
+    page = render.focus_page(scores=[s], backend="vllm", enabled=True,
+                             project_by_entity={"biltiq ai": "770bc417"})
+    assert "href='/projects/770bc417'" in page
+
+
+def test_project_by_entity_map_newest_run_wins():
+    from sentinel.memory.schema import RunRecord
+
+    newest = RunRecord(entity="Acme", target="Acme", mode="orchestrated", backend="vllm",
+                       project_id="new1")
+    older = RunRecord(entity="Acme", target="Acme", mode="orchestrated", backend="vllm",
+                      project_id="old1")
+    legacy = RunRecord(entity="NoProj", target="NoProj", mode="competitor", backend="vllm")
+    # _runs() yields newest-first; the map must keep the first (most recent) project seen.
+    assert web_app._project_by_entity([newest, older, legacy]) == {"acme": "new1"}
+
+
+def test_artifacts_rows_link_to_project_not_account():
+    art = {"target": "BiltIQ AI", "entity": "biltiq ai", "kind": "self_profile",
+           "public": 2, "private": 0, "backend": "gemini", "reference": "out.html",
+           "when": "10:00:00", "project_id": "770bc417"}
+    html = render.artifacts_page(artifacts=[art], backend="gemini")
+    assert "href='/projects/770bc417'" in html
+    assert "/accounts/" not in html
+
+    art["project_id"] = None
+    html = render.artifacts_page(artifacts=[art], backend="gemini")
+    assert "href='/accounts/biltiq%20ai'" in html
+
+
 def test_agents_page_renders_roster_and_flow(client):
     """The Agents page introspects the real specs: both modes, every role, and the dark stages."""
     r = client.get("/agents")

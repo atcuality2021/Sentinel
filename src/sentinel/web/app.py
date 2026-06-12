@@ -190,6 +190,17 @@ def _when(rec) -> str:
     return rec.created_at.astimezone().strftime("%H:%M:%S")
 
 
+def _project_by_entity(records: list) -> dict[str, str]:
+    """{entity: project_id} from run records (newest first), so entity-keyed views (focus list)
+    can deep-link to the entity's project instead of the thin account page. First (= most
+    recent) project wins; entities whose runs predate project scoping are simply absent."""
+    out: dict[str, str] = {}
+    for r in records:
+        if r.project_id and r.entity not in out:
+            out[r.entity] = r.project_id
+    return out
+
+
 def _stats(records: list) -> dict:
     return {
         "runs": len(records),
@@ -308,7 +319,8 @@ async def dashboard() -> str:
     records = _runs()
     recent = [
         {"target": r.target, "entity": r.entity, "mode": r.mode, "backend": r.backend,
-         "public": r.public, "private": r.private, "when": _when(r)}
+         "public": r.public, "private": r.private, "when": _when(r),
+         "project_id": r.project_id}
         for r in records[:8]
     ]
     try:
@@ -317,7 +329,7 @@ async def dashboard() -> str:
         focus = []
     return render.dashboard_page(
         stats=_stats(records), charts=_charts(records), recent=recent, backend=_active(),
-        focus=focus,
+        focus=focus, project_by_entity=_project_by_entity(records),
     )
 
 
@@ -334,7 +346,12 @@ async def focus(project: str = "") -> str:
         scores = _focus_scores(persist=True, project_id=pid)
     except Exception:  # fail-soft to the empty state (NFR-6)
         scores = []
-    return render.focus_page(scores=scores, backend=_active(), enabled=True, project=pill)
+    try:
+        proj_map = _project_by_entity(_runs(project_id=pid))
+    except Exception:  # link resolution is best-effort; account fallback still works
+        proj_map = {}
+    return render.focus_page(scores=scores, backend=_active(), enabled=True, project=pill,
+                             project_by_entity=proj_map)
 
 
 @app.get("/new", response_class=HTMLResponse)
@@ -476,7 +493,8 @@ async def artifacts(project: str = "") -> str:
     pid, pill = _resolve_project(project)  # optional project scope (SENTINEL-012 AC-10)
     items = [
         {"target": r.target, "entity": r.entity, "kind": r.kind, "public": r.public,
-         "private": r.private, "backend": r.backend, "reference": r.reference, "when": _when(r)}
+         "private": r.private, "backend": r.backend, "reference": r.reference, "when": _when(r),
+         "project_id": r.project_id}
         for r in _runs(project_id=pid)
     ]
     return render.artifacts_page(artifacts=items, backend=_active(), project=pill)
