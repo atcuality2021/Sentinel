@@ -1381,16 +1381,24 @@ def _persist_run(task, result, backend: str) -> None:
 
     public = sum(1 for c in result.citations if c.boundary == Boundary.PUBLIC)
     private = sum(1 for c in result.citations if c.boundary == Boundary.PRIVATE)
-    # Use the extracted org name from self_profile artifact (cleaner than the full objective text).
+    # Account entity: the extracted org name from a self_profile-style artifact. When no artifact
+    # carries an org (product_research, govt multi-dept, etc.), fall back to the PROJECT name — the
+    # raw objective used to land here and turned the Accounts/focus pages into a junk list of full
+    # sentences ("i want new laptop under 500000 inr…" as an "account", e2e audit 2026-06-12). An
+    # account is an organisation's accumulated memory; a sentence is not an organisation.
     _payload = result.dashboard_payload or {}
+    _org = ""
     if isinstance(_payload.get("map"), dict):
-        _entity = str(_payload["map"].get("org") or task.objective)
+        _org = str(_payload["map"].get("org") or "")
     elif "artifacts" in _payload:
         _sp = next((v for v in (_payload["artifacts"] or {}).values()
                     if isinstance(v, dict) and "org" in v), None)
-        _entity = str(_sp.get("org") or task.objective) if _sp else task.objective
+        _org = str(_sp.get("org") or "") if _sp else ""
+    if _org.strip() and _org.strip() != task.objective:
+        _entity = _org.strip()
     else:
-        _entity = task.objective
+        _proj = ProjectStore().get_project(task.project_id)
+        _entity = (_proj.name if _proj and _proj.name else task.objective)
     rec = RunRecord(
         entity=_entity, target=_entity, mode="orchestrated", backend=backend,
         kind=task.domain.name, public=public, private=private, gaps=len(result.missing_inputs),

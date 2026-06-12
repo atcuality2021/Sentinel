@@ -167,3 +167,44 @@ def test_crayon_self_profile_shape_extracts_content():
     assert len(texts) > 0
     assert any("B2B revenue teams" in t for t in texts)
     assert "Comprehensive market movement tracking" in texts
+
+
+# --------------------------------------------------------------------------- #
+# _persist_run account entity — sentences are not organisations
+# --------------------------------------------------------------------------- #
+
+def _persist(task_objective, payload, project_name="Laptop Project", domain="product_research"):
+    from sentinel.artifacts.schemas import Domain, Persona, Project, Task
+    from sentinel.memory.store import ProjectStore, RunStore
+    from sentinel.web.app import _persist_run
+
+    now = "2026-06-12T00:00:00Z"
+    store = ProjectStore()
+    store.save_project(Project(id="p-ent", name=project_name, created_at=now))
+    task = Task(id="t-ent", project_id="p-ent", objective=task_objective,
+                domain=Domain(name=domain), persona=Persona(), created_at=now)
+    _persist_run(task, _make_result(payload=payload), backend="vllm")
+    recs = RunStore().all()
+    return recs[-1] if not hasattr(recs, "keys") else recs
+
+
+def test_entity_prefers_extracted_org():
+    rec = _persist("Profile us vs Crayon",
+                   {"artifacts": {"self_profile": {"org": "BiltIQ AI"}}}, domain="market")
+    assert rec.entity.lower() == "biltiq ai"   # RunStore normalises case
+
+
+def test_entity_without_org_falls_back_to_project_name_not_objective():
+    """A product-research objective is a sentence, not an organisation — it must never become an
+    'account'. The Accounts/focus pages were a junk list of full objectives (e2e audit 2026-06-12)."""
+    obj = "i want new laptop under 500000 inr with atleast 42 gb ram"
+    rec = _persist(obj, {"artifacts": {"product_research": {"products": []}}})
+    assert rec.entity.lower() == "laptop project"  # the project, not the sentence
+    assert rec.entity.lower() != obj.lower()
+
+
+def test_entity_org_equal_to_objective_is_rejected():
+    # an upstream extractor that "extracted" the whole objective is the same junk in disguise
+    obj = "research the best laptops in india"
+    rec = _persist(obj, {"artifacts": {"x": {"org": obj}}})
+    assert rec.entity.lower() == "laptop project"
