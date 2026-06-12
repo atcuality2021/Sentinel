@@ -212,15 +212,45 @@ class Domain(BaseModel):
 
 
 class Persona(BaseModel):
-    """Who the output is for → rendering profile (data, not facts). Render-only (AC-17)."""
+    """Who the output is for → rendering profile (data, not facts). Render-only (AC-17).
 
-    name: PersonaName = "enterprise"
+    ``name`` widened from the PersonaName literal to free text (2026-06-12): the persona library
+    lets operators save their own audiences ("CFO brief", "field nurse"), so the closed enum now
+    only describes the BUILT-IN registry names — any saved-persona name is equally valid here.
+    """
+
+    name: str = "enterprise"
     reading_level: str = Field(default="professional", description="e.g. 'K-12', 'undergraduate', 'professional'.")
     tone: str = Field(default="neutral", description="e.g. 'plain', 'clinical', 'technical', 'persuasive'.")
     format: str = Field(default="brief", description="e.g. 'bullets', 'brief', 'report', 'one-pager'.")
     source_policy: str | None = Field(
         default=None, description="Credible-source policy for this audience, e.g. 'peer-reviewed only'."
     )
+    auto_selected: bool = Field(
+        default=False, description="True when the agent picked this persona from the domain (the "
+        "form's 'auto' option) rather than the user choosing it — surfaced in the UI pill.")
+
+
+class SavedPersona(BaseModel):
+    """An operator-defined audience in the persona library (editable at /personas).
+
+    Separate from :class:`Persona` on purpose: this is the *library record* (has identity,
+    description, provenance), while Persona is the *value object* a task carries. ``to_persona()``
+    bridges them at task-creation time.
+    """
+
+    id: str
+    name: str = Field(description="Display name, e.g. 'CFO brief' — also how the task form refers to it.")
+    description: str = Field(default="", description="Who this audience is; feeds the generator prompt.")
+    reading_level: str = "professional"
+    tone: str = "neutral"
+    format: str = "brief"
+    source_policy: str | None = None
+    created_at: str = Field(description="ISO-8601 UTC timestamp (caller-supplied; no wall-clock in models).")
+
+    def to_persona(self) -> Persona:
+        return Persona(name=self.name, reading_level=self.reading_level, tone=self.tone,
+                       format=self.format, source_policy=self.source_policy)
 
 
 # Full audience profiles per named persona (SENTINEL-012 §1 made real). Until 2026-06-12 every
@@ -266,27 +296,59 @@ PERSONA_PROFILES: dict[str, dict[str, str]] = {
 }
 
 
+# How the agent picks a persona when the form says "auto" (the §G.3 doc examples made policy):
+# study domains read like study guides, builder domains like engineering notes, consumer domains
+# like buying advice; the B2B domains keep the professional default. Deterministic on purpose —
+# explainable in the UI pill ("student · auto-selected for academic") and unit-testable, where an
+# LLM choice would be neither.
+DOMAIN_DEFAULT_PERSONA: dict[str, str] = {
+    "academic": "student",
+    "software": "developer",
+    "nutrition": "consumer",
+    "travel": "consumer",
+    "product_research": "consumer",
+    "market": "enterprise",
+    "account": "enterprise",
+    "finance": "enterprise",
+    "govt_proposal": "enterprise",
+}
+
+
+def auto_persona_name(domain_name: str) -> str:
+    """The agent's persona pick for a domain (the form's 'auto' option). Unknown domains get the
+    professional default rather than raising — domains are free text at the schema level."""
+    return DOMAIN_DEFAULT_PERSONA.get((domain_name or "").strip().lower(), "enterprise")
+
+
 def persona_for(name: str | None, *, reading_level: str = "", tone: str = "",
-                format: str = "", source_policy: str = "") -> Persona:
+                format: str = "", source_policy: str = "",
+                extra_profiles: dict[str, dict[str, str]] | None = None) -> Persona:
     """Build the FULL audience profile for a persona name (render-only fields, AC-17).
 
-    Resolution order: registry profile for ``name`` → non-blank keyword overrides win field-by-field
-    (that is the ``custom`` persona path — and how any named persona is customised per task).
-    Unknown/blank names degrade to the default enterprise reader rather than raising: the form
-    constrains the options, but a hand-typed query string must degrade safely.
+    Resolution order: built-in registry profile for ``name`` → ``extra_profiles`` (the persona
+    library's saved audiences, keyed by lowercase name — passed in by the web layer so this module
+    stays storage-free) → ``custom`` starts from defaults; then non-blank keyword overrides win
+    field-by-field (how any persona is customised per task). Unknown/blank names degrade to the
+    default enterprise reader rather than raising: the form constrains the options, but a
+    hand-typed query string must degrade safely.
     """
-    from typing import get_args
-
     n = (name or "").strip().lower()
-    if n not in get_args(PersonaName):
-        n = "enterprise"
-    profile: dict[str, str] = dict(PERSONA_PROFILES.get(n, {}))
+    extra = {k.strip().lower(): v for k, v in (extra_profiles or {}).items()}
+    if n in PERSONA_PROFILES:
+        profile: dict[str, str] = dict(PERSONA_PROFILES[n])
+    elif n in extra:
+        profile = {k: v for k, v in extra[n].items() if k in
+                   ("reading_level", "tone", "format", "source_policy") and v}
+    elif n == "custom":
+        profile = {}
+    else:
+        n, profile = "enterprise", {}
     overrides = {"reading_level": reading_level, "tone": tone,
                  "format": format, "source_policy": source_policy}
     for key, value in overrides.items():
         if value.strip():
             profile[key] = value.strip()
-    return Persona(name=n, **profile)  # type: ignore[arg-type]  # name validated against PersonaName above
+    return Persona(name=n, **profile)
 
 
 def is_high_stakes(domain_name: str) -> bool:

@@ -254,6 +254,13 @@ CREATE TABLE IF NOT EXISTS session_handoffs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_handoff_status ON session_handoffs(status, priority DESC, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS personas (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    data       TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -1886,3 +1893,67 @@ class SessionHandoffStore:
                 conn.commit()
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Persona library — operator-defined audiences (editable at /personas)
+# ---------------------------------------------------------------------------
+
+class PersonaStore:
+    """Saved-persona persistence (2026-06-12). Same shape as ProjectStore: the ``data`` column
+    holds the full pydantic JSON (source of truth); ``name`` is denormalised for case-insensitive
+    lookup from the task form / plan route. No FK — a deleted persona leaves tasks that used it
+    untouched (the task carries its own Persona value object, not a reference)."""
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path else db_path()
+        _ensure_schema(self.path)
+
+    def save(self, p: "SavedPersona") -> str:
+        with _connect(self.path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO personas (id, name, data, created_at) VALUES (?,?,?,?)",
+                (p.id, p.name, p.model_dump_json(), p.created_at),
+            )
+            conn.commit()
+        return p.id
+
+    def get(self, persona_id: str) -> "SavedPersona | None":
+        from sentinel.artifacts.schemas import SavedPersona
+        with _connect(self.path) as conn:
+            row = conn.execute("SELECT data FROM personas WHERE id=?", (persona_id,)).fetchone()
+        return SavedPersona.model_validate_json(row["data"]) if row is not None else None
+
+    def get_by_name(self, name: str) -> "SavedPersona | None":
+        """Case-insensitive name lookup (how the task form / plan route refer to saved personas).
+        Newest wins on duplicate names — same rule as ProjectStore.get_project_by_name."""
+        from sentinel.artifacts.schemas import SavedPersona
+        with _connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT data FROM personas WHERE lower(name)=lower(?) "
+                "ORDER BY created_at DESC LIMIT 1", (name,),
+            ).fetchone()
+        return SavedPersona.model_validate_json(row["data"]) if row is not None else None
+
+    def list(self) -> "list[SavedPersona]":
+        from sentinel.artifacts.schemas import SavedPersona
+        with _connect(self.path) as conn:
+            rows = conn.execute("SELECT data FROM personas ORDER BY created_at DESC").fetchall()
+        return [SavedPersona.model_validate_json(r["data"]) for r in rows]
+
+    def delete(self, persona_id: str) -> bool:
+        with _connect(self.path) as conn:
+            cur = conn.execute("DELETE FROM personas WHERE id=?", (persona_id,))
+            conn.commit()
+        return cur.rowcount > 0
+
+    def profiles_by_name(self) -> dict[str, dict[str, str]]:
+        """{lowercase-name: profile-fields} for persona_for(extra_profiles=…) — the bridge that
+        keeps artifacts/schemas storage-free while letting saved personas resolve by name."""
+        out: dict[str, dict[str, str]] = {}
+        for p in self.list():
+            key = p.name.strip().lower()
+            if key not in out:  # list() is newest-first; first hit wins = newest wins
+                out[key] = {"reading_level": p.reading_level, "tone": p.tone,
+                            "format": p.format, "source_policy": p.source_policy or ""}
+        return out

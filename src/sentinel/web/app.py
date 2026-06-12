@@ -720,10 +720,16 @@ async def project_tasks(project_id: str) -> str:
         tasks = store.tasks_for_project(project_id)
     except Exception:
         tasks = []
+    try:
+        from sentinel.memory.store import PersonaStore
+        saved_personas = PersonaStore().list()
+    except Exception:
+        saved_personas = []  # library is an enhancement — the form must render without it
     return render.project_tasks_page(
         project=proj, tasks=tasks, backend=_active(),
         vllm_model=_vllm_model(),
         sovereign=get_config().governance.compliance_mode == "on_prem_required",
+        saved_personas=saved_personas,
     )
 
 
@@ -1692,15 +1698,29 @@ def _plan_is_stale(task, plan) -> bool:
 
 
 def _persona_for(name: str, *, reading_level: str = "", tone: str = "",
-                 format: str = "", source_policy: str = "") -> Persona:
-    """Build the full audience profile from the form: registry profile for the name (student → K-12
-    study guide, doctor → peer-reviewed-only clinical brief, …) + non-blank per-task overrides from
-    the customise-persona fields. Unknown/blank names degrade to the default enterprise reader rather
-    than 500-ing (the form constrains the options, but a hand-typed query must degrade safely)."""
-    from sentinel.artifacts.schemas import persona_for
+                 format: str = "", source_policy: str = "", domain: str = "") -> Persona:
+    """Build the full audience profile from the form: built-in registry profile (student → K-12
+    study guide, doctor → peer-reviewed-only clinical brief, …) OR a saved persona from the library
+    (/personas) resolved by name, + non-blank per-task overrides from the customise-persona fields.
+    ``auto`` lets the agent pick from the domain (DOMAIN_DEFAULT_PERSONA) — marked on the Persona so
+    the UI can show the pick was the agent's. Unknown/blank names degrade to the default enterprise
+    reader rather than 500-ing (the form constrains the options, but a hand-typed query must degrade
+    safely)."""
+    from sentinel.artifacts.schemas import auto_persona_name, persona_for
+    from sentinel.memory.store import PersonaStore
 
-    return persona_for(name, reading_level=reading_level, tone=tone,
-                       format=format, source_policy=source_policy)
+    auto = (name or "").strip().lower() == "auto"
+    if auto:
+        name = auto_persona_name(domain)
+    try:
+        extra = PersonaStore().profiles_by_name()
+    except Exception:  # the library is an enhancement — its absence must never block planning
+        extra = {}
+    p = persona_for(name, reading_level=reading_level, tone=tone,
+                    format=format, source_policy=source_policy, extra_profiles=extra)
+    if auto:
+        p.auto_selected = True
+    return p
 
 
 @app.get("/projects/{project_id}/plan", response_class=HTMLResponse)
@@ -1718,9 +1738,10 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
         return render.error_page("An objective is required to plan a task.", backend=_active())
     store = ProjectStore()
     dom = domain.strip() or "market"
-    # The full audience profile: named registry profile + any customise-persona overrides (AC-17).
+    # The full audience profile: named registry/library profile + any customise-persona overrides
+    # (AC-17); "auto" resolves from the domain and is flagged as the agent's pick.
     task_persona = _persona_for(persona, reading_level=reading_level, tone=tone,
-                                format=format, source_policy=source_policy)
+                                format=format, source_policy=source_policy, domain=dom)
     # Reuse an existing task with the same objective+domain instead of piling up duplicates on every
     # re-plan (the Tasks list stays meaningful). A fresh objective makes a new task.
     task = next((t for t in store.tasks_for_project(project_id)
@@ -2641,6 +2662,137 @@ async def prompts_delete(key: str) -> RedirectResponse:
         return RedirectResponse(f"/settings/prompts?err={_q(str(exc))}", status_code=303)
     from urllib.parse import quote as _q
     return RedirectResponse(f"/settings/prompts?ok={_q(f'Prompt {key} deleted.')}", status_code=303)
+
+
+# --------------------------------------------------------------------------- #
+# Persona library — editor page + LLM-backed profile generator
+# --------------------------------------------------------------------------- #
+
+def _persona_reserved_names() -> set[str]:
+    """Names a saved persona may not shadow: built-ins + the two form sentinels."""
+    from sentinel.artifacts.schemas import PERSONA_PROFILES
+    return set(PERSONA_PROFILES) | {"custom", "auto"}
+
+
+@app.get("/personas", response_class=HTMLResponse)
+async def personas_page(request: Request, ok: str = "", err: str = "") -> str:
+    from sentinel.memory.store import PersonaStore
+    saved = PersonaStore().list()
+    # gen_* query params carry a generator result into the create form (PRG, no session state)
+    gen = {k[4:]: v for k, v in request.query_params.items() if k.startswith("gen_")}
+    return render.personas_page(saved, backend=_active(), ok=ok, err=err, gen=gen or None)
+
+
+@app.post("/personas/create", response_class=HTMLResponse)
+async def personas_create(
+    name: str = Form(...),
+    description: str = Form(""),
+    reading_level: str = Form(""),
+    tone: str = Form(""),
+    format: str = Form(""),
+    source_policy: str = Form(""),
+) -> RedirectResponse:
+    from urllib.parse import quote as _q
+    from sentinel.artifacts.schemas import SavedPersona
+    from sentinel.memory.store import PersonaStore
+    n = name.strip()
+    if not n:
+        return RedirectResponse(f"/personas?err={_q('Persona name is required.')}", status_code=303)
+    if n.lower() in _persona_reserved_names():
+        return RedirectResponse(
+            f"/personas?err={_q(f'{n} is a reserved built-in persona name.')}", status_code=303)
+    PersonaStore().save(SavedPersona(
+        id=uuid4().hex,
+        name=n,
+        description=description.strip(),
+        reading_level=reading_level.strip() or "professional",
+        tone=tone.strip() or "neutral",
+        format=format.strip() or "brief",
+        source_policy=source_policy.strip() or None,
+        created_at=utcnow().isoformat(),
+    ))
+    return RedirectResponse(f"/personas?ok={_q(f'Persona {n} saved.')}", status_code=303)
+
+
+@app.post("/personas/{persona_id}/delete", response_class=HTMLResponse)
+async def personas_delete(persona_id: str) -> RedirectResponse:
+    from urllib.parse import quote as _q
+    from sentinel.memory.store import PersonaStore
+    store = PersonaStore()
+    p = store.get(persona_id)
+    if p is None:
+        return RedirectResponse(f"/personas?err={_q('Persona not found.')}", status_code=303)
+    store.delete(persona_id)
+    return RedirectResponse(f"/personas?ok={_q(f'Persona {p.name} deleted.')}", status_code=303)
+
+
+@app.post("/personas/generate", response_class=HTMLResponse)
+async def personas_generate(
+    description: str = Form(...),
+    name: str = Form(""),
+) -> RedirectResponse:
+    """One-shot LLM call: audience description → suggested full profile (prefills the create form)."""
+    from urllib.parse import quote as _q
+    desc = description.strip()
+    if not desc:
+        return RedirectResponse(f"/personas?err={_q('Describe the audience first.')}", status_code=303)
+
+    prompt = (
+        "You design audience profiles for a research-report renderer. Given this audience "
+        f"description:\n\n{desc}\n\n"
+        "Return ONLY a JSON object with exactly these string fields:\n"
+        '{"reading_level": "...", "tone": "...", "format": "...", "source_policy": "..."}\n'
+        "- reading_level: who can read it (e.g. 'K-12 to undergraduate', 'professional (clinical)')\n"
+        "- tone: voice of the report (e.g. 'plain', 'technical', 'clinical')\n"
+        "- format: output shape (e.g. 'checklist with a one-line rationale per item')\n"
+        "- source_policy: which sources to prefer or require\n"
+        "Keep each value under 90 characters."
+    )
+    try:
+        import json as _json
+        import litellm as _litellm
+        cfg = get_config()
+        if _active() == "gemini":
+            resp = await _litellm.acompletion(
+                model=f"gemini/{cfg.backend.gemini.model}",
+                messages=[{"role": "user", "content": prompt}],
+                api_key=os.environ.get("GOOGLE_API_KEY"),
+                max_tokens=512,
+                response_format={"type": "json_object"},
+                drop_params=True,
+            )
+        else:
+            from sentinel.llm.gateway import _vllm_api_key
+            api_base = cfg.backend.vllm.api_base
+            resp = await _litellm.acompletion(
+                model=f"hosted_vllm/{cfg.backend.vllm.model}",
+                messages=[{"role": "user", "content": prompt}],
+                api_base=api_base,
+                api_key=_vllm_api_key(api_base),
+                max_tokens=512,
+                temperature=0.3,
+                response_format={"type": "json_object"},
+            )
+        text = (resp.choices[0].message.content or "").strip()
+        start, end = text.find("{"), text.rfind("}")
+        data = _json.loads(text[start:end + 1]) if start >= 0 <= end else {}
+        if not isinstance(data, dict):
+            raise ValueError("generator returned non-object JSON")
+    except Exception as exc:
+        return RedirectResponse(
+            f"/personas?err={_q(f'Generator failed: {type(exc).__name__}: {str(exc)[:120]}')}",
+            status_code=303)
+
+    params = "&".join([
+        f"gen_name={_q(name.strip())}",
+        f"gen_desc={_q(desc)}",
+        f"gen_rl={_q(str(data.get('reading_level', '')).strip()[:120])}",
+        f"gen_tone={_q(str(data.get('tone', '')).strip()[:120])}",
+        f"gen_fmt={_q(str(data.get('format', '')).strip()[:120])}",
+        f"gen_sp={_q(str(data.get('source_policy', '')).strip()[:120])}",
+    ])
+    return RedirectResponse(
+        f"/personas?ok={_q('Profile generated — review and save below.')}&{params}", status_code=303)
 
 
 @app.get("/api/prompts")

@@ -405,6 +405,7 @@ _NAV_GROUPS = [
     ("Govern", [
         ("settings", "Settings", "cog", "/settings"),
         ("prompts", "Prompts", "doc", "/settings/prompts"),
+        ("personas", "Personas", "agent", "/personas"),
     ]),
 ]
 
@@ -1490,13 +1491,27 @@ _PERSONA_FIELD_DEFAULTS = {"reading_level": "professional", "tone": "neutral",
                            "format": "brief", "source_policy": ""}
 
 
-def _persona_profile_map_json() -> str:
+def _persona_profile_map_json(saved: dict[str, dict[str, str]] | None = None) -> str:
     """JSON map persona-name → effective full profile (registry over defaults) for the task form's
-    placeholder prefill. Single source of truth stays PERSONA_PROFILES (artifacts/schemas.py)."""
+    placeholder prefill. Single source of truth stays PERSONA_PROFILES (artifacts/schemas.py);
+    ``saved`` adds library personas (name → profile dict) and "auto" gets explainer placeholders."""
     from sentinel.artifacts.schemas import PERSONA_PROFILES
 
-    return json.dumps({p: {**_PERSONA_FIELD_DEFAULTS, **PERSONA_PROFILES.get(p, {})}
-                       for p in _PERSONAS})
+    out = {p: {**_PERSONA_FIELD_DEFAULTS, **PERSONA_PROFILES.get(p, {})} for p in _PERSONAS}
+    for name, profile in (saved or {}).items():
+        out[name] = {**_PERSONA_FIELD_DEFAULTS, **{k: v for k, v in profile.items() if v}}
+    auto_hint = "(agent picks by domain)"
+    out["auto"] = {"reading_level": auto_hint, "tone": auto_hint,
+                   "format": auto_hint, "source_policy": auto_hint}
+    return json.dumps(out)
+
+
+def _persona_label(persona) -> str:
+    """Pill text for a task persona — flags agent-selected ones so 'why student?' is answerable
+    at a glance ('auto' resolved by DOMAIN_DEFAULT_PERSONA, not picked by the user)."""
+    name = escape(persona.name)
+    return f"{name} <span style='color:var(--muted)'>(auto)</span>" \
+        if getattr(persona, "auto_selected", False) else name
 
 
 def _persona_tip(persona) -> str:
@@ -1511,12 +1526,21 @@ def _persona_tip(persona) -> str:
 
 def _task_form(project_id: str, *, default_backend: str = "gemini",
                vllm_model: str = "gemma-4-12b-it", sovereign: bool = False,
-               project_context: str = "") -> str:
+               project_context: str = "", saved_personas: list | None = None) -> str:
     """The objective → plan entry point (SENTINEL-012): a GET form that hands the objective, domain,
     persona, and reasoning backend to the planner route. The backend toggle mirrors the New Run form
     so users with both Gemini and vLLM can choose per-task."""
     domains = "".join(f"<option value='{d}'>{d}</option>" for d in _DOMAINS)
-    personas = "".join(f"<option value='{p}'>{p}</option>" for p in _PERSONAS)
+    # Option order = resolution story: auto (agent picks by domain, the default) → built-in
+    # registry names → saved library personas (/personas) → custom (override fields only).
+    saved_names = [p.name for p in (saved_personas or [])]
+    builtins = [p for p in _PERSONAS if p != "custom"]
+    personas = "<option value='auto' selected>auto — let the agent pick</option>" + "".join(
+        f"<option value='{escape(p)}'>{escape(p)}</option>"
+        for p in builtins + saved_names + ["custom"])
+    saved_profiles = {p.name: {"reading_level": p.reading_level, "tone": p.tone,
+                               "format": p.format, "source_policy": p.source_policy or ""}
+                      for p in (saved_personas or [])}
     gemini_checked = "" if (default_backend == "vllm" or sovereign) else "checked"
     vllm_checked = "checked" if (default_backend == "vllm" or sovereign) else ""
     gemini_disabled = "disabled" if sovereign else ""
@@ -1585,7 +1609,7 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
         "(shown as placeholder); filled fields override it for this task. Facts and citations never "
         "change — persona shapes presentation only.</div>"
         "</details>"
-        f"<script type='application/json' id='t-pmap'>{_persona_profile_map_json()}</script>"
+        f"<script type='application/json' id='t-pmap'>{_persona_profile_map_json(saved_profiles)}</script>"
         "<script>(function(){"
         "var s=document.getElementById('t-per');"
         "var m=JSON.parse(document.getElementById('t-pmap').textContent);"
@@ -1611,6 +1635,123 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
         "</form>"
         "</div>"
     )
+
+
+def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
+                  gen: dict | None = None) -> str:
+    """Persona library (/personas): built-in audience profiles (read-only), saved personas
+    (create/delete), and an LLM generator that drafts a full profile from a plain-English
+    audience description. Generated values arrive via gen_* query params (PRG) and prefill
+    the create form — the user always reviews before saving."""
+    from sentinel.artifacts.schemas import PERSONA_PROFILES
+
+    g = gen or {}
+    banner = ""
+    if ok:
+        banner = f"<div class='card banner ok' style='margin-bottom:16px'>{escape(ok)}</div>"
+    elif err:
+        banner = f"<div class='card banner bad' style='margin-bottom:16px'>{escape(err)}</div>"
+
+    # --- generator card -----------------------------------------------------
+    generator = (
+        "<div class='card' style='margin-bottom:20px'>"
+        "<h2 class='sec' style='margin-top:0'>Generate a persona</h2>"
+        "<div class='note' style='margin-bottom:10px'>Describe the audience in plain words — "
+        f"the {escape(backend)} model drafts the full profile, which lands in the form below "
+        "for review before saving.</div>"
+        "<form method='post' action='/personas/generate' class='set-grid'>"
+        "<div><label class='lbl' for='gen-desc'>Audience description</label>"
+        "<textarea id='gen-desc' name='description' rows='2' required "
+        "placeholder='e.g. A hospital procurement officer comparing medical-device vendors "
+        "under strict budget rules'></textarea></div>"
+        "<div class='row2'>"
+        "<div><label class='lbl' for='gen-name'>Persona name <span class='note'>(optional — "
+        "carried into the form)</span></label>"
+        "<input id='gen-name' name='name' placeholder='e.g. procurement officer'></div>"
+        "<div style='align-self:end'><button class='btn' type='submit'>Generate profile</button></div>"
+        "</div></form></div>"
+    )
+
+    # --- create form (prefilled from gen_* when present) ----------------------
+    def _val(key: str) -> str:
+        return f" value='{escape(g.get(key, ''))}'" if g.get(key) else ""
+
+    create_form = (
+        "<div class='card' style='margin-bottom:24px' id='create'>"
+        "<h2 class='sec' style='margin-top:0'>New persona</h2>"
+        "<form method='post' action='/personas/create' class='set-grid'>"
+        "<div class='row2'>"
+        "<div><label class='lbl' for='p-name'>Name</label>"
+        f"<input id='p-name' name='name' required placeholder='e.g. CFO brief'{_val('name')}></div>"
+        "<div><label class='lbl' for='p-desc'>Description</label>"
+        f"<input id='p-desc' name='description' placeholder='who this audience is'{_val('desc')}></div>"
+        "</div>"
+        "<div class='row2'>"
+        "<div><label class='lbl' for='p-rl'>Reading level</label>"
+        f"<input id='p-rl' name='reading_level' placeholder='professional'{_val('rl')}></div>"
+        "<div><label class='lbl' for='p-tone'>Tone</label>"
+        f"<input id='p-tone' name='tone' placeholder='neutral'{_val('tone')}></div>"
+        "</div>"
+        "<div class='row2'>"
+        "<div><label class='lbl' for='p-fmt'>Output format</label>"
+        f"<input id='p-fmt' name='format' placeholder='brief'{_val('fmt')}></div>"
+        "<div><label class='lbl' for='p-sp'>Source policy</label>"
+        f"<input id='p-sp' name='source_policy' placeholder='(none)'{_val('sp')}></div>"
+        "</div>"
+        "<div class='set-actions'><button class='btn' type='submit'>Save persona</button>"
+        "<span class='note' style='align-self:center;margin-left:8px'>Saved personas appear in "
+        "every task form's persona dropdown.</span></div>"
+        "</form></div>"
+    )
+
+    # --- saved persona cards --------------------------------------------------
+    def _profile_rows(rl: str, tone: str, fmt: str, sp: str) -> str:
+        rows = [("reading level", rl), ("tone", tone), ("format", fmt)]
+        if sp:
+            rows.append(("sources", sp))
+        return "".join(
+            f"<div style='display:flex;gap:8px;font-size:12px;margin-top:4px'>"
+            f"<span style='color:var(--muted);min-width:92px'>{label}</span>"
+            f"<span>{escape(value)}</span></div>"
+            for label, value in rows)
+
+    if saved:
+        saved_cards = "".join(
+            "<div class='card' style='margin-bottom:10px'>"
+            "<div style='display:flex;align-items:center;justify-content:space-between;gap:10px'>"
+            f"<div><b>{escape(p.name)}</b>"
+            + (f" <span class='note'>— {escape(p.description)}</span>" if p.description else "")
+            + f"{_profile_rows(p.reading_level, p.tone, p.format, p.source_policy or '')}</div>"
+            f"<form method='post' action='/personas/{escape(p.id)}/delete' "
+            "onsubmit=\"return confirm('Delete this persona? Existing tasks keep their copy.')\">"
+            "<button class='btn ghost' type='submit' style='font-size:12px;color:#ff6b6b'>Delete</button>"
+            "</form></div></div>"
+            for p in saved)
+    else:
+        saved_cards = ("<div class='card'><div class='empty'>No saved personas yet — "
+                       "create one above or generate from a description.</div></div>")
+
+    # --- built-in (read-only) cards -------------------------------------------
+    builtin_cards = "".join(
+        "<div class='card' style='margin-bottom:10px'>"
+        f"<div><b>{escape(name)}</b> <span class='note'>— built-in</span>"
+        + _profile_rows(
+            profile.get("reading_level", "professional"), profile.get("tone", "neutral"),
+            profile.get("format", "brief"), profile.get("source_policy", ""))
+        + ("<div class='note' style='margin-top:6px'>Default audience — tasks with this persona "
+           "skip the extra render pass.</div>" if not profile else "")
+        + "</div></div>"
+        for name, profile in PERSONA_PROFILES.items())
+
+    content = (
+        banner + generator + create_form
+        + f"<div class='section-h'><h2>Saved personas <span class='note'>{len(saved)}</span></h2></div>"
+        + saved_cards
+        + "<div class='section-h' style='margin-top:24px'><h2>Built-in personas</h2></div>"
+        + "<div class='note' style='margin-bottom:10px'>Defined in code (read-only). Pick "
+        "<b>auto</b> in the task form to let the agent choose one by domain.</div>"
+        + builtin_cards)
+    return shell(active="personas", title="Personas", content=content, backend=backend)
 
 
 def _task_status_badge(status: str, degraded: bool = False) -> str:
@@ -2073,12 +2214,14 @@ def project_detail_page(*, project, tasks: list, backend: str,
 
 
 def project_tasks_page(*, project, tasks: list, backend: str,
-                       vllm_model: str = "gemma-4-12b-it", sovereign: bool = False) -> str:
+                       vllm_model: str = "gemma-4-12b-it", sovereign: bool = False,
+                       saved_personas: list | None = None) -> str:
     """Research/Tasks tab — task creation form + full task list."""
     pid = escape(project.id)
     form_html = _task_form(project.id, default_backend=backend,
                            vllm_model=vllm_model, sovereign=sovereign,
-                           project_context=getattr(project, "context", "") or "")
+                           project_context=getattr(project, "context", "") or "",
+                           saved_personas=saved_personas)
     failed_count = sum(1 for t in tasks if t.status == "failed")
 
     # When tasks already exist, collapse the form behind a toggle button so the
@@ -3593,7 +3736,7 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
         f"<span class='pill' title='{escape(task.objective)}'>objective: <b>{escape(task.objective[:72] + ('…' if len(task.objective) > 72 else ''))}</b></span>"
         f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span>"
         f"<span class='pill' title='{escape(_persona_tip(task.persona))}'>persona: "
-        f"<b>{escape(task.persona.name)}</b></span>"
+        f"<b>{_persona_label(task.persona)}</b></span>"
         f"<span class='pill'>steps: <b>{len(plan.steps)}</b></span>"
         f"<span class='pill'>new agents: <b>{len(created)}</b></span>"
         f"{be_pill}"
@@ -3705,7 +3848,7 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
         f"<div style='display:flex;gap:8px;flex-wrap:wrap'>"
         f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span>"
         f"<span class='pill' title='{escape(_persona_tip(task.persona))}'>persona: "
-        f"<b>{escape(task.persona.name)}</b></span>"
+        f"<b>{_persona_label(task.persona)}</b></span>"
         f"{be_pill}{deg_badge}"
         + _task_context_pill(task)
         + f"</div></div>"
