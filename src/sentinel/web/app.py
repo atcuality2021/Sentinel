@@ -2695,12 +2695,19 @@ async def personas_create(
     from urllib.parse import quote as _q
     from sentinel.artifacts.schemas import SavedPersona
     from sentinel.memory.store import PersonaStore
+    import re
     n = name.strip()
     if not n:
         return RedirectResponse(f"/personas?err={_q('Persona name is required.')}", status_code=303)
     if n.lower() in _persona_reserved_names():
         return RedirectResponse(
             f"/personas?err={_q(f'{n} is a reserved built-in persona name.')}", status_code=303)
+    # Names flow into <option value> attributes and the task form's <script> profile map —
+    # bound the charset here (defense in depth on top of render-side < escaping).
+    if not re.fullmatch(r"[A-Za-z0-9 _\-.]{1,64}", n):
+        return RedirectResponse(
+            f"/personas?err={_q('Persona names may use letters, digits, spaces, _ - . (max 64).')}",
+            status_code=303)
     PersonaStore().save(SavedPersona(
         id=uuid4().hex,
         name=n,

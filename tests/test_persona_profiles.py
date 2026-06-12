@@ -338,6 +338,27 @@ def test_task_form_defaults_to_auto_and_lists_saved_personas():
     assert "(agent picks by domain)" in html       # the auto explainer placeholders
 
 
+def test_profile_map_json_is_script_safe():
+    # Stored-XSS guard: user-controlled values inside <script type='application/json'> must
+    # never contain a literal "<" (a "</script>" in a saved field would close the block early).
+    evil = {"</script><img src=x onerror=alert(1)>": {
+        "reading_level": "</script>", "tone": "<!--", "format": "x", "source_policy": ""}}
+    blob = render._persona_profile_map_json(evil)
+    assert "<" not in blob
+    import json as _json
+    parsed = _json.loads(blob)                     # < round-trips to the same JSON value
+    assert "</script><img src=x onerror=alert(1)>" in parsed
+
+
+def test_personas_create_rejects_markup_in_names():
+    client = TestClient(web_app.app)
+    resp = client.post("/personas/create", data={"name": "</script><b>x"},
+                       follow_redirects=False)
+    assert resp.status_code == 303 and "err=" in resp.headers["location"]
+    from sentinel.memory.store import PersonaStore
+    assert PersonaStore().list() == []
+
+
 def test_persona_pill_marks_auto_selected():
     auto = persona_for("student")
     auto.auto_selected = True

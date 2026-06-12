@@ -1503,7 +1503,11 @@ def _persona_profile_map_json(saved: dict[str, dict[str, str]] | None = None) ->
     auto_hint = "(agent picks by domain)"
     out["auto"] = {"reading_level": auto_hint, "tone": auto_hint,
                    "format": auto_hint, "source_policy": auto_hint}
-    return json.dumps(out)
+    # Saved names/fields are user input embedded inside a <script> tag: a literal "</script>"
+    # (or "<!--") in a value would terminate the block early (stored XSS). The \\u003c escape
+    # decodes to the same string after JSON.parse but is inert as HTML — the block cannot
+    # close early.
+    return json.dumps(out).replace("<", "\\u003c")
 
 
 def _persona_label(persona) -> str:
