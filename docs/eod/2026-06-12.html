@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EOD 2026-06-12 · Sentinel</title>
+<style>
+  :root{--ink:#16202c;--muted:#5b6776;--line:#e3e8ef;--accent:#2563eb;--soft:#f6f8fb;--green:#16a34a;--amber:#b45309}
+  body{margin:0;background:var(--soft);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:780px;margin:0 auto;background:#fff;box-shadow:0 1px 30px rgba(20,32,44,.06);padding:36px 44px 52px}
+  h1{font-size:24px;margin:0 0 2px} .date{color:var(--muted);font-size:13px;margin-bottom:24px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);
+    margin:26px 0 8px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  ul{margin:8px 0;padding-left:20px} li{margin:5px 0}
+  code{background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+    font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#0f3a86}
+  .ship{color:var(--green);font-weight:600} .none{color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}
+  td{padding:4px 8px;border-bottom:1px solid var(--line)} td:first-child{color:var(--muted);width:42%}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;
+    background:#e9f8ef;color:var(--green);border:1px solid #bfe6cd}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>🌙 EOD — Sentinel</h1>
+<div class="date">2026-06-12 · branch <code>main</code> · 835 tests green · prod live at <code>66c932d</code></div>
+
+<section id="shipped">
+<h2>Shipped</h2>
+<p>Six commits to <code>main</code> today, all pushed to GitHub <span class="pill">and deployed to prod</span>
+(35.252.125.139 / sentinel.atcuality.com). Workflow is direct-to-main — no PRs.</p>
+<ul>
+  <li><code>66c932d</code> — <span class="ship">Mobile-friendly UI</span>: off-canvas sidebar drawer, responsive tables, phone breakpoint, list-first <code>/projects</code>. Phone content width 142px → 390px (100%). +7 tests.</li>
+  <li><code>705e30b</code> — Full CRUD on built-in personas via override model (enterprise stays read-only to preserve the skip-pass invariant).</li>
+  <li><code>a09512b</code> — Render-dispatch fix: domain briefs no longer shadowed by the ProgramStrategy template. +6 regression tests.</li>
+  <li><code>2f41f61</code> — Stored-XSS fix in the persona profile-map <code>&lt;script&gt;</code> block.</li>
+  <li><code>dbd3d55</code> — Persona library: <code>/personas</code> editor + LLM generator + agent auto-selection by domain.</li>
+  <li><code>b4f3535</code> — Persona full-schema profiles + per-task customisation in the task form.</li>
+</ul>
+</section>
+
+<section id="wip">
+<h2>WIP</h2>
+<ul>
+  <li><b>Monetization / Marketing / B2C strategy doc</b> — <code>docs/strategy/monetization-marketing-gtm.html</code>
+      (~100% drafted, committed with this EOD). Codebase-grounded via 3 parallel explorers; covers 9-domain
+      use-case catalog, 5 revenue models, pricing tiers, B2C value + the honest tenancy gap, GTM, and a
+      two-track roadmap.</li>
+</ul>
+</section>
+
+<section id="tomorrow">
+<h2>Tomorrow</h2>
+<ul>
+  <li>Decision point from the strategy doc: start the <b>Track-A commerce/tenancy spine</b> (multi-user
+      accounts, signup, Stripe billing, per-user rate limits + data isolation) — the P0 blocker for any
+      B2C/SaaS motion — <em>or</em> resume the doc-grounded e2e use-case matrix (9 domains × 6 personas;
+      only 3/9 e2e-tested).</li>
+  <li>Optional quick win: PDF export + shareable public report links (cheapest growth loop on the existing engine).</li>
+</ul>
+</section>
+
+<section id="blockers">
+<h2>Blockers</h2>
+<p class="none">None. <code>sudo</code> deploys still run manually by the operator (assistant is sandboxed),
+but that's an established, working flow — not a blocker.</p>
+</section>
+
+<section id="tech-debt-added">
+<h2>Tech debt added</h2>
+<ul>
+  <li><b>Mobile drawer behavior is hook-tested, not behavior-tested.</b> <code>tests/test_ux_mobile.py</code>
+      asserts the drawer markup/JS/CSS hooks exist; the actual open/close transition is verified only by live
+      chrome-devtools measurement (390px emulation), not by pytest. Acceptable for CSS-transition UI, but
+      flagged honestly — a Playwright interaction test would close it.</li>
+  <li>Strategy doc pricing is illustrative and needs market validation (called out in the doc footnote).</li>
+</ul>
+</section>
+
+<section id="ai-usage">
+<h2>🧠 AI usage — 2026-06-12</h2>
+<table>
+  <tr><td>Sessions · Projects</td><td>1 · 1 (Sentinel)</td></tr>
+  <tr><td>User msgs · Assistant msgs</td><td>765 · 1,372</td></tr>
+  <tr><td>Tokens — input / output</td><td>561,051 / 968,303</td></tr>
+  <tr><td>Tokens — cache write / read</td><td>6,532,360 / 228,183,328 (free)</td></tr>
+  <tr><td>Tokens — billable sum</td><td>8,061,714</td></tr>
+  <tr><td>Top tools</td><td>Bash 360 · Read 97 · Edit 92 · chrome-devtools(eval) 31 · chrome-devtools(nav) 18 · Write 14</td></tr>
+</table>
+</section>
+
+</div>
+</body>
+</html>

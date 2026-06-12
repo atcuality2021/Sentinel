@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sentinel — Monetization, Marketing & B2C Strategy</title>
+<style>
+  :root{
+    --ink:#16202c; --muted:#5b6776; --line:#e3e8ef; --bg:#ffffff; --soft:#f6f8fb;
+    --accent:#2563eb; --accent-soft:#eaf1ff; --green:#16a34a; --green-soft:#e9f8ef;
+    --amber:#b45309; --amber-soft:#fdf3e3; --red:#dc2626; --red-soft:#fdecec;
+    --purple:#7c3aed; --purple-soft:#f1ebfe;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--soft);color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;background:var(--bg);
+    box-shadow:0 1px 40px rgba(20,32,44,.06)}
+  /* cover */
+  .cover{background:linear-gradient(135deg,#0f1c33 0%,#13294b 55%,#1d3a6b 100%);color:#eaf1ff;
+    padding:64px 56px 52px;position:relative;overflow:hidden}
+  .cover::after{content:'';position:absolute;right:-80px;top:-80px;width:340px;height:340px;border-radius:50%;
+    background:radial-gradient(circle,rgba(99,150,255,.30),transparent 70%)}
+  .cover .eyebrow{letter-spacing:.22em;text-transform:uppercase;font-size:11.5px;color:#9db8e8;margin-bottom:22px}
+  .cover h1{font-size:38px;line-height:1.12;margin:0 0 14px;font-weight:750;letter-spacing:-.5px}
+  .cover p{font-size:17px;color:#cdddf6;margin:0;max-width:680px}
+  .cover .tags{margin-top:28px;display:flex;gap:9px;flex-wrap:wrap}
+  .cover .tag{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);color:#dce8fb;
+    padding:5px 13px;border-radius:999px;font-size:12.5px;font-weight:600}
+  .meta{padding:16px 56px;background:#0c1626;color:#8fa6c8;font-size:12.5px;
+    display:flex;gap:22px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,.06)}
+  .meta b{color:#cdddf6;font-weight:600}
+  /* body */
+  main{padding:14px 56px 64px}
+  h2{font-size:24px;margin:46px 0 6px;letter-spacing:-.3px;padding-top:14px}
+  h2 .n{color:var(--accent);font-weight:800;font-size:15px;letter-spacing:.05em;
+    display:block;margin-bottom:2px}
+  h3{font-size:18px;margin:30px 0 8px;letter-spacing:-.2px}
+  h4{font-size:15px;margin:20px 0 6px;color:var(--ink)}
+  p{margin:10px 0}
+  a{color:var(--accent)}
+  .lead{font-size:17.5px;color:var(--muted)}
+  hr{border:0;border-top:1px solid var(--line);margin:40px 0}
+  code{background:var(--soft);border:1px solid var(--line);border-radius:5px;padding:1px 6px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:#0f3a86}
+  ul,ol{margin:10px 0;padding-left:22px} li{margin:5px 0}
+  .muted{color:var(--muted)}
+  /* TOC */
+  .toc{background:var(--soft);border:1px solid var(--line);border-radius:14px;padding:20px 24px;margin:28px 0}
+  .toc h4{margin:0 0 10px;text-transform:uppercase;letter-spacing:.12em;font-size:12px;color:var(--muted)}
+  .toc ol{columns:2;column-gap:34px;margin:0;padding-left:18px}
+  .toc a{text-decoration:none;color:var(--ink)} .toc a:hover{color:var(--accent)}
+  /* tables */
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  th{text-align:left;background:var(--soft);color:var(--muted);font-weight:700;font-size:11.5px;
+    text-transform:uppercase;letter-spacing:.05em;padding:10px 12px;border-bottom:2px solid var(--line)}
+  td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  td b{color:var(--ink)}
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin:18px 0}
+  .tbl-wrap table{margin:0}
+  /* callouts */
+  .box{border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--soft);
+    border-radius:0 12px 12px 0;padding:15px 18px;margin:18px 0;font-size:14.5px}
+  .box .lbl{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent);display:block;margin-bottom:5px}
+  .box.green{border-left-color:var(--green);background:var(--green-soft)} .box.green .lbl{color:var(--green)}
+  .box.amber{border-left-color:var(--amber);background:var(--amber-soft)} .box.amber .lbl{color:var(--amber)}
+  .box.red{border-left-color:var(--red);background:var(--red-soft)} .box.red .lbl{color:var(--red)}
+  .box.purple{border-left-color:var(--purple);background:var(--purple-soft)} .box.purple .lbl{color:var(--purple)}
+  /* pills */
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;
+    border:1px solid;vertical-align:1px}
+  .pill.b2c{color:var(--green);border-color:#bfe6cd;background:var(--green-soft)}
+  .pill.b2b{color:var(--accent);border-color:#c4d8fb;background:var(--accent-soft)}
+  .pill.both{color:var(--purple);border-color:#dcccfb;background:var(--purple-soft)}
+  .pill.ship{color:var(--green);border-color:#bfe6cd;background:var(--green-soft)}
+  .pill.gap{color:var(--red);border-color:#f3c9c9;background:var(--red-soft)}
+  .pill.part{color:var(--amber);border-color:#f0d8a8;background:var(--amber-soft)}
+  /* cards */
+  .grid{display:grid;gap:14px;margin:18px 0}
+  .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:1fr 1fr}
+  .card{border:1px solid var(--line);border-radius:13px;padding:18px;background:#fff}
+  .card h4{margin:0 0 6px;font-size:15px}
+  .card .big{font-size:26px;font-weight:800;color:var(--accent);letter-spacing:-.5px;margin:2px 0}
+  .card p{margin:4px 0;font-size:13.5px;color:var(--muted)}
+  .tier{border:1px solid var(--line);border-radius:14px;padding:22px;background:#fff;display:flex;flex-direction:column}
+  .tier.feature{border-color:var(--accent);box-shadow:0 8px 30px rgba(37,99,235,.12)}
+  .tier .name{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .tier .price{font-size:30px;font-weight:800;letter-spacing:-1px;margin:8px 0 2px}
+  .tier .price small{font-size:14px;font-weight:600;color:var(--muted)}
+  .tier ul{padding-left:18px;margin:12px 0 0;font-size:13.5px} .tier li{margin:6px 0}
+  .footnote{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);margin-top:48px;padding-top:18px}
+  @media(max-width:720px){
+    .cover{padding:44px 24px 36px} .cover h1{font-size:28px} .meta{padding:14px 24px}
+    main{padding:10px 22px 48px} .toc ol{columns:1} .g3,.g2{grid-template-columns:1fr}
+    h2{font-size:21px}
+  }
+  @media print{body{background:#fff} .wrap{box-shadow:none;max-width:100%} .cover::after{display:none}
+    a{color:var(--ink)} h2{page-break-after:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="cover">
+  <div class="eyebrow">Product & Go-to-Market Strategy</div>
+  <h1>Sentinel: Sovereign Research, as a Product</h1>
+  <p>How a privacy-first, multi-domain AI research agent makes money, reaches its market,
+     and earns a place in everyday consumer hands — grounded in what the codebase ships today.</p>
+  <div class="tags">
+    <span class="tag">9 research domains</span>
+    <span class="tag">6 + custom personas</span>
+    <span class="tag">Zero-egress sovereign mode</span>
+    <span class="tag">Cited, provenance-tagged output</span>
+    <span class="tag">Project &amp; per-task memory</span>
+  </div>
+</header>
+
+<div class="meta">
+  <span><b>Prepared</b> 2026-06-12</span>
+  <span><b>Status</b> Internal strategy draft</span>
+  <span><b>Basis</b> Codebase audit (3 parallel explorers, file:line-verified)</span>
+  <span><b>Audience</b> Founders / GTM / product</span>
+</div>
+
+<main>
+
+<p class="lead">Sentinel is not a chatbot wrapper. It is a research <em>platform</em>: a planner-driven
+multi-agent system that turns one question into a structured, cited, audience-tailored deliverable —
+and can do so with <strong>provable data sovereignty</strong> (zero cloud egress) when a customer's
+compliance posture demands it. This document maps the product's real capabilities to three commercial
+questions — <strong>how it makes money</strong>, <strong>how it goes to market</strong>, and
+<strong>how it benefits consumers (B2C)</strong> — then lays out the roadmap to close the gaps.</p>
+
+<div class="toc">
+  <h4>Contents</h4>
+  <ol>
+    <li><a href="#what">What Sentinel actually does today</a></li>
+    <li><a href="#usecases">Use-case catalog (the 9 domains)</a></li>
+    <li><a href="#moat">Why it's defensible — the moat</a></li>
+    <li><a href="#money">Monetization — five revenue models</a></li>
+    <li><a href="#pricing">Pricing architecture</a></li>
+    <li><a href="#b2c">B2C: benefit &amp; the honest gap</a></li>
+    <li><a href="#marketing">Marketing &amp; go-to-market</a></li>
+    <li><a href="#roadmap">Future improvements &amp; roadmap</a></li>
+    <li><a href="#risks">Risks &amp; honest limitations</a></li>
+  </ol>
+</div>
+
+<hr>
+
+<!-- 1 -->
+<h2 id="what"><span class="n">01</span>What Sentinel actually does today</h2>
+<p>Every claim below is grounded in shipped code (835 passing tests). The pattern for any research run is:
+<code>plan → research (web + KB + private connectors) → [optional extract] → synthesize → grade → render-for-persona</code>.
+The output is never a wall of prose — it is a typed artifact with sources, a public/private boundary tag on
+every fact, gaps that were left unfilled, and a prioritized action plan.</p>
+
+<div class="grid g3">
+  <div class="card">
+    <h4>Multi-domain engine</h4>
+    <p><b>9 research domains</b>, each with its own typed deliverable schema — market battlecards,
+       account briefs, software/library evaluations, literature surveys, financial profiles, nutrition
+       briefs, travel guides, government proposals, and product comparisons.</p>
+  </div>
+  <div class="card">
+    <h4>Audience personas</h4>
+    <p><b>6 built-in + unlimited custom.</b> A persona changes reading level, tone, format, and source
+       policy — <em>not the facts</em>. The same research renders as a K-12 study guide or a CFO brief.
+       Auto-selected by domain.</p>
+  </div>
+  <div class="card">
+    <h4>Sovereign by design</h4>
+    <p>Three compliance modes. In <code>on_prem_required</code> the cloud model is never even
+       constructed — provable by code introspection. Every source is tagged <span class="pill b2b">public</span>
+       or <span class="pill gap">private</span>.</p>
+  </div>
+  <div class="card">
+    <h4>Dual-tier cost control</h4>
+    <p>Small 12B model does tool-calling; large 26B does reasoning only. Capability-based routing
+       cuts reasoning cost materially and is admin-tunable in config — no redeploy.</p>
+  </div>
+  <div class="card">
+    <h4>Knowledge base + memory</h4>
+    <p>Per-project KB (hybrid BM25 + vector + rerank), auto-ingestion of every artifact, and episodic
+       memory that answers "what changed since last time" across runs.</p>
+  </div>
+  <div class="card">
+    <h4>Trust scaffolding</h4>
+    <p>Deterministic citation grading (no LLM) hard-blocks artifacts with unresolved sources.
+       High-stakes domains (medical, legal) are refused at task creation. An autonomy gate keeps a human
+       in the loop by default.</p>
+  </div>
+</div>
+
+<div class="box green">
+  <span class="lbl">The one-line thesis</span>
+  Everyone is building "AI search." Sentinel's wedge is <strong>sovereign-to-action</strong>: cited,
+  audience-shaped, memory-aware research that a regulated buyer can run with zero data leaving their
+  perimeter — and that same engine, wrapped for consumers, becomes a trustworthy personal research
+  assistant that <em>shows its sources</em>.
+</div>
+
+<hr>
+
+<!-- 2 -->
+<h2 id="usecases"><span class="n">02</span>Use-case catalog — the 9 domains</h2>
+<p>Each domain is a distinct product slice with a different buyer and a different willingness to pay.
+The split below is the single most important strategic fact in this document: <strong>Sentinel already
+spans both B2B and B2C use cases in one engine.</strong></p>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Domain</th><th>Deliverable</th><th>Example question</th><th>Who pays</th><th>Market</th></tr></thead>
+  <tbody>
+    <tr><td><b>market</b></td><td>Competitor battlecard — positioning, pricing signals, recent moves, counter-angles</td><td>"What is Stripe doing in payments right now?"</td><td>Sales / strategy / RevOps</td><td><span class="pill b2b">B2B</span></td></tr>
+    <tr><td><b>account</b></td><td>Account brief — public firmographics merged with private deal history</td><td>"What changed at Acme since we last spoke?"</td><td>AEs, customer success</td><td><span class="pill b2b">B2B</span></td></tr>
+    <tr><td><b>finance</b></td><td>Financial profile — revenue, margins, risk signals, investment thesis</td><td>"Is SoftBank a buy?"</td><td>Analysts, investors, PE/VC</td><td><span class="pill both">Both</span></td></tr>
+    <tr><td><b>govt_proposal</b></td><td>Government proposal — needs mapped to vendor strengths, per-dept solutions, sovereignty edge, pilot plan</td><td>"Position our CRM to the Assam Health Dept."</td><td>GovTech / public-sector sales</td><td><span class="pill b2b">B2B</span></td></tr>
+    <tr><td><b>software</b></td><td>Software/library evaluation — stack, API quality, community health, licensing</td><td>"Is Django still worth building on?"</td><td>Developers, eng leads, CTOs</td><td><span class="pill both">Both</span></td></tr>
+    <tr><td><b>academic</b></td><td>Literature survey — state of knowledge, key findings, research gaps, methodology notes</td><td>"What's the latest on CRISPR therapy?"</td><td>Students, researchers, educators</td><td><span class="pill b2c">B2C</span></td></tr>
+    <tr><td><b>product_research</b></td><td>Product comparison — specs, value ranking, a clear winner recommendation</td><td>"Best laptop under ₹100k for build quality?"</td><td>Shoppers, procurement</td><td><span class="pill b2c">B2C</span></td></tr>
+    <tr><td><b>travel</b></td><td>Travel brief — visa/currency/transport, highlights, safety, best season, budget</td><td>"Cheapest time to visit Japan?"</td><td>Travelers, planners</td><td><span class="pill b2c">B2C</span></td></tr>
+    <tr><td><b>nutrition</b></td><td>Nutrition brief — evidence-graded claims, practical guidance, disclaimers (non-clinical)</td><td>"Does intermittent fasting work?"</td><td>Health-curious consumers</td><td><span class="pill b2c">B2C</span></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="muted">Plus two composite/project-level skills — <b>self_profile</b> (profile your own org) and
+<b>compare</b> (head-to-head us-vs-rival matrix) — that chain domains into a full competitive program.</p>
+
+<div class="box amber">
+  <span class="lbl">Strategic read</span>
+  Four domains (<b>academic, product_research, travel, nutrition</b>) are squarely consumer. Two
+  (<b>software, finance</b>) are prosumer/dual. Three (<b>market, account, govt_proposal</b>) are
+  pure enterprise. <strong>This means a single codebase can fund enterprise contracts <em>and</em>
+  seed a consumer funnel</strong> — the rare product where the high-margin B2B sale subsidizes the
+  consumer land-grab.
+</div>
+
+<hr>
+
+<!-- 3 -->
+<h2 id="moat"><span class="n">03</span>Why it's defensible — the moat</h2>
+<p>"AI research" is a crowded, fast-commoditizing category. Sentinel's defensibility is not the model —
+it's the surrounding system. Five things competitors can't trivially copy:</p>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Moat</th><th>What it is (shipped)</th><th>Why a competitor can't shrug it off</th></tr></thead>
+  <tbody>
+    <tr><td><b>Provable sovereignty</b></td><td>In <code>on_prem_required</code>, no cloud LLM object is constructed; external tool connectors return empty; private data is filtered at the SQL layer before deserialization.</td><td>Bolt-on "privacy mode" toggles in cloud products are not <em>structurally</em> provable. Regulated buyers (BFSI, health, gov, defense) require exactly this.</td></tr>
+    <tr><td><b>Provenance on every fact</b></td><td>Each finding carries a <code>public</code>/<code>private</code> boundary tag, label, and URL; gaps are reported, never hidden.</td><td>Trust is the scarce resource in AI research. "Show me where this came from" is a compliance feature, not a nicety.</td></tr>
+    <tr><td><b>Cross-run memory</b></td><td>Entity profiles accumulate; episodic recall + SM-2 reinforcement inject prior runs; "what changed since last time."</td><td>Stateless competitors re-research from scratch every time. Memory compounds switching cost the longer a customer uses it.</td></tr>
+    <tr><td><b>Capability-based cost routing</b></td><td>12B tool-caller + 26B reasoner, tunable per role in config.</td><td>Lets Sentinel undercut per-query cost while running larger reasoning — margin advantage at scale.</td></tr>
+    <tr><td><b>Deterministic quality gate</b></td><td>Code-based citation grading hard-blocks unresolved sources; high-stakes domains refused upfront.</td><td>Hallucinated citations are the category's reputational landmine. A non-LLM gate is a credible safety story for enterprise procurement.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<hr>
+
+<!-- 4 -->
+<h2 id="money"><span class="n">04</span>Monetization — five revenue models</h2>
+<p>These are not alternatives to choose between — they are a <strong>sequenced portfolio</strong>. Lead with
+the highest-margin, lowest-CAC motion (sovereign enterprise), use it to fund the consumer build-out.</p>
+
+<h3>① Sovereign Enterprise License &nbsp;<span class="pill b2b">B2B · primary revenue</span></h3>
+<p>On-prem / VPC-deployed Sentinel for regulated organizations — banks, hospitals, government, defense
+contractors. They pay for the one thing no cloud competitor can credibly offer: <strong>research-grade
+AI where data provably never leaves the perimeter</strong>, with an audit log and provenance on every fact.</p>
+<ul>
+  <li><b>Model:</b> annual platform license + per-seat or per-deployment, plus an implementation/onboarding fee.</li>
+  <li><b>Anchor:</b> the <code>govt_proposal</code> and <code>account</code> domains are tailor-made for this buyer.</li>
+  <li><b>Margin:</b> highest. Software license against a compliance budget, not a tooling budget.</li>
+</ul>
+
+<h3>② Managed Cloud SaaS (tiered) &nbsp;<span class="pill b2b">B2B / prosumer</span></h3>
+<p>Hosted multi-tenant Sentinel for teams that don't need on-prem — agencies, consultancies, startups,
+sales teams. Tiered by seats, run volume, and feature depth (memory, KB size, custom personas, connectors).</p>
+
+<h3>③ Consumer Subscription &nbsp;<span class="pill b2c">B2C</span></h3>
+<p>A prosumer app for the four consumer domains. The pitch: <em>"Perplexity that remembers you, tailors
+to your level, and never bluffs a source."</em> Freemium with a metered free tier, paid for unlimited runs,
+deeper research mode, and persistent personal memory/KB.</p>
+
+<h3>④ Usage Credits &amp; Domain Packs &nbsp;<span class="pill both">Both</span></h3>
+<p>Pay-as-you-go research credits for occasional users (one student writing one paper; one shopper before
+one big purchase). "Domain packs" let a buyer unlock a vertical (e.g., a <b>Travel pack</b>, a
+<b>Job-hunt pack</b>) without a full subscription — a low-friction first dollar.</p>
+
+<h3>⑤ Platform / API &amp; White-label &nbsp;<span class="pill b2b">B2B</span></h3>
+<p>The "bring your own domain" extensibility (a domain is a prompt + an output schema, no code change) is a
+real platform play. Sell API access and white-label the engine to vertical SaaS companies who want
+cited, sovereign research inside <em>their</em> product (a fintech embedding financial profiles; an EdTech
+embedding literature surveys).</p>
+
+<div class="box purple">
+  <span class="lbl">Sequencing</span>
+  <b>Now → 12 mo:</b> sovereign enterprise + managed SaaS (revenue + reference logos). &nbsp;
+  <b>6 → 18 mo:</b> consumer subscription + credit packs (funnel + brand). &nbsp;
+  <b>12 mo+:</b> API / white-label (leverage). The enterprise margin pays for the consumer CAC.
+</div>
+
+<hr>
+
+<!-- 5 -->
+<h2 id="pricing"><span class="n">05</span>Pricing architecture</h2>
+<p>Illustrative tiers — the shape matters more than the exact numbers, which need market validation.</p>
+
+<div class="grid g3">
+  <div class="tier">
+    <span class="name">Free / Explore</span>
+    <div class="price">$0</div>
+    <p class="muted">Consumer funnel</p>
+    <ul>
+      <li>5 research runs / month</li>
+      <li>Single-tier (fast) research</li>
+      <li>Cited output + 1 saved persona</li>
+      <li>No persistent memory</li>
+      <li>Watermarked export</li>
+    </ul>
+  </div>
+  <div class="tier feature">
+    <span class="name">Pro</span>
+    <div class="price">$18<small>/mo</small></div>
+    <p class="muted">Prosumers, students, devs</p>
+    <ul>
+      <li>Unlimited runs</li>
+      <li>Two-tier deep research</li>
+      <li>Persistent memory + personal KB</li>
+      <li>Unlimited custom personas</li>
+      <li>PDF/HTML export, no watermark</li>
+      <li>Priority queue</li>
+    </ul>
+  </div>
+  <div class="tier">
+    <span class="name">Team / Business</span>
+    <div class="price">$49<small>/seat/mo</small></div>
+    <p class="muted">Agencies, sales, startups</p>
+    <ul>
+      <li>Everything in Pro</li>
+      <li>Shared projects &amp; KB</li>
+      <li>Private connectors (CRM, Drive)</li>
+      <li>market / account / compare domains</li>
+      <li>Audit log, roles (roadmap)</li>
+    </ul>
+  </div>
+</div>
+
+<div class="grid g2">
+  <div class="tier">
+    <span class="name">Sovereign Enterprise</span>
+    <div class="price">Custom<small> · annual</small></div>
+    <p class="muted">Regulated &amp; public sector</p>
+    <ul>
+      <li>On-prem / VPC, zero cloud egress</li>
+      <li><code>on_prem_required</code> compliance mode</li>
+      <li>Full audit + provenance evidence</li>
+      <li>SSO/SAML, dedicated support, SLA</li>
+      <li>Implementation + tuning services</li>
+    </ul>
+  </div>
+  <div class="tier">
+    <span class="name">Credits &amp; Domain Packs</span>
+    <div class="price">$5–15<small> / pack</small></div>
+    <p class="muted">Occasional &amp; first-dollar</p>
+    <ul>
+      <li>Pay-per-run credit bundles</li>
+      <li>Travel pack / Shopping pack / Study pack</li>
+      <li>No subscription commitment</li>
+      <li>Converts to Pro over time</li>
+      <li>Giftable / shareable</li>
+    </ul>
+  </div>
+</div>
+
+<hr>
+
+<!-- 6 -->
+<h2 id="b2c"><span class="n">06</span>B2C: the benefit, and the honest gap</h2>
+
+<h3>Why consumers would actually want this</h3>
+<p>The consumer value proposition is sharper than "another AI search box," because the engine already
+does three things generic chat assistants do badly:</p>
+
+<div class="grid g3">
+  <div class="card">
+    <h4>It shows its work</h4>
+    <p>Every claim is tied to a source with a URL. Gaps are stated, not bluffed. For a student citing a
+       paper or a shopper trusting a recommendation, <b>verifiability is the product.</b></p>
+  </div>
+  <div class="card">
+    <h4>It speaks your level</h4>
+    <p>The same answer renders as a K-12 study guide, a developer's comparison table, or a plain-language
+       buying recommendation — persona-tailored, auto-selected by topic.</p>
+  </div>
+  <div class="card">
+    <h4>It remembers you</h4>
+    <p>A personal KB + episodic memory means your travel research, your reading list, your shortlist build
+       up over time instead of evaporating after each chat.</p>
+  </div>
+</div>
+
+<h4>Concrete consumer journeys the engine supports today</h4>
+<ul>
+  <li><b>The student</b> — "Summarize the state of research on X with sources" → an <code>academic</code>
+      literature survey rendered as a study guide with definitions and worked examples.</li>
+  <li><b>The shopper</b> — "Best ___ under ₹___" → a <code>product_research</code> comparison with specs,
+      value ranking, and a named winner.</li>
+  <li><b>The traveler</b> — "Plan a budget trip to ___" → a <code>travel</code> brief with visa, season,
+      safety, and budget, saved into a trip project.</li>
+  <li><b>The developer</b> — "Should I adopt ___?" → a <code>software</code> evaluation of stack, community,
+      and licensing as a comparison table.</li>
+  <li><b>The retail investor</b> — "Is ___ worth it?" → a <code>finance</code> profile with a clearly-labeled
+      thesis and risk signals (with disclaimers).</li>
+</ul>
+
+<div class="box red">
+  <span class="lbl">The honest gap — read before promising a B2C launch</span>
+  The codebase audit is unambiguous: today Sentinel is architected as a <strong>single-tenant, single-password
+  internal tool</strong>. There is <b>no multi-user account system, no signup flow, no billing/payments, no
+  per-user rate limiting or usage metering, and no data isolation between users.</b> The research engine is
+  consumer-grade; the <em>account &amp; commerce layer around it is not built yet.</em> A B2C launch is a
+  product-build, not a marketing decision — see the roadmap (§08).
+</div>
+
+<p>The good news: the mobile-friendly UI just shipped (responsive off-canvas navigation, phone breakpoints),
+so the <em>front door</em> is consumer-ready. What remains is the account/billing/tenancy spine.</p>
+
+<hr>
+
+<!-- 7 -->
+<h2 id="marketing"><span class="n">07</span>Marketing &amp; go-to-market</h2>
+
+<h3>Positioning</h3>
+<div class="box">
+  <span class="lbl">Category &amp; one-liner</span>
+  <b>Category:</b> Sovereign AI research platform. &nbsp;
+  <b>Enterprise line:</b> "Research-grade AI that proves your data never left the building." &nbsp;
+  <b>Consumer line:</b> "The research assistant that shows its sources, speaks your language, and remembers."
+</div>
+
+<h3>The wedge (don't fight the red ocean)</h3>
+<p>Generic competitor/account intelligence is a saturated market. Sentinel should <strong>not</strong> lead
+with "we do competitor research too." Lead with the two things rivals structurally can't match:
+<b>provable sovereignty</b> (for B2B) and <b>cited, level-tailored, memory-aware answers</b> (for B2C).
+Win the wedge, then expand across domains.</p>
+
+<h3>Channel strategy by segment</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Segment</th><th>Primary channels</th><th>Motion</th><th>Proof asset</th></tr></thead>
+  <tbody>
+    <tr><td><b>Regulated enterprise / gov</b></td><td>Direct sales, partner SIs, compliance-conference presence, RFP responses</td><td>Top-down, POC-led</td><td>On-prem POC + audit/provenance demo + a sovereignty whitepaper</td></tr>
+    <tr><td><b>Teams / agencies</b></td><td>Content SEO, LinkedIn, founder-led, product-hunt-style launches</td><td>Self-serve trial → sales-assist on Team tier</td><td>Live battlecard/compare demo on a real competitor</td></tr>
+    <tr><td><b>Developers</b></td><td>Dev communities, GitHub, technical blog, the <code>software</code> domain itself as a free tool</td><td>Bottom-up, PLG</td><td>"Should I adopt X?" public reports that rank in search</td></tr>
+    <tr><td><b>Students / consumers</b></td><td>TikTok/Reels/YouTube, education creators, app stores, SEO on long-tail "best X / is Y worth it"</td><td>Freemium PLG + viral loops</td><td>Shareable, sourced reports (export + public link)</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Growth loops</h3>
+<ul>
+  <li><b>Shareable cited reports.</b> Every consumer export carries a "researched with Sentinel — see sources"
+      footer and an optional public link. Sourced answers get shared (and screenshotted) precisely because
+      they're trustworthy — built-in distribution.</li>
+  <li><b>SEO from the engine.</b> Publish a curated stream of public <code>product_research</code> /
+      <code>software</code> / <code>travel</code> reports. They rank for high-intent long-tail queries and
+      funnel to the app.</li>
+  <li><b>Enterprise → consumer halo.</b> "The sovereign engine trusted by [regulated logo] now in your pocket"
+      is a credibility transfer few consumer AI apps can claim.</li>
+  <li><b>Persona / domain virality.</b> Custom personas and (future) shared domain packs are inherently
+      shareable artifacts — "I made a 'CFO brief' persona, here it is."</li>
+</ul>
+
+<h3>Content engine</h3>
+<p>Use Sentinel to market Sentinel: the product literally produces publishable, cited research. A weekly
+"sourced explainer" in each consumer domain doubles as SEO inventory and a live capability demo.</p>
+
+<hr>
+
+<!-- 8 -->
+<h2 id="roadmap"><span class="n">08</span>Future improvements &amp; roadmap</h2>
+<p>Two tracks: the <b>commerce/tenancy spine</b> that unlocks B2C and SaaS, and <b>product depth</b> that
+widens the moat. Legend: <span class="pill ship">shipped</span> <span class="pill part">partial</span>
+<span class="pill gap">not built</span>.</p>
+
+<h3>Track A — Commerce &amp; tenancy (unlocks B2C + multi-tenant SaaS)</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Capability</th><th>State</th><th>Why it matters</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>Multi-user accounts + RBAC</td><td><span class="pill gap">not built</span></td><td>Today: one shared password per deployment. Blocks teams, collaboration, and any consumer account.</td><td>P0</td></tr>
+    <tr><td>Self-serve signup + onboarding</td><td><span class="pill gap">not built</span></td><td>No registration flow exists. Required for any PLG / consumer motion.</td><td>P0</td></tr>
+    <tr><td>Billing &amp; metering (Stripe)</td><td><span class="pill gap">not built</span></td><td>No payments, no subscription, no usage metering. The literal money pipe.</td><td>P0</td></tr>
+    <tr><td>Per-user rate limits &amp; quotas</td><td><span class="pill gap">not built</span></td><td>Without this, one user can exhaust shared cloud credits. Cost-control prerequisite.</td><td>P0</td></tr>
+    <tr><td>Per-user data isolation</td><td><span class="pill gap">not built</span></td><td>All runs/KB/memory share one store. Needed for privacy + per-user delete/export.</td><td>P0</td></tr>
+    <tr><td>SSO / SAML / OAuth</td><td><span class="pill gap">not built</span></td><td>Enterprise procurement and consumer "Sign in with Google" both need it.</td><td>P1</td></tr>
+    <tr><td>Mobile-friendly UI</td><td><span class="pill ship">shipped</span></td><td>Off-canvas drawer, responsive tables, phone breakpoints (2026-06-12). Front door is consumer-ready.</td><td>—</td></tr>
+    <tr><td>Usage analytics / cost dashboard</td><td><span class="pill gap">not built</span></td><td>Operators need token-spend/run visibility; finance needs unit economics.</td><td>P1</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Track B — Product depth (widens the moat)</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Capability</th><th>State</th><th>Why it matters</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>PDF / DOCX export</td><td><span class="pill part">HTML only</span></td><td>Consumers and analysts expect a polished PDF deliverable to share/submit.</td><td>P1</td></tr>
+    <tr><td>Dynamic planner-generated DAGs</td><td><span class="pill part">partial</span></td><td>Hand-built graphs work; generic planner-emitted DAG + agent-spec reuse is Phase 3.</td><td>P1</td></tr>
+    <tr><td>Agent-spec registry + eval reuse</td><td><span class="pill part">partial</span></td><td><code>eval_score</code> tracked; reuse-vs-rebuild logic unfinished. Self-improving quality loop.</td><td>P2</td></tr>
+    <tr><td>Citation URL-reachability check</td><td><span class="pill part">format-check</span></td><td>Hard-grades format today; live reachability closes the hallucinated-source gap fully.</td><td>P1</td></tr>
+    <tr><td>Clinical / legal domains</td><td><span class="pill gap">gated off</span></td><td>Intentionally refused until credible-source allow-lists + factuality eval exist. Large TAM once safe.</td><td>P2</td></tr>
+    <tr><td>Remote A2A private specialist</td><td><span class="pill part">flag, unwired</span></td><td>On-prem A2A service for private research; deepens the sovereign story.</td><td>P2</td></tr>
+    <tr><td>Webhooks / integrations (Slack, Zapier)</td><td><span class="pill gap">not built</span></td><td>Push results into team workflows; B2B stickiness.</td><td>P2</td></tr>
+    <tr><td>More consumer domains (jobs, real-estate, legal-lite, recipes)</td><td><span class="pill gap">not built</span></td><td>Each new domain = new TAM at near-zero marginal code cost (prompt + schema).</td><td>P2</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="box">
+  <span class="lbl">Recommended next 90 days</span>
+  <ol style="margin:6px 0 0">
+    <li><b>Ship the Track-A P0 spine</b> (accounts, signup, Stripe billing, rate limits, data isolation) — nothing else unlocks revenue diversification.</li>
+    <li><b>PDF export + public shareable report links</b> — the cheapest growth loop, leveraging the engine you already have.</li>
+    <li><b>Pick one consumer beachhead domain</b> (recommend <code>product_research</code> or <code>academic</code>) and go deep on that funnel before spreading across all four.</li>
+  </ol>
+</div>
+
+<hr>
+
+<!-- 9 -->
+<h2 id="risks"><span class="n">09</span>Risks &amp; honest limitations</h2>
+<ul>
+  <li><b>Consumer category is brutal.</b> Perplexity, ChatGPT, Gemini own mindshare and have free distribution.
+      Sentinel must win a <em>specific</em> wedge (sourced + sovereign + memory), not compete head-on.</li>
+  <li><b>The B2C build is real work.</b> The commerce/tenancy spine (§08 Track A P0) is months of engineering;
+      do not market a consumer launch before it exists.</li>
+  <li><b>Sovereign deployments carry services weight.</b> On-prem sales close slowly and need implementation
+      muscle — high margin but high touch. Staff for it.</li>
+  <li><b>Cost discipline.</b> Without per-user metering, a freemium consumer tier can bleed cloud spend.
+      Rate limits and the on-prem/12B routing are the cost defense — ship them before opening the funnel.</li>
+  <li><b>Trust is binary.</b> One widely-shared hallucinated citation damages the whole "shows its sources"
+      brand. The deterministic grader + URL-reachability check (P1) are reputational insurance, not polish.</li>
+  <li><b>Regulatory scope.</b> Clinical/legal are deliberately gated. Don't unlock them for TAM before the
+      eval + allow-list safety infrastructure is real — the liability is asymmetric.</li>
+</ul>
+
+<div class="footnote">
+  <p><b>Sources &amp; method.</b> Every capability claim in this document was verified against the Sentinel
+  codebase via three parallel read-only code explorers (domains/personas, architecture/moat, web app &amp;
+  tenancy) on 2026-06-12, cross-referenced with <code>docs/product-spec.md</code> and
+  <code>docs/specs/SENTINEL-012/</code>. "Shipped" means present in code with passing tests (835 total);
+  "partial" and "not built" reflect the explorers' honest assessment of incomplete or absent features.
+  Pricing is illustrative and requires market validation. This is an internal strategy draft, not a
+  public commitment.</p>
+</div>
+
+</main>
+</div>
+</body>
+</html>
