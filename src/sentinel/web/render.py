@@ -3018,6 +3018,19 @@ def _text_paras(s: str) -> str:
     return "".join(f"<p class='note' style='margin:4px 0 6px'>{escape(p)}</p>" for p in parts)
 
 
+# Leading discriminator field of each domain brief (the field its render branch keys on).
+# Their presence means the artifact is a specific brief, NOT the generic ProgramStrategy
+# aggregator — used to stop ProgramStrategy greedily shadowing a brief that also carries
+# action_plan + assessment.
+_DOMAIN_BRIEF_DISCRIMINATORS = frozenset({
+    "tech_stack",            # SoftwareBrief
+    "topic_overview",        # AcademicBrief
+    "financial_summary",     # FinancialProfile
+    "evidence_quality",      # NutritionBrief
+    "destination_overview",  # TravelBrief
+})
+
+
 def _artifact_html(key: str, art) -> str:
     """Render a produced artifact as readable HTML (cards/tables/badges) by recognising its shape —
     not a raw JSON dump. Falls back to pretty JSON only for an unknown shape."""
@@ -3070,7 +3083,14 @@ def _artifact_html(key: str, art) -> str:
                    if art.get("assessment") else ""))
         return _art_wrap(f"Software brief — {escape(art.get('target', '') or key)}", body)
 
-    if "action_plan" in art and "assessment" in art and "products_found" not in art and "department_mappings" not in art:  # ProgramStrategy
+    # ProgramStrategy is the GENERIC program-level aggregator — its only fields (assessment,
+    # action_plan, ran_on_partial_data) are a SUBSET of every domain brief, so it must never
+    # shadow one. Require the absence of each brief's leading discriminator field; without this
+    # guard a brief whose LLM emitted both action_plan AND assessment mis-renders as a
+    # "Market-capture strategy" (regression 2026-06-12, found by the doc-grounded e2e matrix).
+    if ("action_plan" in art and "assessment" in art
+            and "products_found" not in art and "department_mappings" not in art
+            and not any(d in art for d in _DOMAIN_BRIEF_DISCRIMINATORS)):  # ProgramStrategy
         def _action_row(a):
             if isinstance(a, dict):
                 return (f"<tr><td>{_prio_badge(a.get('priority', ''))}</td>"

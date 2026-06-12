@@ -311,3 +311,66 @@ def test_orchestrator_planner_capability_catalogue_includes_new_domains():
         assert cap in _CAPABILITY_DESCRIPTIONS, (
             f"'{cap}' missing from _CAPABILITY_DESCRIPTIONS — planner won't pick it"
         )
+
+
+# ── render dispatch: domain briefs must not be shadowed by ProgramStrategy ────
+# Regression (2026-06-12): an academic photosynthesis run produced a valid AcademicBrief
+# but rendered as "Market-capture strategy". Root cause: _artifact_html infers type by
+# field-presence and checked the generic ProgramStrategy branch (action_plan + assessment)
+# BEFORE the domain briefs. Those two fields are a subset of every brief, so any brief whose
+# LLM emitted both was greedily mis-rendered. Found live by the doc-grounded e2e matrix.
+
+def _full_brief_dicts() -> dict[str, tuple[dict, str]]:
+    """Each domain brief as a FULL model_dump (so action_plan + assessment keys are present —
+    the exact condition that tripped ProgramStrategy), paired with its expected render title."""
+    from sentinel.artifacts.schemas import RecommendedAction
+    act = [RecommendedAction(priority="high", action="x", rationale="y", timeline="now")]
+    src = Source(boundary="public", label="ref", url="https://example.com")
+    fnd = lambda t: Finding(text=t, source=src)
+    academic = AcademicBrief(
+        topic="Photosynthesis", one_line_summary="s", topic_overview="o",
+        key_findings=[fnd("f")], assessment="where the field stands", action_plan=act)
+    software = SoftwareBrief(
+        target="FastAPI", one_line_summary="s", category="web framework",
+        tech_stack=[fnd("t")], community_health=[fnd("c")],
+        assessment="a", action_plan=act)
+    finance = FinancialProfile(
+        target="Index funds", one_line_summary="s", financial_summary="fs",
+        key_metrics=[fnd("m")], assessment="a", action_plan=act)
+    nutrition = NutritionBrief(
+        topic="Gluten-free", one_line_summary="s", evidence_quality="observational",
+        key_claims=[fnd("k")], assessment="a", action_plan=act)
+    travel = TravelBrief(
+        destination="Kerala", one_line_summary="s", destination_overview="d",
+        highlights=[fnd("h")], assessment="a", action_plan=act)
+    return {
+        "academic": (academic.model_dump(), "Academic brief"),
+        "software": (software.model_dump(), "Software brief"),
+        "finance": (finance.model_dump(), "Financial profile"),
+        "nutrition": (nutrition.model_dump(), "Nutrition brief"),
+        "travel": (travel.model_dump(), "Travel brief"),
+    }
+
+
+@pytest.mark.parametrize("domain", ["academic", "software", "finance", "nutrition", "travel"])
+def test_domain_brief_not_rendered_as_program_strategy(domain):
+    """A full domain brief (action_plan + assessment populated) renders under its OWN title,
+    never the generic 'Market-capture strategy' aggregator."""
+    from sentinel.web import render
+    art, expected_title = _full_brief_dicts()[domain]
+    assert "action_plan" in art and "assessment" in art, "test must exercise the conflicting keys"
+    html = render._artifact_html(domain, art)
+    assert expected_title in html, f"{domain} brief lost its template"
+    assert "Market-capture strategy" not in html, f"{domain} brief shadowed by ProgramStrategy"
+
+
+def test_program_strategy_still_renders_itself():
+    """The genuine ProgramStrategy aggregator (no brief discriminators) keeps its title —
+    the non-greedy guard must not over-correct."""
+    from sentinel.web import render
+    from sentinel.artifacts.schemas import ProgramStrategy, RecommendedAction
+    strat = ProgramStrategy(
+        assessment="cross-product standing",
+        action_plan=[RecommendedAction(priority="high", action="ship", rationale="r", timeline="Q3")])
+    html = render._artifact_html("program_strategy", strat.model_dump())
+    assert "Market-capture strategy" in html
