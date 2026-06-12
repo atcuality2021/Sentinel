@@ -1482,7 +1482,31 @@ _DOMAINS = ["market", "account", "software", "finance", "academic", "nutrition",
             "govt_proposal", "product_research"]
 # Persona = who the output is for (reading level / tone / format). The orchestrated run renders the
 # deliverable for this persona without changing the facts (SENTINEL-012 AC-8/17).
-_PERSONAS = ["enterprise", "developer", "consumer", "student", "doctor", "nurse"]
+_PERSONAS = ["enterprise", "developer", "consumer", "student", "doctor", "nurse", "custom"]
+
+# Persona() field defaults, repeated here so the form's placeholder map can show the effective
+# profile for every option (incl. "custom", which starts from defaults) without instantiating models.
+_PERSONA_FIELD_DEFAULTS = {"reading_level": "professional", "tone": "neutral",
+                           "format": "brief", "source_policy": ""}
+
+
+def _persona_profile_map_json() -> str:
+    """JSON map persona-name → effective full profile (registry over defaults) for the task form's
+    placeholder prefill. Single source of truth stays PERSONA_PROFILES (artifacts/schemas.py)."""
+    from sentinel.artifacts.schemas import PERSONA_PROFILES
+
+    return json.dumps({p: {**_PERSONA_FIELD_DEFAULTS, **PERSONA_PROFILES.get(p, {})}
+                       for p in _PERSONAS})
+
+
+def _persona_tip(persona) -> str:
+    """Tooltip text exposing the FULL audience profile behind a persona pill (the name alone hides
+    the reading-level/tone/format/source-policy that actually shaped the rendered output)."""
+    bits = [f"reading level: {persona.reading_level}", f"tone: {persona.tone}",
+            f"format: {persona.format}"]
+    if persona.source_policy:
+        bits.append(f"sources: {persona.source_policy}")
+    return " · ".join(bits)
 
 
 def _task_form(project_id: str, *, default_backend: str = "gemini",
@@ -1541,6 +1565,37 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
         "<div><label class='lbl' for='t-per'>Persona</label>"
         f"<select id='t-per' name='persona'>{personas}</select></div>"
         "</div>"
+        # Customise-persona: the full audience profile (reading level / tone / format / source
+        # policy) behind the selected name, editable per task. Blank = the registry profile;
+        # filled = override (the "custom" persona is exactly this with no named base).
+        "<details id='t-pcust' style='margin-top:2px'>"
+        "<summary class='note' style='cursor:pointer'>Customise persona — reading level, tone, "
+        "format, source policy <span style='color:var(--muted)'>(optional)</span></summary>"
+        "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px'>"
+        "<div><label class='lbl' for='t-rl'>Reading level</label>"
+        "<input id='t-rl' name='reading_level'></div>"
+        "<div><label class='lbl' for='t-tone'>Tone</label>"
+        "<input id='t-tone' name='tone'></div>"
+        "<div><label class='lbl' for='t-fmt'>Output format</label>"
+        "<input id='t-fmt' name='format'></div>"
+        "<div><label class='lbl' for='t-sp'>Source policy</label>"
+        "<input id='t-sp' name='source_policy'></div>"
+        "</div>"
+        "<div class='note' style='margin-top:4px'>Blank fields use the selected persona's profile "
+        "(shown as placeholder); filled fields override it for this task. Facts and citations never "
+        "change — persona shapes presentation only.</div>"
+        "</details>"
+        f"<script type='application/json' id='t-pmap'>{_persona_profile_map_json()}</script>"
+        "<script>(function(){"
+        "var s=document.getElementById('t-per');"
+        "var m=JSON.parse(document.getElementById('t-pmap').textContent);"
+        "function f(){var p=m[s.value]||m['enterprise'];"
+        "document.getElementById('t-rl').placeholder=p.reading_level;"
+        "document.getElementById('t-tone').placeholder=p.tone;"
+        "document.getElementById('t-fmt').placeholder=p.format;"
+        "document.getElementById('t-sp').placeholder=p.source_policy||'(none)';"
+        "if(s.value==='custom'){document.getElementById('t-pcust').open=true;}}"
+        "s.addEventListener('change',f);f();})();</script>"
         "<div><label class='lbl'>Reasoning backend</label>"
         "<div class='seg'>"
         f"<input class='cloud' type='radio' id='tb-gemini' name='backend' value='gemini' "
@@ -3537,7 +3592,8 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
         f"<div style='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap'>"
         f"<span class='pill' title='{escape(task.objective)}'>objective: <b>{escape(task.objective[:72] + ('…' if len(task.objective) > 72 else ''))}</b></span>"
         f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span>"
-        f"<span class='pill'>persona: <b>{escape(task.persona.name)}</b></span>"
+        f"<span class='pill' title='{escape(_persona_tip(task.persona))}'>persona: "
+        f"<b>{escape(task.persona.name)}</b></span>"
         f"<span class='pill'>steps: <b>{len(plan.steps)}</b></span>"
         f"<span class='pill'>new agents: <b>{len(created)}</b></span>"
         f"{be_pill}"
@@ -3648,7 +3704,8 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
         f"<div style='font-weight:700;font-size:15px;margin-bottom:6px'>{_obj_short}</div>"
         f"<div style='display:flex;gap:8px;flex-wrap:wrap'>"
         f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span>"
-        f"<span class='pill'>persona: <b>{escape(task.persona.name)}</b></span>"
+        f"<span class='pill' title='{escape(_persona_tip(task.persona))}'>persona: "
+        f"<b>{escape(task.persona.name)}</b></span>"
         f"{be_pill}{deg_badge}"
         + _task_context_pill(task)
         + f"</div></div>"

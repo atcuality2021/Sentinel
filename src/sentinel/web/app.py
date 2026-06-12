@@ -1691,21 +1691,25 @@ def _plan_is_stale(task, plan) -> bool:
     return [s.capability for s in plan.steps] != [s.capability for s in expected.steps]
 
 
-def _persona_for(name: str) -> Persona:
-    """Build a Persona from the form's name; unknown/blank falls back to the default enterprise reader
-    rather than 500-ing (the form constrains the options, but a hand-typed query must degrade safely)."""
-    from sentinel.config.schema import PersonaName  # the allowed literal values
-    from typing import get_args
+def _persona_for(name: str, *, reading_level: str = "", tone: str = "",
+                 format: str = "", source_policy: str = "") -> Persona:
+    """Build the full audience profile from the form: registry profile for the name (student → K-12
+    study guide, doctor → peer-reviewed-only clinical brief, …) + non-blank per-task overrides from
+    the customise-persona fields. Unknown/blank names degrade to the default enterprise reader rather
+    than 500-ing (the form constrains the options, but a hand-typed query must degrade safely)."""
+    from sentinel.artifacts.schemas import persona_for
 
-    n = (name or "").strip().lower()
-    return Persona(name=n) if n in get_args(PersonaName) else Persona()
+    return persona_for(name, reading_level=reading_level, tone=tone,
+                       format=format, source_policy=source_policy)
 
 
 @app.get("/projects/{project_id}/plan", response_class=HTMLResponse)
 async def plan_review(project_id: str, objective: str = "", domain: str = "market",
                       persona: str = "enterprise", backend: str = "",
                       user_id: str = "", context: str = "",
-                      client_url: str = "") -> str:
+                      client_url: str = "",
+                      reading_level: str = "", tone: str = "",
+                      format: str = "", source_policy: str = "") -> str:
     proj = ProjectStore().get_project(project_id)
     if proj is None:
         return render.not_found_page(what=f"project {project_id}", backend=_active())
@@ -1714,6 +1718,9 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
         return render.error_page("An objective is required to plan a task.", backend=_active())
     store = ProjectStore()
     dom = domain.strip() or "market"
+    # The full audience profile: named registry profile + any customise-persona overrides (AC-17).
+    task_persona = _persona_for(persona, reading_level=reading_level, tone=tone,
+                                format=format, source_policy=source_policy)
     # Reuse an existing task with the same objective+domain instead of piling up duplicates on every
     # re-plan (the Tasks list stays meaningful). A fresh objective makes a new task.
     task = next((t for t in store.tasks_for_project(project_id)
@@ -1721,11 +1728,11 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
     if task is None:
         now = utcnow().isoformat()
         task = Task(id=f"task-{now}", project_id=project_id, objective=objective,
-                    domain=Domain(name=dom), persona=_persona_for(persona), created_at=now,
+                    domain=Domain(name=dom), persona=task_persona, created_at=now,
                     user_id=user_id.strip() or None,
                     context=context.strip() or None)
     else:
-        task.persona = _persona_for(persona)
+        task.persona = task_persona
         if user_id.strip():
             task.user_id = user_id.strip()
         if context.strip():
@@ -2199,7 +2206,7 @@ details summary{{cursor:pointer;font-size:13px;color:#6b7280;padding:4px 0}}
 <h1>{_esc(task.objective)}</h1>
 <div class="meta">
   <strong>Domain:</strong> {_esc(task.domain.name)} &nbsp;·&nbsp;
-  <strong>Persona:</strong> {_esc(task.persona.name)} &nbsp;·&nbsp;
+  <strong>Persona:</strong> {_esc(task.persona.name)} ({_esc(_render._persona_tip(task.persona))}) &nbsp;·&nbsp;
   {_esc((task.created_at or '')[:19].replace('T', ' '))} UTC
 </div>
 <h2 style='font-size:16px;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:12px'>📊 Summary</h2>

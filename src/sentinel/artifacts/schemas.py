@@ -223,6 +223,72 @@ class Persona(BaseModel):
     )
 
 
+# Full audience profiles per named persona (SENTINEL-012 §1 made real). Until 2026-06-12 every
+# name shipped with the identical professional/neutral/brief defaults, so picking "student" only
+# changed one word in the renderer prompt — the docs' K-12-study-guide / nurse-checklist promise
+# existed in the schema but was wired to defaults. INVARIANT: "enterprise" must stay EQUAL to the
+# Persona() defaults — dag._finalize_result skips the persona render pass when persona == Persona(),
+# so a richer enterprise profile would silently add an LLM call to every default task.
+PERSONA_PROFILES: dict[str, dict[str, str]] = {
+    "enterprise": {},  # = Persona() defaults: professional · neutral · brief (skip-pass invariant)
+    "developer": {
+        "reading_level": "professional (engineering)",
+        "tone": "technical",
+        "format": "comparison table with code-level notes",
+        "source_policy": "official docs, changelogs and maintainer sources preferred",
+    },
+    "consumer": {
+        "reading_level": "general public",
+        "tone": "plain",
+        "format": "short bullets ending in a clear recommendation",
+        "source_policy": "reputable consumer sources; flag sponsored or affiliate content",
+    },
+    "student": {
+        "reading_level": "K-12 to undergraduate",
+        "tone": "plain",
+        "format": "study guide with definitions and worked examples",
+        "source_policy": "textbooks, .edu and encyclopedic references preferred",
+    },
+    "doctor": {
+        "reading_level": "professional (clinical)",
+        "tone": "clinical",
+        "format": "structured brief with evidence levels per claim",
+        "source_policy": "peer-reviewed and regulatory sources only",
+    },
+    "nurse": {
+        "reading_level": "professional (clinical)",
+        "tone": "clinical",
+        "format": "checklist with a one-line rationale per item",
+        "source_policy": "peer-reviewed and clinical-guideline sources only",
+    },
+    # "custom" deliberately absent: it starts from Persona() defaults and is defined entirely by
+    # the caller's overrides (the form's customise-persona fields).
+}
+
+
+def persona_for(name: str | None, *, reading_level: str = "", tone: str = "",
+                format: str = "", source_policy: str = "") -> Persona:
+    """Build the FULL audience profile for a persona name (render-only fields, AC-17).
+
+    Resolution order: registry profile for ``name`` → non-blank keyword overrides win field-by-field
+    (that is the ``custom`` persona path — and how any named persona is customised per task).
+    Unknown/blank names degrade to the default enterprise reader rather than raising: the form
+    constrains the options, but a hand-typed query string must degrade safely.
+    """
+    from typing import get_args
+
+    n = (name or "").strip().lower()
+    if n not in get_args(PersonaName):
+        n = "enterprise"
+    profile: dict[str, str] = dict(PERSONA_PROFILES.get(n, {}))
+    overrides = {"reading_level": reading_level, "tone": tone,
+                 "format": format, "source_policy": source_policy}
+    for key, value in overrides.items():
+        if value.strip():
+            profile[key] = value.strip()
+    return Persona(name=n, **profile)  # type: ignore[arg-type]  # name validated against PersonaName above
+
+
 def is_high_stakes(domain_name: str) -> bool:
     """Return True if ``domain_name`` names a high-stakes domain that must be blocked at task
     creation (SENTINEL-012 AC-14).
