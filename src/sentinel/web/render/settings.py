@@ -4,7 +4,7 @@ from __future__ import annotations
 from html import escape
 from sentinel.strategy import discover_playbooks
 
-from .base import shell
+from .base import shell, _icon
 
 # --------------------------------------------------------------------------- #
 # Settings (SENTINEL-003)
@@ -14,15 +14,15 @@ def _num(name: str, label: str, value, *, step: str = "any", mn: str = "", mx: s
     mn_a = f" min='{mn}'" if mn != "" else ""
     mx_a = f" max='{mx}'" if mx != "" else ""
     return (
-        f"<div><label class='lbl' for='{name}'>{escape(label)}</label>"
-        f"<input type='number' step='{step}'{mn_a}{mx_a} id='{name}' name='{name}' value='{v}'></div>"
+        f"<div class='field'><label for='{name}'>{escape(label)}</label>"
+        f"<input class='input' type='number' step='{step}'{mn_a}{mx_a} id='{name}' name='{name}' value='{v}'></div>"
     )
 
 
 def _gen_row(gen) -> str:
     """Four generation inputs (temperature/max_output_tokens/top_p/top_k)."""
     return (
-        "<div class='row4'>"
+        "<div class='grid cols-2'>"
         + _num("temperature", "Temperature", gen.temperature, step="0.05", mn="0", mx="2")
         + _num("max_output_tokens", "Max tokens", gen.max_output_tokens, step="1", mn="1", mx="32768")
         + _num("top_p", "top_p", gen.top_p, step="0.01", mn="0", mx="1")
@@ -46,7 +46,7 @@ def _sel(name: str, label: str, value: str, options: list[tuple[str, str]]) -> s
         for v, lbl in options
     )
     return (
-        f"<div><label class='lbl' for='{name}'>{escape(label)}</label>"
+        f"<div class='field'><label for='{name}'>{escape(label)}</label>"
         f"<select id='{name}' name='{name}'>{opts}</select></div>"
     )
 
@@ -55,13 +55,13 @@ def _settings_agent_card(key: str, a) -> str:
     return (
         "<div class='card'>"
         f"<form method='post' action='/settings/agents/{escape(key)}' class='set-grid'>"
-        f"<div style='display:flex;align-items:center;justify-content:space-between;gap:10px'>"
+        "<div class='row-between'>"
         f"<span class='agent-key'>{escape(key)}</span>"
-        f"<div style='display:flex;gap:16px'>{_chk('enabled','enabled',a.enabled)}"
+        f"<div class='inline'>{_chk('enabled','enabled',a.enabled)}"
         f"{_chk('pin_gemini','pin to Gemini',a.pin_gemini)}</div></div>"
-        "<div><label class='lbl' for='model-" + escape(key) + "'>Model "
+        "<div class='field'><label for='model-" + escape(key) + "'>Model "
         "(blank ⇒ backend default)</label>"
-        f"<input id='model-{escape(key)}' name='model' value='{escape(a.model or '')}' "
+        f"<input class='input' id='model-{escape(key)}' name='model' value='{escape(a.model or '')}' "
         "placeholder='inherit backend default'></div>"
         f"{_gen_row(a.generation)}"
         f"<div class='set-actions'><button class='btn' type='submit'>Save agent</button></div>"
@@ -79,7 +79,7 @@ def _prompt_card(key: str, p) -> str:
         f"<summary><span class='agent-key'>{escape(key)}</span></summary>"
         "<div style='margin-top:12px'>"
         f"<form method='post' action='/settings/prompts/{escape(key)}' class='set-grid'>"
-        f"<textarea name='template' rows='7'>{escape(p.template)}</textarea>"
+        f"<div class='field'><textarea name='template' rows='7'>{escape(p.template)}</textarea></div>"
         f"{vars_hint}"
         "<div class='set-actions'><button class='btn' type='submit'>Save prompt</button></div>"
         "</form>"
@@ -116,8 +116,8 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         banner = f"<div class='card banner bad'>{escape(err)}</div>"
 
     def _key_pill(name: str, ok_: bool) -> str:
-        return (f"<span class='pill'><span class='dotmark' style='background:"
-                f"{'#3ad29f' if ok_ else '#ff6b6b'}'></span>"
+        return (f"<span class='pill'><span class='dot' style='color:"
+                f"{'var(--ok)' if ok_ else 'var(--bad)'}'></span>"
                 f"{escape(name)}: <b>{'set' if ok_ else 'not set'}</b></span>")
 
     key_pill = _key_pill("GOOGLE_API_KEY", gemini_key_set) + _key_pill("VLLM_API_KEY", vllm_key_set)
@@ -125,28 +125,28 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     v_checked = "checked" if backend == "vllm" else ""
 
     backends = (
-        "<h2 class='sec'>Backends</h2>"
-        "<div class='card'><form method='post' action='/settings/backends' class='set-grid'>"
-        "<div><label class='lbl'>Default reasoning backend</label><div class='seg'>"
+        "<div class='card'><div class='card-head'><h2>Backends</h2></div>"
+        "<form method='post' action='/settings/backends' class='set-grid'>"
+        "<div class='field'><label>Default reasoning backend</label><div class='seg'>"
         f"<input class='cloud' type='radio' id='sb-gemini' name='default' value='gemini' {g_checked}>"
         "<label class='l-cloud' for='sb-gemini'>☁ Cloud · Gemini</label>"
         f"<input class='onprem' type='radio' id='sb-vllm' name='default' value='vllm' {v_checked}>"
         "<label class='l-onprem' for='sb-vllm'>🔒 On-prem · Gemma</label></div></div>"
-        "<div class='row2'>"
-        f"<div><label class='lbl' for='gemini_model'>Gemini model</label>"
-        f"<input id='gemini_model' name='gemini_model' value='{escape(cfg.backend.gemini.model)}'></div>"
-        f"<div><label class='lbl' for='vllm_model'>vLLM tool-caller model <span class='muted' style='font-size:11px'>(12B — planners, extractors)</span></label>"
-        f"<input id='vllm_model' name='vllm_model' value='{escape(cfg.backend.vllm.model)}'></div>"
+        "<div class='grid cols-2'>"
+        f"<div class='field'><label for='gemini_model'>Gemini model</label>"
+        f"<input class='input' id='gemini_model' name='gemini_model' value='{escape(cfg.backend.gemini.model)}'></div>"
+        f"<div class='field'><label for='vllm_model'>vLLM tool-caller model <span class='hint'>(12B — planners, extractors)</span></label>"
+        f"<input class='input' id='vllm_model' name='vllm_model' value='{escape(cfg.backend.vllm.model)}'></div>"
         "</div>"
-        f"<div><label class='lbl' for='vllm_api_base'>vLLM API base (tool-caller)</label>"
-        f"<input id='vllm_api_base' name='vllm_api_base' "
+        f"<div class='field'><label for='vllm_api_base'>vLLM API base (tool-caller)</label>"
+        f"<input class='input mono' id='vllm_api_base' name='vllm_api_base' "
         f"value='{escape(cfg.backend.vllm.api_base or '')}'></div>"
         + (lambda _r, _ra: (
-            f"<div class='row2' style='margin-top:8px'>"
-            f"<div><label class='lbl' for='vllm_reasoning_model'>vLLM reasoning model <span class='muted' style='font-size:11px'>(26B — synthesizers, strategists)</span></label>"
-            f"<input id='vllm_reasoning_model' name='vllm_reasoning_model' value='{escape(_r)}'></div>"
-            f"<div><label class='lbl' for='vllm_reasoning_api_base'>vLLM API base (reasoning)</label>"
-            f"<input id='vllm_reasoning_api_base' name='vllm_reasoning_api_base' value='{escape(_ra)}'></div>"
+            f"<div class='grid cols-2'>"
+            f"<div class='field'><label for='vllm_reasoning_model'>vLLM reasoning model <span class='hint'>(26B — synthesizers, strategists)</span></label>"
+            f"<input class='input' id='vllm_reasoning_model' name='vllm_reasoning_model' value='{escape(_r)}'></div>"
+            f"<div class='field'><label for='vllm_reasoning_api_base'>vLLM API base (reasoning)</label>"
+            f"<input class='input mono' id='vllm_reasoning_api_base' name='vllm_reasoning_api_base' value='{escape(_ra)}'></div>"
             f"</div>"
         ))(
             (cfg.backend.roles or {}).get("synthesizer", cfg.backend.vllm).model,
@@ -163,8 +163,8 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     )
 
     generation = (
-        "<h2 class='sec'>Generation defaults</h2>"
-        "<div class='card'><form method='post' action='/settings/generation' class='set-grid'>"
+        "<div class='card'><div class='card-head'><h2>Generation defaults</h2></div>"
+        "<form method='post' action='/settings/generation' class='set-grid'>"
         f"{_gen_row(cfg.generation)}"
         "<div class='set-actions'><button class='btn' type='submit'>Save generation</button></div>"
         "<p class='note'>Global defaults. A per-agent field left blank inherits these.</p>"
@@ -172,22 +172,22 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     )
 
     memory = (
-        "<h2 class='sec'>Memory</h2>"
-        "<div class='card'><form method='post' action='/settings/memory' class='set-grid'>"
-        f"<div style='display:flex;gap:20px;flex-wrap:wrap'>"
+        "<div class='card'><div class='card-head'><h2>Memory</h2></div>"
+        "<form method='post' action='/settings/memory' class='set-grid'>"
+        f"<div class='inline' style='gap:20px'>"
         f"{_chk('entity_memory','entity memory enabled',cfg.memory.entity_memory)}"
         f"{_chk('inject_org_prefs','inject org preferences',cfg.memory.inject_org_prefs)}"
         f"{_chk('episodic_recall','episodic recall (inject past sessions)',getattr(cfg.memory,'episodic_recall',True))}"
         "</div>"
-        + "<div class='row2'>"
+        + "<div class='grid cols-2'>"
         + _num("retention_days", "Retention (days)", cfg.memory.retention_days, step="1", mn="1")
         + _num("episodic_recall_top_k", "Episodic recall depth (top-K sessions)", getattr(cfg.memory,"episodic_recall_top_k",3), step="1", mn="1", mx="10")
         + "</div>"
-        + "<div class='row2'>"
+        + "<div class='grid cols-2'>"
         + _num("context_window_tokens", "Context window (tokens)", getattr(cfg.memory,"context_window_tokens",2400), step="100", mn="800", mx="16000")
         + "</div>"
         + "<div class='set-actions'>"
-        + "<a class='btn' href='/memory/episodes' style='background:var(--bg2);color:var(--txt)'>View &amp; manage episodes</a>"
+        + "<a class='btn ghost' href='/memory/episodes'>View &amp; manage episodes</a>"
         + "<span style='flex:1'></span>"
         + "<button class='btn' type='submit'>Save memory</button></div>"
         + "<p class='note'>Episodic recall injects prior research sessions into the planner's context. "
@@ -198,9 +198,9 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     )
 
     harness = (
-        "<h2 class='sec'>Agent Harness</h2>"
-        "<div class='card'><form method='post' action='/settings/harness' class='set-grid'>"
-        "<div class='row3'>"
+        "<div class='card'><div class='card-head'><h2>Agent Harness</h2></div>"
+        "<form method='post' action='/settings/harness' class='set-grid'>"
+        "<div class='grid cols-3'>"
         + _num("max_turns", "Max turns per step", getattr(cfg.backend,"max_turns",30), step="1", mn="1")
         + _num("max_retries", "Max retries on failure", getattr(cfg.backend,"max_retries",3), step="1", mn="1")
         + _num("base_retry_delay_s", "Base retry delay (s)", getattr(cfg.backend,"base_retry_delay_s",1.0), step="0.1", mn="0")
@@ -215,14 +215,14 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     gov = cfg.governance
     sovereign = gov.compliance_mode == "on_prem_required"
     governance = (
-        "<h2 class='sec'>Governance · sovereignty policy</h2>"
-        "<div class='card'><form method='post' action='/settings/governance' class='set-grid'>"
+        "<div class='card'><div class='card-head'><h2>Governance · sovereignty policy</h2></div>"
+        "<form method='post' action='/settings/governance' class='set-grid'>"
         + _sel("compliance_mode", "Compliance mode", gov.compliance_mode, [
             ("cloud_ok", "☁ cloud_ok — Gemini grounding allowed"),
             ("on_prem_preferred", "on_prem_preferred — prefer on-prem, cloud permitted"),
             ("on_prem_required", "🔒 on_prem_required — NO cloud (Gemini blocked)"),
         ])
-        + "<div style='display:flex;gap:20px;flex-wrap:wrap'>"
+        + "<div class='inline' style='gap:20px'>"
         + _chk("audit_log", "audit log enabled", gov.audit_log)
         + _chk("block_cloud_on_private", "force on-prem for any run touching private data",
                gov.block_cloud_on_private)
@@ -238,9 +238,9 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
 
     s = cfg.search
     search = (
-        "<h2 class='sec'>Public search provider</h2>"
-        "<div class='card'><form method='post' action='/settings/search' class='set-grid'>"
-        "<div class='row2'>"
+        "<div class='card'><div class='card-head'><h2>Public search provider</h2></div>"
+        "<form method='post' action='/settings/search' class='set-grid'>"
+        "<div class='grid cols-2'>"
         + _sel("provider", "Provider", s.provider, [
             ("gemini", "☁ Gemini (google_search — cloud)"),
             ("google_cse", "Google CSE (GOOGLE_API_KEY + GOOGLE_CSE_ID)"),
@@ -272,9 +272,12 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     comp = [k for k in cfg.agents if k.startswith("competitor.")]
     clnt = [k for k in cfg.agents if k.startswith("client.")]
     agents = (
-        "<h2 class='sec'>Agents — competitor</h2><div class='grid' style='gap:12px'>"
+        "<div class='page-head'><div class='grow'><h2>Agents — competitor</h2></div></div>"
+        "<div class='grid cols-2'>"
         + "".join(_settings_agent_card(k, cfg.agents[k]) for k in comp)
-        + "</div><h2 class='sec'>Agents — client</h2><div class='grid' style='gap:12px'>"
+        + "</div>"
+        "<div class='page-head'><div class='grow'><h2>Agents — client</h2></div></div>"
+        "<div class='grid cols-2'>"
         + "".join(_settings_agent_card(k, cfg.agents[k]) for k in clnt)
         + "</div>"
     )
@@ -292,20 +295,20 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         model_val = escape(opt.model) if opt else ""
         base_val = escape(opt.api_base) if (opt and opt.api_base) else ""
         return (
-            "<div class='row2'>"
-            f"<div><label class='lbl'>{escape(role)} <span class='note' "
+            "<div class='grid cols-2'>"
+            f"<div class='field'><label>{escape(role)} <span class='hint' "
             f"style='font-weight:400'>({escape(tier)})</span></label>"
-            f"<input name='model__{escape(role)}' value='{model_val}' "
+            f"<input class='input' name='model__{escape(role)}' value='{model_val}' "
             "placeholder='blank ⇒ flat vLLM fallback'></div>"
-            f"<div><label class='lbl'>endpoint</label>"
-            f"<input name='api_base__{escape(role)}' value='{base_val}' "
+            f"<div class='field'><label>endpoint</label>"
+            f"<input class='input mono' name='api_base__{escape(role)}' value='{base_val}' "
             f"placeholder='{escape(endpoint)}'></div>"
             "</div>"
         )
 
     models = (
-        "<h2 class='sec'>Models · Gemma-4 role tiering</h2>"
-        "<div class='card'><form method='post' action='/settings/models' class='set-grid'>"
+        "<div class='card'><div class='card-head'><h2>Models · Gemma-4 role tiering</h2></div>"
+        "<form method='post' action='/settings/models' class='set-grid'>"
         + "".join(_role_row(r, tier) for r, tier in _ROLE_TIERS)
         + f"<div class='set-actions'>{_key_pill('ATCUALITY_API_KEY', atcuality_key_set)}"
         "<span style='flex:1'></span><button class='btn' type='submit'>Save models</button></div>"
@@ -323,10 +326,10 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     # --- Coordinator · A2A topology (SENTINEL-011) -------------------------------------- #
     co = cfg.coordinator
     coordinator = (
-        "<h2 class='sec'>Coordinator · A2A topology</h2>"
-        "<div class='card'><form method='post' action='/settings/coordinator' class='set-grid'>"
+        "<div class='card'><div class='card-head'><h2>Coordinator · A2A topology</h2></div>"
+        "<form method='post' action='/settings/coordinator' class='set-grid'>"
         + _chk("enabled", "coordinator enabled (delegate to specialists via AgentTool)", co.enabled)
-        + "<label class='lbl' style='opacity:.5'>"
+        + "<label class='chk' style='opacity:.5'>"
         "<input type='checkbox' disabled> remote private specialist — Phase 2 "
         "(needs a2a-sdk + ADR)</label>"
         "<div class='set-actions'><button class='btn' type='submit'>Save coordinator</button></div>"
@@ -346,18 +349,18 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
            if available_pb else "<b>none</b>")
     )
     strategy = (
-        "<h2 class='sec'>Strategy · action plan</h2>"
-        "<div class='card'><form method='post' action='/settings/strategy' class='set-grid'>"
+        "<div class='card'><div class='card-head'><h2>Strategy · action plan</h2></div>"
+        "<form method='post' action='/settings/strategy' class='set-grid'>"
         + _chk("enabled", "strategy enabled (append a tool-free strategist + merge an action plan)",
                st.enabled)
-        + "<div class='row2'>"
-        f"<div><label class='lbl' for='st_comp'>Competitor playbook (stem)</label>"
-        f"<input id='st_comp' name='competitor_playbook' value='{escape(st.competitor_playbook)}'></div>"
-        f"<div><label class='lbl' for='st_clnt'>Client playbook (stem)</label>"
-        f"<input id='st_clnt' name='client_playbook' value='{escape(st.client_playbook)}'></div>"
+        + "<div class='grid cols-2'>"
+        f"<div class='field'><label for='st_comp'>Competitor playbook (stem)</label>"
+        f"<input class='input' id='st_comp' name='competitor_playbook' value='{escape(st.competitor_playbook)}'></div>"
+        f"<div class='field'><label for='st_clnt'>Client playbook (stem)</label>"
+        f"<input class='input' id='st_clnt' name='client_playbook' value='{escape(st.client_playbook)}'></div>"
         "</div>"
-        f"<div><label class='lbl' for='st_dir'>Playbook directory</label>"
-        f"<input id='st_dir' name='playbook_dir' value='{escape(st.playbook_dir)}'></div>"
+        f"<div class='field'><label for='st_dir'>Playbook directory</label>"
+        f"<input class='input' id='st_dir' name='playbook_dir' value='{escape(st.playbook_dir)}'></div>"
         "<div class='set-actions'><button class='btn' type='submit'>Save strategy</button></div>"
         f"<p class='note'><b>Ships dark.</b> When on, a tool-free strategist reads the finished "
         "artifact and a deterministic merge adds an assessment + prioritized action plan (client: "
@@ -367,25 +370,25 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     )
 
     prompts = (
-        "<h2 class='sec'>Prompts</h2>"
+        "<div class='page-head'><div class='grow'><h2>Prompts</h2></div></div>"
         + "".join(_prompt_card(k, cfg.prompts[k]) for k in cfg.prompts)
     )
 
     _pw_msg = (f"<div class='banner ok'>{escape(password_ok)}</div>" if password_ok
                else (f"<div class='banner bad'>{escape(password_err)}</div>" if password_err else ""))
     security = (
-        "<h2 class='sec'>Security · password</h2>"
-        "<div class='card'>"
+        "<div class='card'><div class='card-head'>"
+        + _icon('lock') + "<h2>Security · password</h2></div>"
         + _pw_msg
         + "<form method='post' action='/settings/password' class='set-grid'>"
-        "<div class='row2'>"
-        "<div><label class='lbl' for='sec_cur'>Current password</label>"
-        "<input type='password' id='sec_cur' name='current_password' autocomplete='current-password' required></div>"
-        "<div><label class='lbl' for='sec_new'>New password <span style='color:#9aa0a6;font-size:11px'>(min 8 chars)</span></label>"
-        "<input type='password' id='sec_new' name='new_password' autocomplete='new-password' required></div>"
+        "<div class='grid cols-2'>"
+        "<div class='field'><label for='sec_cur'>Current password</label>"
+        "<input class='input' type='password' id='sec_cur' name='current_password' autocomplete='current-password' required></div>"
+        "<div class='field'><label for='sec_new'>New password <span class='hint'>(min 8 chars)</span></label>"
+        "<input class='input' type='password' id='sec_new' name='new_password' autocomplete='new-password' required></div>"
         "</div>"
-        "<div><label class='lbl' for='sec_cfm'>Confirm new password</label>"
-        "<input type='password' id='sec_cfm' name='confirm_password' autocomplete='new-password' required></div>"
+        "<div class='field'><label for='sec_cfm'>Confirm new password</label>"
+        "<input class='input' type='password' id='sec_cfm' name='confirm_password' autocomplete='new-password' required></div>"
         "<div class='set-actions'><button class='btn' type='submit'>Change password</button></div>"
         "<p class='note'>Changes take effect immediately. All active sessions remain valid.</p>"
         "</form></div>"
@@ -394,33 +397,35 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
     # ── External MCP servers — compact status rows + enable toggle ───────────
     mcp_rows = mcp_rows or []
     mcp_items = ""
-    for r in mcp_rows:
+    for i, r in enumerate(mcp_rows):
         cfg_chip = (
-            "<span class='pill'><span class='dotmark' style='background:#3ad29f'></span>"
+            "<span class='badge ok'>"
             f"{escape(r['secret_env'])} set</span>" if r["configured"] else
-            "<span class='pill'><span class='dotmark' style='background:#ff6b6b'></span>"
+            "<span class='badge bad'>"
             f"{escape(r['secret_env'])} not set</span>"
         )
         scope = ", ".join(r["domains"]) if r["domains"] else "all domains"
         tools = ", ".join(r["tools"][:5]) if r["tools"] else "all tools"
+        divider = "<div class='divider'></div>" if i else ""
         mcp_items += (
-            "<div style='display:flex;align-items:center;gap:10px;padding:8px 0;"
-            "border-bottom:1px solid var(--line);flex-wrap:wrap'>"
-            f"<b style='font-family:monospace;font-size:13px'>{escape(r['name'])}</b>"
+            divider
+            + "<div class='row-between' style='flex-wrap:wrap'>"
+            "<div class='inline'>"
+            f"<b class='mono'>{escape(r['name'])}</b>"
             f"<span class='pv'>{escape(r['transport'])}</span>{cfg_chip}"
-            f"<span class='mut' style='font-size:12px;flex:1'>{escape(r['description'])} "
-            f"· scope: {escape(scope)} · tools: {escape(tools)}</span>"
+            f"<span class='muted' style='font-size:12px'>{escape(r['description'])} "
+            f"· scope: {escape(scope)} · tools: {escape(tools)}</span></div>"
             f"<form method='post' action='/settings/mcp/{escape(r['name'])}' style='display:inline'>"
             f"<input type='hidden' name='enabled' value='{'' if r['enabled'] else '1'}'>"
-            f"<button class='btn-sm{' ok' if not r['enabled'] else ''}' type='submit'>"
+            f"<button class='btn sm {'ghost' if r['enabled'] else 'ok'}' type='submit'>"
             f"{'Enable' if not r['enabled'] else 'Disable'}</button></form>"
             "</div>"
         )
     mcp_section = ""
     if mcp_items:
         mcp_section = (
-            "<h2 class='sec'>MCP servers</h2>"
-            "<div class='card'>" + mcp_items +
+            "<div class='card'><div class='card-head'><h2>MCP servers</h2></div>"
+            "<div class='stack'>" + mcp_items + "</div>"
             "<p class='note' style='margin-top:8px'>External tool servers research agents can "
             "call (Model Context Protocol). Keys live in <span class='mono'>.env</span> — a "
             "server without its key is skipped automatically. Sovereign runs never use these "
@@ -428,18 +433,25 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
             "<span class='mono'>sentinel.config.yaml</span>.</p></div>"
         )
 
+    page_head = (
+        "<div class='page-head'><div class='grow'><h1>Settings</h1>"
+        "<p>Backends, governance, search, and memory for this instance.</p></div></div>"
+    )
     content = (
-        banner + backends + models + coordinator + governance + search + mcp_section
+        page_head + banner
+        + "<div class='stack' style='gap:var(--sp-5)'>"
+        + backends + models + coordinator + governance + search + mcp_section
         + strategy + generation + memory + harness + agents + prompts + security
+        + "</div>"
     )
     return shell(active="settings", title="Settings", content=content, backend=backend)
 
 
 def error_page(message: str, *, hint: str = "", backend: str = "gemini") -> str:
     hint_html = f"<p class='note'>{escape(hint)}</p>" if hint else ""
-    content = (f"<div class='card err'><h2 class='sec' style='color:var(--bad)'>Run failed</h2>"
+    content = (f"<div class='card'><div class='card-head'><h2 style='color:var(--bad)'>Run failed</h2></div>"
                f"<p>{escape(message)}</p>{hint_html}"
-               "<p class='note'><a href='/projects' style='color:var(--accent-2)'>← Back to New Run</a></p></div>")
+               "<p class='note'><a href='/projects'>← Back to New Run</a></p></div>")
     return shell(active="new", title="Error", content=content, backend=backend)
 
 
@@ -462,15 +474,14 @@ def episodes_page(records: list, *, backend: str, ok: str = "", err: str = "") -
         return (
             f"<tr>"
             f"<td><a href='/accounts/{escape(r.entity)}'>{escape(r.entity)}</a></td>"
-            f"<td><span class='pill'>{escape(r.mode)}</span></td>"
-            f"<td>{escape(r.backend)}</td>"
-            f"<td style='text-align:right'>{n_findings}</td>"
-            f"<td>{ts}</td>"
+            f"<td><span class='badge neutral'>{escape(r.mode)}</span></td>"
+            f"<td class='mono'>{escape(r.backend)}</td>"
+            f"<td class='num'>{n_findings}</td>"
+            f"<td class='muted'>{ts}</td>"
             f"<td>"
             f"<form method='post' action='/memory/episodes/{run_id}/delete' "
             f"onsubmit=\"return confirm('Delete this run record from episodic memory?')\">"
-            f"<button type='submit' class='btn' "
-            f"style='background:var(--bad);color:#fff;font-size:12px;padding:4px 10px'>Delete</button>"
+            f"<button type='submit' class='btn sm danger'>Delete</button>"
             f"</form>"
             f"</td>"
             f"</tr>"
@@ -479,30 +490,33 @@ def episodes_page(records: list, *, backend: str, ok: str = "", err: str = "") -
     if records:
         rows = "".join(_row(r) for r in records)
         table = (
-            "<table style='width:100%;border-collapse:collapse'>"
-            "<thead><tr style='text-align:left;color:var(--txt2)'>"
-            "<th style='padding:8px 12px'>Entity</th>"
-            "<th style='padding:8px 12px'>Mode</th>"
-            "<th style='padding:8px 12px'>Backend</th>"
-            "<th style='padding:8px 12px;text-align:right'>Findings</th>"
-            "<th style='padding:8px 12px'>Created</th>"
-            "<th style='padding:8px 12px'>Action</th>"
+            "<div class='table-wrap'><table class='table'>"
+            "<thead><tr>"
+            "<th>Entity</th>"
+            "<th>Mode</th>"
+            "<th>Backend</th>"
+            "<th class='num'>Findings</th>"
+            "<th>Created</th>"
+            "<th>Action</th>"
             "</tr></thead>"
             f"<tbody>{rows}</tbody>"
-            "</table>"
+            "</table></div>"
         )
     else:
-        table = "<div class='empty'>No run records yet. Run a research task to populate episodic memory.</div>"
+        table = (
+            "<div class='empty'>"
+            f"<div class='ico'>{_icon('brain')}</div>"
+            "No run records yet. Run a research task to populate episodic memory.</div>"
+        )
 
     content = (
         banner
-        + "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:8px'>"
-        + "<h2 class='sec' style='margin:0'>Episodic Memory — Run Records</h2>"
-        + "<a class='btn' href='/settings#memory' style='background:var(--bg2);color:var(--txt)'>← Settings</a>"
-        + "</div>"
-        + f"<p class='note'>{len(records)} run record(s). Deleting a record removes it from episodic recall "
-        + "— the entity's <a href='/accounts'>accumulated memory</a> is unaffected.</p>"
-        + "<div class='card' style='padding:0;overflow:auto'>" + table + "</div>"
+        + "<div class='page-head'><div class='grow'><h1>Episodic Memory — Run Records</h1>"
+        + f"<p>{len(records)} run record(s). Deleting a record removes it from episodic recall "
+        + "— the entity's <a href='/accounts'>accumulated memory</a> is unaffected.</p></div>"
+        + "<a class='btn ghost' href='/settings#memory'>← Settings</a></div>"
+        + "<div class='card'><div class='card-head'><h2>All episodes</h2>"
+        + f"<span class='pill'>{len(records)} records</span></div>" + table + "</div>"
     )
     return shell(active="settings", title="Episodic Memory", content=content, backend=backend)
 

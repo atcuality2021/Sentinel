@@ -12,29 +12,31 @@ from .plan import _prio_badge, _verdict_badge
 
 def _rpt_section(num: str, title: str, body: str) -> str:
     return (
-        f"<div class='rpt-sec'>"
-        f"<div class='rpt-sec-hd'>"
-        f"<span class='rpt-num'>{escape(num)}</span>"
+        f"<div class='card' style='margin-bottom:16px'>"
+        f"<div class='card-head'>"
+        f"<span class='pill'>{escape(num)}</span>"
         f"<h2>{escape(title)}</h2>"
         f"</div>{body}</div>"
     )
 
 
 def _rpt_callout(label: str, body: str, variant: str = "") -> str:
-    cls = f"rpt-callout {variant}".strip()
+    _BADGE = {"green": "ok", "gold": "warn"}
+    badge = _BADGE.get(variant, "neutral")
     return (
-        f"<div class='{cls}'>"
-        f"<span class='rpt-cl-label'>{escape(label)}</span>"
-        f"{body}"
+        f"<div class='card pad-sm' style='margin:16px 0'>"
+        f"<div class='inline' style='margin-bottom:8px'>"
+        f"<span class='badge {badge}'>{escape(label)}</span></div>"
+        f"<div>{body}</div>"
         f"</div>"
     )
 
 
 def _rpt_metric(val: str, label: str) -> str:
     return (
-        f"<div class='rpt-metric'>"
-        f"<div class='rm-val'>{escape(val)}</div>"
-        f"<div class='rm-lbl'>{escape(label)}</div>"
+        f"<div class='kpi'>"
+        f"<div class='value'>{escape(val)}</div>"
+        f"<div class='label'>{escape(label)}</div>"
         f"</div>"
     )
 
@@ -45,7 +47,10 @@ def _rpt_table(headers: list[str], rows: list[list[str]]) -> str:
         "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
         for row in rows
     )
-    return f"<div class='card' style='padding:0;overflow:auto;margin:16px 0'><table><thead><tr>{ths}</tr></thead><tbody>{trs}</tbody></table></div>"
+    return (
+        "<div class='table-wrap' style='margin:16px 0'><table class='table'>"
+        f"<thead><tr>{ths}</tr></thead><tbody>{trs}</tbody></table></div>"
+    )
 
 
 def _src_link(src: dict) -> str:
@@ -54,13 +59,13 @@ def _src_link(src: dict) -> str:
     Only emits an <a href> for http/https URLs — blocks javascript: and data: scheme injection.
     """
     if not src or not isinstance(src, dict):
-        return "<span style='color:var(--muted);font-size:11px'>—</span>"
+        return "<span class='muted' style='font-size:11px'>—</span>"
     label = escape(str(src.get("label") or "source"))
     url   = str(src.get("url") or "").strip()
     if url and (url.startswith("https://") or url.startswith("http://")):
         return (f"<a href='{escape(url)}' target='_blank' rel='noopener' "
-                f"style='font-size:11px;color:var(--accent-2)'>{label}</a>")
-    return f"<span style='font-size:11px;color:var(--muted)'>{label}</span>"
+                f"style='font-size:11px;color:var(--accent-text)'>{label}</a>")
+    return f"<span class='muted' style='font-size:11px'>{label}</span>"
 
 
 def project_report_page(*, project, tasks: list, backend: str) -> str:
@@ -71,16 +76,15 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
     done_tasks = [t for t in tasks if t.get("status") == "done" and t.get("result")]
 
     cover = (
-        "<div class='rpt-cover'>"
-        "<div class='rpt-firm'>Sentinel Intelligence Platform · Sovereign Research Division</div>"
+        "<div class='page-head'><div class='grow'>"
         f"<h1>{pname}</h1>"
-        "<p class='rpt-sub'>Research Intelligence Report — on-premise sovereign AI, zero cloud dependency</p>"
-        "<div class='rpt-meta'>"
-        "<span class='rpt-tag'>Confidential</span>"
-        "<span class='rpt-tag green'>Sovereign On-Premise</span>"
-        f"<span class='rpt-tag' style='background:var(--panel-2)'>"
-        f"{len(done_tasks)} Research Task{'s' if len(done_tasks) != 1 else ''} Complete</span>"
+        "<p>Consulting-grade report compiled from all task results — "
+        "on-premise sovereign AI, zero cloud dependency.</p>"
         "</div>"
+        "<span class='pill'>Confidential</span>"
+        "<span class='pill'><span class='dot' style='color:var(--ok)'></span>Sovereign On-Premise</span>"
+        f"<span class='pill'>{len(done_tasks)} Research Task"
+        f"{'s' if len(done_tasks) != 1 else ''} Complete</span>"
         "</div>"
     )
 
@@ -88,10 +92,10 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
         return shell(
             active="projects", title=f"{project.name} · Report",
             content=(cover
-                     + "<div style='margin:32px 0'><div class='card'>"
-                     "<div class='empty' style='padding:48px;text-align:center;font-size:15px'>"
+                     + "<div class='card'><div class='empty'>"
+                     f"<div class='ico'>{_icon('doc')}</div>"
                      "No completed research tasks yet — run a task to populate this report."
-                     "</div></div></div>"),
+                     "</div></div>"),
             backend=backend, subnav=subnav, project=project.name,
         )
 
@@ -131,8 +135,8 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
         citations = result.get("citations") or []
 
         obj_trunc_display = obj_raw[:80] + ("…" if len(obj_raw) > 80 else "")
-        body = (f"<div class='note' style='margin-bottom:16px'>"
-                f"<b>Objective:</b> {escape(obj_trunc_display)}</div>")
+        body = (f"<p class='note' style='margin-bottom:16px'>"
+                f"<b>Objective:</b> {escape(obj_trunc_display)}</p>")
 
         # ── Domain-aware metric row ───────────────────────────────────────────
         if govt_art:
@@ -141,12 +145,12 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
             vendor  = escape(str(govt_art.get("vendor") or "Vendor"))
             pilot   = "Defined" if govt_art.get("pilot_plan") else "—"
             body += (
-                "<div class='rpt-metrics' style='grid-template-columns:repeat(3,1fr)'>"
+                "<div class='grid cols-3'>"
                 + _rpt_metric(str(len(depts)) if depts else "—", "Departments Mapped")
                 + _rpt_metric(pilot,                             "Pilot Plan")
                 + _rpt_metric(str(len(citations)),               "Sources Cited")
                 + "</div>"
-                + f"<div style='margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap'>"
+                + "<div class='inline' style='margin:12px 0'>"
                 + f"<span class='pill'>client: <b>{client}</b></span>"
                 + f"<span class='pill'>vendor: <b>{vendor}</b></span>"
                 + "</div>"
@@ -155,7 +159,7 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
             prods  = [p for p in (prod_art.get("products_found") or []) if isinstance(p, dict)]
             winner = escape(str(prod_art.get("winner") or "—"))
             body += (
-                "<div class='rpt-metrics' style='grid-template-columns:repeat(3,1fr)'>"
+                "<div class='grid cols-3'>"
                 + _rpt_metric(str(len(prods)) if prods else "—", "Products Found")
                 + _rpt_metric(winner if winner != "—" else "—",   "Recommended")
                 + _rpt_metric(str(len(citations)),                 "Sources Cited")
@@ -166,7 +170,7 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
                       if self_prof else 0
             n_cmps  = len(comparisons)
             body += (
-                "<div class='rpt-metrics' style='grid-template-columns:repeat(3,1fr)'>"
+                "<div class='grid cols-3'>"
                 + _rpt_metric(str(n_prods) if n_prods else "—", "Products Profiled")
                 + _rpt_metric(str(n_cmps),                       "Competitor(s) Compared")
                 + _rpt_metric(str(len(citations)),               "Sources Cited")
@@ -230,9 +234,9 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
             if winner:
                 body += (
                     f"<h3 style='{_SUB}'>Recommended Product</h3>"
-                    "<div class='card' style='border-left:3px solid #5bd07f;padding:14px 18px'>"
-                    f"<div style='font-size:18px;font-weight:700;color:#5bd07f'>{escape(winner)}</div>"
-                    + (f"<div style='margin-top:6px;font-size:13px;color:var(--muted)'>"
+                    "<div class='card pad-sm' style='border-left:3px solid var(--ok)'>"
+                    f"<div style='font-size:18px;font-weight:700;color:var(--ok)'>{escape(winner)}</div>"
+                    + (f"<div class='muted' style='margin-top:6px;font-size:13px'>"
                        f"{escape(winner_why)}</div>" if winner_why else "")
                     + "</div>"
                 )
@@ -261,7 +265,7 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
                     f"<li><b>#{j+1}</b> {escape(str(r))}</li>"
                     for j, r in enumerate(ranking[:8])
                 )
-                body += f"<div class='card'><ol style='margin:0;padding-left:20px'>{rank_html}</ol></div>"
+                body += f"<div class='card pad-sm'><ol style='margin:0;padding-left:20px'>{rank_html}</ol></div>"
 
         # ── Market / competitor research content ──────────────────────────────
         else:
@@ -285,7 +289,7 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
                         for g in gaps[:2]
                     ))
                     body += (
-                        "<div class='card'><div class='empty' style='padding:16px'>"
+                        "<div class='card pad-sm'><div class='empty'>"
                         f"No product data extracted for <b>{org}</b>."
                         + (f" ({escape(gap_note)})" if gap_note else "")
                         + " The entity may lack a strong public web presence, or the research queries"
@@ -310,15 +314,15 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
                     w = sum(1 for a in axes if a.get("verdict") == "win")
                     l = sum(1 for a in axes if a.get("verdict") == "lose")
                     p = sum(1 for a in axes if a.get("verdict") == "parity")
-                    clr = "#5bd07f" if w > l else "#ff6b6b" if l > w else "#fbbf24"
+                    clr = "var(--ok)" if w > l else "var(--bad)" if l > w else "var(--warn)"
                     body += (
-                        f"<div style='font-size:12px;color:var(--muted);margin-top:4px;margin-bottom:8px'>"
+                        f"<div class='muted' style='font-size:12px;margin:4px 0 8px'>"
                         f"Score vs {rival}: "
                         f"<span style='color:{clr};font-weight:700'>{w}&nbsp;Win / {l}&nbsp;Lose / {p}&nbsp;Parity</span>"
                         "</div>"
                     )
                 else:
-                    body += "<div class='card'><div class='empty'>No comparison dimensions produced.</div></div>"
+                    body += "<div class='card pad-sm'><div class='empty'>No comparison dimensions produced.</div></div>"
 
             if strategy:
                 assessment = str(strategy.get("assessment") or "")
@@ -344,16 +348,14 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
 
         # ── Sources (all domains) ─────────────────────────────────────────────
         if citations:
-            pub_style  = "background:rgba(66,133,244,.14);color:var(--accent-2)"
-            priv_style = "background:rgba(251,191,36,.14);color:#fbbf24"
             cites = "".join(
                 "<li>"
-                + (f"<span class='badge' style='font-size:9px;margin-right:4px;"
-                   + (pub_style if str(c.get("boundary") or "").lower() == "public" else priv_style)
-                   + f"'>{escape(str(c.get('boundary') or '?').upper())}</span>"
+                + (f"<span class='badge "
+                   + ("public" if str(c.get("boundary") or "").lower() == "public" else "private")
+                   + f"' style='margin-right:6px'>{escape(str(c.get('boundary') or '?').upper())}</span>"
                    + f"<b>{escape(str(c.get('label') or '—'))}</b>"
                    + (f" · <a href='{escape(str(c['url']))}' target='_blank' rel='noopener' "
-                      f"style='color:var(--accent-2)'>{escape(str(c['url']))}</a>"
+                      f"style='color:var(--accent-text)'>{escape(str(c['url']))}</a>"
                       if c.get("url") else "")
                    if isinstance(c, dict) else escape(str(c)))
                 + "</li>"
@@ -361,7 +363,7 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
             )
             body += (
                 f"<h3 style='{_SUB}'>Sources ({len(citations)})</h3>"
-                f"<div class='card'><ul class='find'>{cites}</ul></div>"
+                f"<div class='card pad-sm'><ul class='find'>{cites}</ul></div>"
             )
 
         obj_trunc = obj_raw[:70] + ("…" if len(obj_raw) > 70 else "")

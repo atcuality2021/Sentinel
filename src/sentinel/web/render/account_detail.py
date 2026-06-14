@@ -1,17 +1,20 @@
 """render.account_detail — split from render.py (presentation only)."""
 
 from __future__ import annotations
-import json
 from html import escape
 
 from .accounts import _account_href, _fmt_when
 from .artifacts import _run_sources
-from .base import _CHARTJS, _badge, shell
+from .base import _badge, _icon, shell
+
 
 def _mem_row(e) -> str:
     """One memory entry: boundary badge + escaped content + a read-only strength hint."""
-    hint = (f"<span class='src'>· strength {e.strength:.1f} · seen {e.access_count}×</span>")
-    return f"<li>{_badge(e.boundary)}{escape(e.content)} {hint}</li>"
+    hint = (f"<span class='muted' style='font-size:12px'>· strength "
+            f"{e.strength:.1f} · seen {e.access_count}×</span>")
+    return (f"<div class='row-between' style='gap:10px'>"
+            f"<span>{_badge(e.boundary)} {escape(e.content)} {hint}</span></div>"
+            "<div class='divider'></div>")
 
 
 def _mem_section(title: str, entries: list) -> str:
@@ -19,33 +22,41 @@ def _mem_section(title: str, entries: list) -> str:
     memory shows no private section)."""
     if not entries:
         return ""
+    is_private = "private" in title.lower()
+    accent = "var(--private)" if is_private else "var(--public)"
+    border = " style='border-color:var(--private)'" if is_private else ""
     rows = "".join(_mem_row(e) for e in entries)
-    return f"<h2 class='sec'>{escape(title)}</h2><ul class='find'>{rows}</ul>"
+    # Trim the trailing divider for a clean card edge.
+    if rows.endswith("<div class='divider'></div>"):
+        rows = rows[: -len("<div class='divider'></div>")]
+    return (
+        f"<div class='card'{border}><div class='card-head'>"
+        f"<h2 style='color:{accent}'>{escape(title)}</h2></div>"
+        f"<div class='stack' style='font-size:13px'>{rows}</div></div>"
+    )
 
 
 def _account_donut(public: int, private: int) -> tuple[str, str]:
-    """Cumulative provenance donut for the account header (reuses the artifact donut pattern)."""
-    data = json.dumps({"pub": public, "priv": private})
-    js = (
-        "<script src='" + _CHARTJS + "'></script><script>"
-        "var a=__DATA__,_C=getComputedStyle(document.documentElement),"
-        "MUT=(_C.getPropertyValue('--muted')||'#8b97a8').trim(),"
-        "PANEL=(_C.getPropertyValue('--panel')||'#0e1420').trim();"
-        "new Chart(document.getElementById('cAcc'),{type:'doughnut',"
-        "data:{labels:['Public','Private'],datasets:[{data:[a.pub,a.priv],"
-        "backgroundColor:['#4ea1ff','#ffb24d'],borderColor:PANEL,borderWidth:2}]},"
-        "options:{cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:MUT,"
-        "boxWidth:12,font:{size:11}}}}}});</script>"
-    ).replace("__DATA__", data)
-    card = (
-        "<div class='card'><h3 class='ch'>Cumulative provenance</h3>"
-        "<div class='chart-wrap' style='height:180px'><canvas id='cAcc'></canvas></div>"
-        "<div style='margin-top:14px;display:flex;flex-direction:column;gap:8px'>"
-        f"<span class='pill'><span class='dotmark g'></span>Public: <b>{public}</b></span>"
-        f"<span class='pill'><span class='dotmark v'></span>Private: <b>{private}</b></span>"
-        "</div></div>"
+    """Cumulative provenance donut for the account header (CSS conic-gradient — no JS)."""
+    total = public + private
+    pub_pct = (public / total * 100) if total else 0
+    gradient = (
+        f"conic-gradient(var(--public) 0 {pub_pct:.1f}%,"
+        f"var(--private) {pub_pct:.1f}% 100%)"
     )
-    return card, js
+    card = (
+        "<div class='card'><div class='card-head'><h2>Cumulative provenance</h2></div>"
+        "<div class='inline' style='gap:22px;align-items:center'>"
+        f"<div class='donut' style='background:{gradient}'>"
+        f"<div class='center'><b>{total}</b><span>facts</span></div></div>"
+        "<div class='legend'>"
+        "<div class='row'><span class='sw' style='background:var(--public)'></span>"
+        f"Public: <b>{public}</b></div>"
+        "<div class='row'><span class='sw' style='background:var(--private)'></span>"
+        f"Private: <b>{private}</b></div>"
+        "</div></div></div>"
+    )
+    return card, ""
 
 
 def _danger_zone(entity: str, *, confirm: bool) -> str:
@@ -54,43 +65,44 @@ def _danger_zone(entity: str, *, confirm: bool) -> str:
     href = _account_href(entity)
     if confirm:
         body = (
-            "<p class='note'>This permanently deletes <b>all memory and run history</b> for this "
+            "<p class='muted'>This permanently deletes <b>all memory and run history</b> for this "
             "account. It cannot be undone.</p>"
-            f"<div class='set-actions'><form method='post' action='{href}/purge'>"
-            "<button class='btn' style='background:var(--bad)' type='submit'>"
+            f"<div class='inline' style='margin-top:12px'><form method='post' action='{href}/purge'>"
+            "<button class='btn danger' type='submit'>"
             "Yes, purge this account</button></form>"
             f"<a class='btn ghost' href='{href}'>Cancel</a></div>"
         )
     else:
         body = (
-            "<p class='note'>Remove this account's memory and run history (data-subject "
+            "<p class='muted'>Remove this account's memory and run history (data-subject "
             "right-to-deletion).</p>"
-            f"<div class='set-actions'><a class='btn ghost' href='{href}?confirm=purge'>"
-            "Purge account…</a></div>"
+            f"<div class='inline' style='margin-top:12px'><a class='btn ghost' "
+            f"href='{href}?confirm=purge'>Purge account…</a></div>"
         )
-    return (f"<div class='card err' style='margin-top:18px'>"
-            f"<h2 class='sec' style='color:var(--bad);margin-top:0'>Danger zone</h2>{body}</div>")
+    return (f"<div class='card' style='margin-top:18px;border-color:var(--bad)'>"
+            f"<div class='card-head'><h2 style='color:var(--bad)'>Danger zone</h2></div>{body}</div>")
 
 
 def account_detail_page(*, summary, runs: list, public_mem: list, private_mem: list,
                         backend: str, confirm: bool = False, ok: str = "") -> str:
     """One account: header + provenance donut + run timeline + boundary-separated memory."""
-    banner = f"<div class='card banner ok' style='margin-bottom:18px'>{escape(ok)}</div>" if ok else ""
-    pills = "".join(
-        f"<span class='pill'>{escape(label)}: <b>{escape(val)}</b></span>"
-        for label, val in (
-            ("Modes", ", ".join(summary.modes) or "—"),
-            ("Kinds", ", ".join(summary.kinds) or "—"),
-            ("Runs", str(summary.runs)),
-            ("Last run", _fmt_when(summary.last_run_at)),
-        )
+    banner = f"<div class='card pad-sm ok' style='margin-bottom:18px'>{escape(ok)}</div>" if ok else ""
+    modes = ", ".join(summary.modes) or "—"
+    subtitle = (f"{summary.runs} runs · last {_fmt_when(summary.last_run_at)} · {escape(modes)}")
+    head = (
+        "<div class='page-head'><div class='grow'>"
+        f"<h1>{escape(summary.display_name)}</h1><p>{subtitle}</p></div></div>"
     )
+
+    kpis = (
+        "<div class='grid cols-3' style='margin-bottom:24px'>"
+        + _kpi_local("run", "Runs", summary.runs, "search")
+        + _kpi_local("pub", "Public facts", summary.public, "globe")
+        + _kpi_local("priv", "Private facts", summary.private, "lock")
+        + "</div>"
+    )
+
     donut, js = _account_donut(summary.public, summary.private)
-    header = (
-        "<div class='card'>"
-        f"<h2 style='font-size:24px;margin:0 0 10px'>{escape(summary.display_name)}</h2>"
-        f"<div style='display:flex;gap:10px;flex-wrap:wrap'>{pills}</div></div>"
-    )
 
     trows = ""
     for r in runs:
@@ -99,47 +111,61 @@ def account_detail_page(*, summary, runs: list, public_mem: list, private_mem: l
         trows += (
             f"<tr><td class='mono'>{escape(seq)}</td>"
             f"<td>{escape(r.mode)}</td>"
-            f"<td><span class='dotmark {'v' if r.backend=='vllm' else 'g'}'></span> "
-            f"<span class='mono'>{escape(r.backend)}</span></td>"
-            f"<td><span class='badge public'>{r.public}</span>"
-            f"<span class='badge private'>{r.private}</span>"
-            f"<span class='gap'>{r.gaps} gaps</span></td>"
+            f"<td class='mono'>{escape(r.backend)}</td>"
+            f"<td><span class='badge public'>{r.public}</span> "
+            f"<span class='badge private'>{r.private}</span> "
+            f"<span class='muted'>{r.gaps} gaps</span></td>"
             f"<td class='mono'>{escape(r.reference)}</td>"
-            f"<td class='mono'>{escape(_fmt_when(r.created_at))}</td>"
+            f"<td class='muted mono'>{escape(_fmt_when(r.created_at))}</td>"
             f"<td>{_run_sources(getattr(r, 'sources', []) or [])}</td></tr>"
         )
     timeline = (
-        "<h2 class='sec'>Run timeline</h2>"
-        "<div class='card' style='padding:6px 8px'><table><thead><tr>"
+        "<div class='card'><div class='card-head'><h2>Run timeline</h2></div>"
+        "<div class='table-wrap'><table class='table'><thead><tr>"
         "<th>#</th><th>Mode</th><th>Backend</th><th>Public / Private / Gaps</th>"
         "<th>Saved to</th><th>When</th><th>Sources</th></tr></thead>"
-        f"<tbody>{trows}</tbody></table></div>"
+        f"<tbody>{trows}</tbody></table></div></div>"
     )
 
     memory = _mem_section("Public signal", public_mem) + _mem_section("Private signal", private_mem)
     if not memory:
-        memory = ("<h2 class='sec'>Accumulated memory</h2>"
-                  "<div class='card'><div class='empty'>No memory retained for this account "
+        memory = ("<div class='card'><div class='card-head'><h2>Accumulated memory</h2></div>"
+                  "<div class='empty'>"
+                  f"<div class='ico'>{_icon('brain')}</div>No memory retained for this account "
                   "(entity memory may be off, or findings have decayed).</div></div>")
 
-    left = header + timeline + memory + _danger_zone(summary.entity, confirm=confirm)
+    right = donut + f"<div class='stack' style='margin-top:18px'>{memory}</div>"
+    left = timeline + _danger_zone(summary.entity, confirm=confirm)
     content = (
         banner
-        + "<div style='margin-bottom:16px'><a href='/accounts' style='color:var(--muted)'>"
+        + head
+        + "<div style='margin-bottom:16px'><a href='/accounts' class='muted'>"
         "← All accounts</a></div>"
-        + f"<div class='two-col'><div>{left}</div>{donut}</div>"
+        + kpis
+        + f"<div class='split' style='align-items:start'><div class='stack'>{left}</div>"
+        f"<div class='stack'>{right}</div></div>"
     )
     return shell(active="accounts", title=summary.display_name, content=content,
                  backend=backend, body_scripts=js)
+
+
+def _kpi_local(cls: str, label: str, value, icon: str) -> str:
+    """Account KPI tile. (Local helper — value is an int that needs no escaping.)"""
+    return (
+        f"<div class='card kpi {cls}'><div class='kpi-icon'>{_icon(icon)}</div>"
+        f"<div class='label'>{escape(label)}</div>"
+        f"<div class='value'>{value}</div></div>"
+    )
 
 
 def not_found_page(*, what: str, backend: str) -> str:
     """Clean not-found card (AC-9) — a GET of an unknown account is a 200 page, never a 500."""
     content = (
         "<div class='card'><div class='empty'>"
+        f"<div class='ico'>{_icon('users')}</div>"
         f"No such account: <b>{escape(what)}</b>.<br>"
         "It may have been purged, or never researched. "
-        "<a href='/accounts' style='color:var(--accent-2)'>Back to Accounts</a>."
+        "<a href='/accounts'>Back to Accounts</a>."
         "</div></div>"
     )
     return shell(active="accounts", title="Not found", content=content, backend=backend)

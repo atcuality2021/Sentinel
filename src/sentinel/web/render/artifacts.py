@@ -51,15 +51,16 @@ def _strategy_block(artifact) -> str:
     actions = getattr(artifact, "action_plan", None) or []
     if actions:
         rows = "".join(
-            f"<tr><td><span class='badge'>{escape(a.priority)}</span></td>"
+            f"<tr><td><span class='badge neutral'>{escape(a.priority)}</span></td>"
             f"<td>{escape(a.action)}</td><td>{escape(a.timeline)}</td>"
             f"<td>{escape(a.rationale)}</td></tr>"
             for a in sorted(actions, key=lambda x: _PRIORITY_RANK.get(x.priority, 9))
         )
         out += (
-            "<h2 class='sec'>Action plan</h2><table class='find'><thead><tr>"
+            "<h2 class='sec'>Action plan</h2>"
+            "<div class='table-wrap'><table class='table'><thead><tr>"
             "<th>Priority</th><th>Action</th><th>Timeline</th><th>Rationale</th>"
-            f"</tr></thead><tbody>{rows}</tbody></table>"
+            f"</tr></thead><tbody>{rows}</tbody></table></div>"
         )
     objections = getattr(artifact, "objection_handling", None) or []
     if objections:
@@ -152,8 +153,8 @@ def render_battlecard(
             if b.vertical_context else "")
     aside, js = _aside(b, backend, reference)
     main = (
-        f"<div class='card'><div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap'>"
-        f"<h2 style='font-size:24px;margin:0'>Battlecard — {escape(b.target)}</h2>{vert}</div>"
+        f"<div class='card'><div class='card-head'>"
+        f"<h2 style='font-size:24px'>Battlecard — {escape(b.target)}</h2>{vert}</div>"
         f"<div class='summary'>{escape(b.one_line_summary)}</div>"
         f"<h2 class='sec'>Positioning</h2><p>{escape(b.positioning)}</p>"
         + _findings("Strengths", b.strengths)
@@ -164,7 +165,7 @@ def render_battlecard(
         + _strategy_block(b)
         + _gaps(b.gaps) + _trace(trace) + "</div>"
     )
-    content = f"{_delta_block(delta)}<div class='two-col'>{main}{aside}</div>"
+    content = f"{_delta_block(delta)}<div class='split'>{main}{aside}</div>"
     return shell(active="artifacts", title=f"Battlecard — {b.target}", content=content,
                  backend=backend, body_scripts=js)
 
@@ -176,8 +177,8 @@ def render_account_brief(
             if a.vertical_context else "")
     aside, js = _aside(a, backend, reference)
     main = (
-        f"<div class='card'><div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap'>"
-        f"<h2 style='font-size:24px;margin:0'>Account Brief — {escape(a.account)}</h2>{vert}</div>"
+        f"<div class='card'><div class='card-head'>"
+        f"<h2 style='font-size:24px'>Account Brief — {escape(a.account)}</h2>{vert}</div>"
         f"<div class='summary'>{escape(a.one_line_summary)}</div>"
         + _findings("Public signal", a.public_signal)
         + _findings("Private signal", a.private_signal)
@@ -186,7 +187,7 @@ def render_account_brief(
         + _strategy_block(a)
         + _gaps(a.gaps) + _trace(trace) + "</div>"
     )
-    content = f"{_delta_block(delta)}<div class='two-col'>{main}{aside}</div>"
+    content = f"{_delta_block(delta)}<div class='split'>{main}{aside}</div>"
     return shell(active="artifacts", title=f"Account Brief — {a.account}", content=content,
                  backend=backend, body_scripts=js)
 
@@ -218,11 +219,15 @@ def artifacts_page(*, artifacts: list[dict], backend: str, project: str = "sover
     title = "Artifacts" if not project_id else f"{project} · Artifacts"
 
     if not artifacts:
-        run_link = (f"<a href='/projects/{escape(project_id)}/tasks' style='color:var(--accent-2)'>"
+        run_link = (f"<a href='/projects/{escape(project_id)}/tasks' style='color:var(--accent-text)'>"
                     "create a research task</a>") if project_id else (
-                        "<a href='/projects' style='color:var(--accent-2)'>start a project</a>")
-        content = (f"<div class='card'><div class='empty'>No artifacts yet. "
-                   f"{run_link} to generate a battlecard or account brief.</div></div>")
+                        "<a href='/projects' style='color:var(--accent-text)'>start a project</a>")
+        content = (
+            "<div class='card'><div class='empty'>"
+            f"<div class='ico'>{_icon('doc')}</div>"
+            f"No artifacts yet. {run_link} to generate a battlecard or account brief."
+            "</div></div>"
+        )
         return shell(active=active, title=title, content=content, backend=backend,
                      project=project, subnav=subnav)
 
@@ -231,7 +236,7 @@ def artifacts_page(*, artifacts: list[dict], backend: str, project: str = "sover
         name = escape(a["target"])
         if a.get("project_id") or a.get("entity"):
             name = (f"<a href='{_run_href(a)}' "
-                    f"style='color:var(--accent-2)'>{name}</a>")
+                    f"style='color:var(--accent-text)'>{name}</a>")
         # "Add to KB" button — available in project context whenever the run has any content
         kb_btn = ""
         if project_id and a.get("run_id"):
@@ -241,25 +246,28 @@ def artifacts_page(*, artifacts: list[dict], backend: str, project: str = "sover
                 f"<form method='POST' action='/projects/{pid_esc}/kb/sources/artifact' "
                 f"style='display:inline'>"
                 f"<input type='hidden' name='run_id' value='{rid}'>"
-                f"<button type='submit' class='btn' style='font-size:11px;padding:3px 9px' "
+                f"<button type='submit' class='btn sm ghost' "
                 f"title='Index this artifact into the project Knowledge Base'>"
                 f"{_icon('database')} Add to KB</button></form>"
             )
         rows += (
             f"<tr><td><b>{name}</b></td><td>{escape(a['kind'])}</td>"
-            f"<td><span class='badge public'>{a['public']}</span>"
+            f"<td><span class='badge public'>{a['public']}</span> "
             f"<span class='badge private'>{a['private']}</span></td>"
             f"<td><span class='dotmark {'v' if a['backend']=='vllm' else 'g'}'></span> "
             f"<span class='mono'>{escape(a['backend'])}</span></td>"
-            f"<td class='mono'>{escape(a['reference'])}</td>"
-            f"<td class='mono'>{escape(a['when'])}</td>"
+            f"<td class='mono faint'>{escape(a['reference'])}</td>"
+            f"<td class='muted'>{escape(a['when'])}</td>"
             f"<td>{kb_btn}</td></tr>"
         )
     content = (
-        "<div class='card' style='padding:6px 8px'><table><thead><tr>"
+        "<div class='card'>"
+        f"<div class='card-head'><h2>All artifacts</h2>"
+        f"<span class='pill'>{len(artifacts)} output{'s' if len(artifacts) != 1 else ''}</span></div>"
+        "<div class='table-wrap'><table class='table'><thead><tr>"
         "<th>Target</th><th>Kind</th><th>Public / Private</th><th>Backend</th>"
         "<th>Saved to</th><th>When</th><th></th></tr></thead>"
-        f"<tbody>{rows}</tbody></table></div>"
+        f"<tbody>{rows}</tbody></table></div></div>"
     )
     return shell(active=active, title=title, content=content, backend=backend,
                  project=project, subnav=subnav)

@@ -13,9 +13,9 @@ def project_memory_page(*, project, records: list, backend: str,
     pid = escape(project.id)
     banner = ""
     if ok:
-        banner = f"<div class='card banner ok' style='margin-bottom:16px'>{escape(ok)}</div>"
+        banner = f"<div class='card pad-sm' style='margin-bottom:16px;color:var(--ok)'>{escape(ok)}</div>"
     elif err:
-        banner = f"<div class='card banner bad' style='margin-bottom:16px'>{escape(err)}</div>"
+        banner = f"<div class='card pad-sm' style='margin-bottom:16px;color:var(--bad)'>{escape(err)}</div>"
 
     def _row(r) -> str:
         ts = str(r.created_at or "")[:16]
@@ -23,17 +23,15 @@ def project_memory_page(*, project, records: list, backend: str,
         run_id = escape(str(r.id))
         return (
             f"<tr>"
-            f"<td><a href='/accounts/{escape(r.entity)}' style='color:var(--accent-2)'>"
-            f"{escape(r.entity)}</a></td>"
-            f"<td><span class='pill' style='font-size:11.5px'>{escape(r.mode)}</span></td>"
+            f"<td><a href='/accounts/{escape(r.entity)}'>{escape(r.entity)}</a></td>"
+            f"<td><span class='pill'>{escape(r.mode)}</span></td>"
             f"<td>{escape(r.backend)}</td>"
-            f"<td style='text-align:right'>{n_findings}</td>"
+            f"<td class='num'>{n_findings}</td>"
             f"<td class='mono'>{ts}</td>"
             f"<td><form method='post' "
             f"action='/projects/{pid}/memory/{run_id}/delete' "
             f"onsubmit=\"return confirm('Remove this run from episodic memory?')\">"
-            f"<button type='submit' class='btn' "
-            f"style='background:var(--bad);padding:4px 10px;font-size:12px'>Delete</button>"
+            f"<button type='submit' class='btn sm danger'>Delete</button>"
             f"</form></td>"
             f"</tr>"
         )
@@ -44,13 +42,14 @@ def project_memory_page(*, project, records: list, backend: str,
         if _sem_live else "Entity facts extracted and accumulated across runs"
     )
     memory_types = (
-        "<div class='grid cards3' style='margin-bottom:24px'>"
+        "<div class='grid cols-3' style='margin-bottom:24px'>"
         + "".join(
-            f"<div class='gc'><div class='gc-ico'>{_icon(ico)}</div>"
-            f"<div class='gc-t'>{name}</div><div class='gc-d'>{desc}</div>"
-            f"<div class='gc-tags'><span class='tag pv {'live' if live else 'dark'}' "
-            f"style='{'opacity:.5' if not live else ''}'>"
-            f"{'live' if live else 'phase 2'}</span></div></div>"
+            f"<div class='card'><div class='card-head'>"
+            f"<h2>{name}</h2>"
+            f"<span class='badge {'ok' if live else 'neutral'}'>{'live' if live else 'phase 2'}</span>"
+            f"</div>"
+            f"<p class='note' style='margin:0;display:flex;align-items:center;gap:10px'>"
+            f"<span style='color:var(--muted)'>{_icon(ico)}</span><span>{desc}</span></p></div>"
             for name, ico, desc, live in [
                 ("Episodic", "spark", "Run records — every research task this project has run", True),
                 ("Semantic", "brain", _sem_desc, _sem_live),
@@ -62,22 +61,27 @@ def project_memory_page(*, project, records: list, backend: str,
 
     if records:
         rows_html = "".join(_row(r) for r in records)
+        header_pill = f"<span class='pill'>{len(records)} record(s)</span>"
         table = (
-            "<div class='card' style='padding:6px 8px;overflow:auto'>"
-            "<table><thead><tr>"
-            "<th>Entity</th><th>Mode</th><th>Backend</th>"
-            "<th style='text-align:right'>Findings</th><th>When</th><th></th>"
-            "</tr></thead>"
-            f"<tbody>{rows_html}</tbody></table></div>"
-        )
-        header_line = (
-            f"<p class='note' style='margin-bottom:12px'>{len(records)} run record(s) in this project. "
+            "<div class='card'>"
+            f"<div class='card-head'><h2>Episodic Memory</h2>{header_pill}</div>"
+            "<p class='note' style='margin:0 0 14px'>"
             "Deleting removes the record from episodic recall; accumulated entity facts are unaffected.</p>"
+            "<div class='table-wrap'><table class='table'><thead><tr>"
+            "<th>Entity</th><th>Mode</th><th>Backend</th>"
+            "<th class='num'>Findings</th><th>When</th><th></th>"
+            "</tr></thead>"
+            f"<tbody>{rows_html}</tbody></table></div></div>"
         )
     else:
-        table = "<div class='card'><div class='empty'>No run records for this project yet. " \
-                "Complete a research task to populate episodic memory.</div></div>"
-        header_line = ""
+        table = (
+            "<div class='card'>"
+            "<div class='card-head'><h2>Episodic Memory</h2></div>"
+            "<div class='empty'>"
+            f"<div class='ico'>{_icon('brain')}</div>"
+            "No run records for this project yet. "
+            "Complete a research task to populate episodic memory.</div></div>"
+        )
 
     # Semantic facts section
     if semantic_facts:
@@ -87,27 +91,26 @@ def project_memory_page(*, project, records: list, backend: str,
                 f"<tr>"
                 f"<td style='font-weight:500'>{escape(f.entity)}</td>"
                 f"<td>{escape(f.content)}</td>"
-                f"<td><span class='pill' style='font-size:11px'>{escape(f.source_label)}</span></td>"
-                f"<td class='mono' style='color:var(--fg-2);font-size:12px'>{ts}</td>"
+                f"<td><span class='pill'>{escape(f.source_label)}</span></td>"
+                f"<td class='mono'>{ts}</td>"
                 f"</tr>"
             )
         sem_rows = "".join(_fact_row(f) for f in semantic_facts)
         sem_section = (
-            "<div class='section-h' style='margin-top:24px'><h2>Semantic Memory</h2></div>"
-            f"<p class='note' style='margin-bottom:12px'>{len(semantic_facts)} entity fact(s) "
+            "<div class='card' style='margin-top:16px'>"
+            "<div class='card-head'><h2>Semantic Memory</h2>"
+            "<span class='pill'>live heads</span></div>"
+            f"<p class='note' style='margin:0 0 14px'>{len(semantic_facts)} entity fact(s) "
             "extracted from completed research tasks.</p>"
-            "<div class='card' style='padding:6px 8px;overflow:auto'>"
-            "<table><thead><tr>"
+            "<div class='table-wrap'><table class='table'><thead><tr>"
             "<th>Entity</th><th>Fact</th><th>Source</th><th>Date</th>"
             "</tr></thead>"
-            f"<tbody>{sem_rows}</tbody></table></div>"
+            f"<tbody>{sem_rows}</tbody></table></div></div>"
         )
     else:
         sem_section = ""
 
-    content = (banner + memory_types
-               + "<div class='section-h'><h2>Episodic Memory</h2></div>"
-               + header_line + table + sem_section)
+    content = banner + memory_types + table + sem_section
     return shell(
         active="projects", title=f"{project.name} · Memory", content=content,
         backend=backend, project=project.name,

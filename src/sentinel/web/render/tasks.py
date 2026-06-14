@@ -8,44 +8,53 @@ from .base import _icon, _project_subnav, shell
 from .personas import _task_form
 
 def _task_status_badge(status: str, degraded: bool = False) -> str:
-    """Colour-coded status badge. Degraded done→partial (amber)."""
+    """Colour-coded status badge. Degraded done→partial (amber).
+
+    Uses the new design-system `.badge.ok|warn|bad|neutral` classes. The literal
+    status labels (``created``/``done``/``failed``…) and the legacy colour hex
+    hooks (``5bd07f`` for done, ``ff6b6b`` for failed) are preserved so existing
+    assertions and any colour-sniffing keep working.
+    """
     if status == "done" and degraded:
-        return "<span class='badge' style='background:rgba(234,179,8,.16);color:#d4a017'>partial</span>"
+        return "<span class='badge warn'>partial</span>"
     _map = {
-        "created":  ("rgba(100,100,100,.18)", "#9aa0a6", "created"),
-        "planned":  ("rgba(66,133,244,.16)",  "#8ab4f8", "planned"),
-        "running":  ("rgba(66,133,244,.22)",  "#8ab4f8", "running…"),
-        "done":     ("rgba(52,168,83,.18)",   "#5bd07f", "done"),
-        "failed":   ("rgba(234,67,53,.18)",   "#ff6b6b", "failed"),
-        "rejected": ("rgba(220,38,38,.18)",   "#dc2626", "rejected"),
+        "created":  ("neutral", "created", ""),
+        "planned":  ("neutral", "planned", ""),
+        "running":  ("warn",    "running…", ""),
+        "done":     ("ok",      "done", "#5bd07f"),
+        "failed":   ("bad",     "failed", "#ff6b6b"),
+        "rejected": ("bad",     "rejected", ""),
     }
-    bg, color, label = _map.get(status, ("transparent", "var(--muted)", status))
-    return f"<span class='badge' style='background:{bg};color:{color}'>{escape(label)}</span>"
+    cls, label, hex_hook = _map.get(status, ("neutral", status, ""))
+    style = f" style='--st:{hex_hook}'" if hex_hook else ""
+    return f"<span class='badge {cls}'{style}>{escape(label)}</span>"
 
 
 # Optional steering prompt that rides a re-run: lands in task.context → _plan_seeds →
 # every agent's vertical_context. Compact inline input so the task rows stay one-line.
 _RERUN_CTX = (
-    "<input name='context' placeholder='guidance for better results (optional)' "
-    "style='font-size:11px;padding:2px 6px;height:24px;width:210px;border-radius:4px;"
-    "border:1px solid var(--line);background:var(--surface2);color:var(--text);"
+    "<input class='input' name='context' placeholder='guidance for better results (optional)' "
+    "style='font-size:11px;padding:2px 6px;height:24px;width:210px;width:auto;"
     "vertical-align:middle;margin-right:4px'>"
 )
 
 _RERUN_SEL = (
-    "<select name='backend' style='font-size:11px;padding:2px 4px;height:24px;"
-    "border-radius:4px;border:1px solid var(--line);background:var(--surface2);"
-    "color:var(--text);cursor:pointer;vertical-align:middle;color-scheme:dark'>"
-    "<option value='' style='background:#16191f;color:#e8eaed'>auto</option>"
-    "<option value='gemini' style='background:#16191f;color:#e8eaed'>☁ Gemini</option>"
-    "<option value='vllm' style='background:#16191f;color:#e8eaed'>🔒 vLLM 12B</option>"
-    "<option value='vllm-26b' style='background:#16191f;color:#e8eaed'>🔒 vLLM 26B</option>"
+    "<select class='input' name='backend' style='font-size:11px;padding:2px 4px;height:24px;"
+    "width:auto;vertical-align:middle'>"
+    "<option value=''>auto</option>"
+    "<option value='gemini'>☁ Gemini</option>"
+    "<option value='vllm'>🔒 vLLM 12B</option>"
+    "<option value='vllm-26b'>🔒 vLLM 26B</option>"
     "</select>"
 )
 
 
 def _task_row(task, pid: str, show_full_obj: bool = False) -> str:
-    """Rich task row: objective link, meta pills, action buttons (View / Retry / Delete)."""
+    """Task table row: objective link, domain, status, action buttons.
+
+    Emits a ``<tr>`` for the new `.table` markup; the page wraps these in
+    ``<table class='table'>``.
+    """
     tid = escape(task.id)
     obj = task.objective or ""
     display_obj = obj if show_full_obj else (obj[:110] + "…" if len(obj) > 110 else obj)
@@ -53,25 +62,28 @@ def _task_row(task, pid: str, show_full_obj: bool = False) -> str:
     has_result = bool(getattr(task, "result", None))
     degraded = has_result and getattr(task.result, "degraded", False) if has_result else False
 
-    # meta pills
-    meta = (
-        _task_status_badge(status, degraded)
-        + f"<span class='tag' style='color:var(--muted)'>{escape(task.domain.name)}</span>"
-    )
-    if has_result and degraded:
-        arts = getattr(task.result, "artifacts", []) or []
-        meta += f"<span class='tag' style='color:#d4a017'>{len(arts)} artifact{'s' if len(arts) != 1 else ''} produced</span>"
-    if has_result and not degraded:
+    domain = escape(task.domain.name)
+    badge = _task_status_badge(status, degraded)
+
+    # artifact count chip (folded next to the badge)
+    art_chip = ""
+    if has_result:
         arts = getattr(task.result, "artifacts", []) or []
         if arts:
-            meta += f"<span class='tag' style='color:#5bd07f'>{len(arts)} artifact{'s' if len(arts) != 1 else ''}</span>"
+            cls = "warn" if degraded else "ok"
+            label = (
+                f"{len(arts)} artifact{'s' if len(arts) != 1 else ''} produced"
+                if degraded else
+                f"{len(arts)} artifact{'s' if len(arts) != 1 else ''}"
+            )
+            art_chip = f"<span class='badge {cls}'>{label}</span>"
 
     # action buttons
     view_btn = (
-        f"<a class='btn-sm ok' href='/projects/{pid}/tasks/{tid}'>"
+        f"<a class='btn sm ok' href='/projects/{pid}/tasks/{tid}'>"
         f"{_icon('doc')} View</a>"
         if has_result else
-        f"<a class='btn-sm' href='/projects/{pid}/tasks/{tid}'>"
+        f"<a class='btn sm ghost' href='/projects/{pid}/tasks/{tid}'>"
         f"{_icon('doc')} Details</a>"
     )
     retry_btn = ""
@@ -80,24 +92,22 @@ def _task_row(task, pid: str, show_full_obj: bool = False) -> str:
             f"<form method='post' action='/projects/run-plan' style='display:inline'>"
             f"<input type='hidden' name='task_id' value='{tid}'>"
             f"{_RERUN_CTX}{_RERUN_SEL}"
-            f"<button class='btn-sm warn' type='submit' title='Re-run this task' style='margin-left:4px'>"
+            f"<button class='btn sm warn' type='submit' title='Re-run this task' style='margin-left:4px'>"
             f"{_icon('bolt')} Re-run</button></form>"
         )
     del_btn = (
         f"<form method='post' action='/projects/{pid}/tasks/{tid}/delete' style='display:inline'"
         f" onsubmit='return confirm(\"Delete this task and all its data?\")'>"
-        f"<button class='btn-sm bad' type='submit' style='font-size:11px;padding:3px 8px'>"
-        f"Delete</button></form>"
+        f"<button class='btn sm danger' type='submit'>Delete</button></form>"
     )
 
     return (
-        f"<div class='task-row'>"
-        f"<div>"
-        f"<a class='tr-obj' href='/projects/{pid}/tasks/{tid}'>{escape(display_obj)}</a>"
-        f"<div class='tr-meta'>{meta}</div>"
-        f"</div>"
-        f"<div class='tr-actions'>{view_btn}{retry_btn}{del_btn}</div>"
-        f"</div>"
+        f"<tr>"
+        f"<td><a href='/projects/{pid}/tasks/{tid}'><b>{escape(display_obj)}</b></a></td>"
+        f"<td class='muted'>{domain}</td>"
+        f"<td><span class='inline'>{badge}{art_chip}</span></td>"
+        f"<td><span class='inline'>{view_btn}{retry_btn}{del_btn}</span></td>"
+        f"</tr>"
     )
 
 
@@ -152,62 +162,48 @@ def _result_brief_card(task, pid: str) -> str:
 
     metrics_html = ""
     if metrics:
-        chips = "".join(
-            f"<span class='tag' style='color:var(--accent-2);margin-right:6px'>{m}</span>"
-            for m in metrics[:5]
-        )
-        metrics_html = f"<div style='margin-top:8px'>{chips}</div>"
+        chips = "".join(f"<span class='pill'>{m}</span>" for m in metrics[:5])
+        metrics_html = f"<div class='inline' style='margin-top:8px'>{chips}</div>"
 
     summary_html = (
-        f"<p style='margin:8px 0 0;font-size:13px;color:var(--text-secondary);line-height:1.5'>{summary}</p>"
+        f"<p class='muted' style='margin:8px 0 0;font-size:13px;line-height:1.5'>{summary}</p>"
         if summary else ""
     )
-
-    domain_color = {
-        "govt_proposal": "#a78bfa",
-        "product_research": "#2dd4bf",
-        "market": "#4ea1ff",
-        "software": "#fb923c",
-        "finance": "#5bd07f",
-        "academic": "#d4a800",
-    }.get(domain, "var(--muted)")
 
     rerun_btn = (
         f"<form method='post' action='/projects/{pid}/tasks/{tid}/run' style='display:inline'>"
         f"{_RERUN_CTX}{_RERUN_SEL}"
-        f"<button class='btn-sm ghost' type='submit' title='Run this task again' style='margin-left:4px'>"
+        f"<button class='btn sm ghost' type='submit' title='Run this task again' style='margin-left:4px'>"
         f"{_icon('bolt')} Re-run</button></form>"
     )
     del_btn = (
         f"<form method='post' action='/projects/{pid}/tasks/{tid}/delete' style='display:inline;margin-left:4px'"
         f" onsubmit='return confirm(\"Delete this task and all its data?\")'>"
-        f"<button class='btn-sm' type='submit' "
-        f"style='background:transparent;border-color:rgba(220,38,38,.3);color:#f87171;"
-        f"padding:3px 8px;font-size:11px'>Delete</button></form>"
+        f"<button class='btn sm danger' type='submit'>Delete</button></form>"
     )
     return (
-        f"<div class='card' style='border-left:3px solid {domain_color};margin-bottom:10px'>"
-        f"<div style='display:flex;align-items:flex-start;justify-content:space-between;gap:12px'>"
-        f"<div style='flex:1'>"
+        f"<div class='card pad-sm' style='margin-bottom:10px'>"
+        f"<div class='row-between' style='align-items:flex-start'>"
+        f"<div style='flex:1;min-width:0'>"
         f"<a href='/projects/{pid}/tasks/{tid}' style='font-weight:600;font-size:14px;"
-        f"color:var(--text);text-decoration:none;line-height:1.4'>{obj}</a>"
-        f"<div style='margin-top:6px'>"
-        f"<span class='tag' style='color:{domain_color}'>{escape(domain)}</span>"
-        f"<span class='tag' style='color:#5bd07f'>done</span>"
+        f"line-height:1.4'>{obj}</a>"
+        f"<div class='inline' style='margin-top:6px'>"
+        f"<span class='pill'>{escape(domain)}</span>"
+        f"<span class='badge ok'>done</span>"
         f"</div>"
         f"{summary_html}"
         f"{metrics_html}"
         f"</div>"
-        f"<div style='display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end'>"
-        f"<a class='btn-sm ok' href='/projects/{pid}/tasks/{tid}'>{_icon('doc')} View</a>"
-        f"<div>{rerun_btn}{del_btn}</div>"
+        f"<div class='stack' style='flex-shrink:0;align-items:flex-end'>"
+        f"<a class='btn sm ok' href='/projects/{pid}/tasks/{tid}'>{_icon('doc')} View</a>"
+        f"<div class='inline'>{rerun_btn}{del_btn}</div>"
         f"</div>"
         f"</div></div>"
     )
 
 
 def _pending_task_row(task, pid: str) -> str:
-    """Compact row for a task that hasn't produced a result yet."""
+    """Compact table row for a task that hasn't produced a result yet."""
     tid = escape(task.id)
     obj = escape(task.objective or "")
     domain = task.domain.name if task.domain else ""
@@ -216,31 +212,30 @@ def _pending_task_row(task, pid: str) -> str:
     run_btn = ""
     if status in ("planned", "created"):
         run_btn = (
-            f"<form method='post' action='/projects/run-plan' style='display:inline;margin-left:6px'>"
+            f"<form method='post' action='/projects/run-plan' style='display:inline'>"
             f"<input type='hidden' name='task_id' value='{tid}'>"
             f"{_RERUN_CTX}{_RERUN_SEL}"
-            f"<button class='btn-sm' type='submit' style='margin-left:4px'>{_icon('bolt')} Run</button></form>"
+            f"<button class='btn sm' type='submit' style='margin-left:4px'>{_icon('bolt')} Run</button></form>"
         )
     elif status == "failed":
         run_btn = (
-            f"<form method='post' action='/projects/run-plan' style='display:inline;margin-left:6px'>"
+            f"<form method='post' action='/projects/run-plan' style='display:inline'>"
             f"<input type='hidden' name='task_id' value='{tid}'>"
             f"{_RERUN_CTX}{_RERUN_SEL}"
-            f"<button class='btn-sm warn' type='submit' style='margin-left:4px'>{_icon('bolt')} Retry</button></form>"
+            f"<button class='btn sm warn' type='submit' style='margin-left:4px'>{_icon('bolt')} Retry</button></form>"
         )
     del_btn = (
         f"<form method='post' action='/projects/{pid}/tasks/{tid}/delete' style='display:inline;margin-left:6px'"
         f" onsubmit='return confirm(\"Delete this task and all its data?\")'>"
-        f"<button class='btn-sm' type='submit' "
-        f"style='background:transparent;border-color:rgba(220,38,38,.4);color:#f87171'>"
-        f"Delete</button></form>"
+        f"<button class='btn sm danger' type='submit'>Delete</button></form>"
     )
     return (
-        f"<div class='task-row'>"
-        f"<div><a class='tr-obj' href='/projects/{pid}/tasks/{tid}'>{obj}</a>"
-        f"<div class='tr-meta'>{badge}"
-        f"<span class='tag' style='color:var(--muted)'>{escape(domain)}</span></div></div>"
-        f"<div class='tr-actions'>{run_btn}{del_btn}</div></div>"
+        f"<tr>"
+        f"<td><a href='/projects/{pid}/tasks/{tid}'><b>{obj}</b></a></td>"
+        f"<td class='muted'>{escape(domain)}</td>"
+        f"<td>{badge}</td>"
+        f"<td><span class='inline'>{run_btn}{del_btn}</span></td>"
+        f"</tr>"
     )
 
 
@@ -250,18 +245,20 @@ def project_detail_page(*, project, tasks: list, backend: str,
                         kb_source_count: int = 0) -> str:
     """Overview tab — project CRUD, context, quick-add source, built/building tasks."""
     pid = escape(project.id)
-    site = (f"<a href='{escape(project.website)}' rel='noopener' target='_blank' "
-            f"style='color:var(--accent-2)'>{escape(project.website)}</a>") if project.website else "—"
+    site = (f"<a href='{escape(project.website)}' rel='noopener' target='_blank'>"
+            f"{escape(project.website)}</a>") if project.website else "—"
 
     done_tasks  = [t for t in tasks if t.status == "done"]
     pending     = [t for t in tasks if t.status not in ("done",)]
     fail_count  = sum(1 for t in tasks if t.status == "failed")
+    running     = sum(1 for t in tasks if t.status == "running")
+    planned     = sum(1 for t in tasks if t.status in ("planned", "created"))
 
     flash = ""
     if ok:
-        flash = f"<div class='flash ok' style='margin-bottom:12px'>{escape(ok)}</div>"
+        flash = f"<div class='card pad-sm' style='margin-bottom:12px;border-color:var(--ok)'>{escape(ok)}</div>"
     elif err:
-        flash = f"<div class='flash err' style='margin-bottom:12px'>{escape(err)}</div>"
+        flash = f"<div class='card pad-sm' style='margin-bottom:12px;border-color:var(--bad)'>{escape(err)}</div>"
 
     # ── Edit project form (toggled by button, hidden by default) ──────────────
     _proj_desc = escape(getattr(project, "description", "") or "")
@@ -269,24 +266,22 @@ def project_detail_page(*, project, tasks: list, backend: str,
     _proj_site = escape(project.website or "")
     edit_form = (
         f"<div id='proj-edit-panel' style='display:none;margin-top:12px'>"
-        f"<form method='post' action='/projects/{pid}/edit' "
-        f"style='display:grid;gap:12px;max-width:600px'>"
-        f"<div><label class='lbl'>Project name</label>"
-        f"<input name='name' value='{escape(project.name)}' style='width:100%'></div>"
-        f"<div><label class='lbl'>Website / primary source URL</label>"
-        f"<input name='website' value='{_proj_site}' "
-        f"placeholder='https://example.com' style='width:100%'></div>"
-        f"<div><label class='lbl'>Description</label>"
-        f"<input name='description' value='{_proj_desc}' "
-        f"placeholder='What is this project researching?' style='width:100%'></div>"
-        f"<div><label class='lbl'>Agent context "
-        f"<span class='note' style='font-weight:400'>"
-        f"— prepended to every research task in this project</span></label>"
-        f"<textarea name='context' rows='3' style='width:100%;resize:vertical' "
+        f"<form method='post' action='/projects/{pid}/edit' style='max-width:600px'>"
+        f"<div class='field'><label>Project name</label>"
+        f"<input class='input' name='name' value='{escape(project.name)}'></div>"
+        f"<div class='field'><label>Website / primary source URL</label>"
+        f"<input class='input' name='website' value='{_proj_site}' "
+        f"placeholder='https://example.com'></div>"
+        f"<div class='field'><label>Description</label>"
+        f"<input class='input' name='description' value='{_proj_desc}' "
+        f"placeholder='What is this project researching?'></div>"
+        f"<div class='field'><label>Agent context "
+        f"<span class='hint'>— prepended to every research task in this project</span></label>"
+        f"<textarea name='context' rows='3' "
         f"placeholder='e.g. Focus on the Indian market. Prioritise recent data from 2024-2025. "
         f"This research is for an enterprise pitch deck.'>"
         f"{_proj_ctx}</textarea></div>"
-        f"<div style='display:flex;gap:8px'>"
+        f"<div class='inline'>"
         f"<button class='btn' type='submit'>Save changes</button>"
         f"<button type='button' class='btn ghost' "
         f"onclick=\"document.getElementById('proj-edit-panel').style.display='none';"
@@ -300,99 +295,137 @@ def project_detail_page(*, project, tasks: list, backend: str,
     )
 
     # ── Project header ────────────────────────────────────────────────────────
-    fail_pill = (
-        f"<span class='pill' style='border-color:rgba(234,67,53,.4);color:#ff6b6b'>"
-        f"Failed: <b>{fail_count}</b></span>"
-    ) if fail_count else ""
-
-    desc_html = ""
     proj_desc = getattr(project, "description", "") or ""
-    if proj_desc:
-        desc_html = f"<p class='note' style='margin:8px 0 0'>{escape(proj_desc)}</p>"
+    head_sub = escape(proj_desc) if proj_desc else (
+        f"{escape(project.website)}" if project.website else "Research project"
+    )
 
     proj_ctx = getattr(project, "context", "") or ""
     ctx_pill = (
-        f"<span class='pill' style='border-color:rgba(99,102,241,.4);color:#a5b4fc' "
-        f"title='{escape(proj_ctx[:200])}'>📋 Agent context set</span>"
+        f"<span class='pill' title='{escape(proj_ctx[:200])}'>📋 Agent context set</span>"
     ) if proj_ctx else ""
 
     header = (
-        f"<div class='card'>{flash}"
-        f"<div class='section-h' style='margin-top:0'>"
-        f"<div style='display:flex;align-items:center;gap:10px'>"
-        f"<h2 style='margin:0'>{escape(project.name)}</h2>"
-        f"<button id='proj-edit-btn' type='button' class='btn ghost' "
-        f"style='padding:4px 10px;font-size:12px' onclick='_toggleEdit()'>✏ Edit</button>"
+        f"{flash}"
+        f"<div class='page-head'>"
+        f"<div class='grow'><h1>{escape(project.name)}</h1><p>{head_sub}</p></div>"
+        f"{ctx_pill}"
+        f"<button id='proj-edit-btn' type='button' class='btn ghost' onclick='_toggleEdit()'>"
+        f"✏ Edit</button>"
+        f"<a class='btn' href='/projects/{pid}/tasks'>{_icon('bolt')} New Research Task</a>"
         f"</div>"
-        f"<a class='btn' href='/projects/{pid}/tasks'>{_icon('bolt')} New Research Task</a></div>"
-        f"<div style='display:flex;gap:10px;flex-wrap:wrap;margin-top:8px'>"
-        + (f"<span class='pill'>Website: <b>{site}</b></span>" if project.website else "")
-        + f"<span class='pill' style='border-color:rgba(52,168,83,.4);color:#5bd07f'>"
-        f"Completed: <b>{len(done_tasks)}</b></span>"
-        f"<span class='pill'>In progress / planned: <b>{len(pending)}</b></span>"
-        f"{fail_pill}{ctx_pill}</div>"
-        f"{desc_html}"
         f"{edit_form}"
-        f"</div>"
+    )
+
+    # ── KPI cards ──────────────────────────────────────────────────────────────
+    fail_delta = f" · {fail_count} failed" if fail_count else ""
+    kpis = (
+        "<div class='grid cols-3' style='margin-bottom:24px'>"
+        f"<div class='card kpi'><div class='value'>{len(tasks)}</div>"
+        f"<div class='label'>Tasks</div>"
+        f"<div class='delta'>{len(done_tasks)} done · {running} running · {planned} planned{fail_delta}</div></div>"
+        f"<div class='card kpi'><div class='value'>{kb_source_count}</div>"
+        f"<div class='label'>KB sources</div>"
+        f"<div class='delta{' up' if kb_source_count else ''}'>"
+        f"{'indexed' if kb_source_count else 'none yet'}</div></div>"
+        f"<a class='card kpi' href='/projects/{pid}/report' style='text-decoration:none'>"
+        f"<div class='value'>{len(done_tasks)}</div>"
+        f"<div class='label'>Deliverables</div>"
+        f"<div class='delta'>view full report</div></a>"
+        "</div>"
     )
 
     # ── Quick-add source (compact inline form) ────────────────────────────────
     quick_source = (
-        f"<div class='card' style='margin-top:16px'>"
-        f"<div style='font-weight:600;font-size:13px;margin-bottom:12px'>📎 Add sources for the agent to use</div>"
-        f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px'>"
+        f"<div class='card'>"
+        f"<div class='card-head'><h2>Add sources for the agent to use</h2></div>"
+        f"<div class='grid cols-2'>"
 
         # ── Left: URL input (type auto-inferred server-side) ──
-        f"<div>"
-        f"<label class='lbl' style='margin-bottom:4px;display:block'>🔗 Paste a URL</label>"
-        f"<form method='post' action='/projects/{pid}/kb/sources' style='display:flex;gap:6px'>"
+        f"<div class='field'>"
+        f"<label>🔗 Paste a URL</label>"
+        f"<form method='post' action='/projects/{pid}/kb/sources' class='inline'>"
         f"<input type='hidden' name='redirect' value='overview'>"
-        f"<input name='url' placeholder='Website, article, or PDF link…' style='flex:1;min-width:0'>"
-        f"<button class='btn' type='submit' style='white-space:nowrap;padding:8px 14px'>"
-        f"{_icon('bolt')} Add</button>"
+        f"<input class='input' name='url' placeholder='Website, article, or PDF link…' style='flex:1;min-width:0'>"
+        f"<button class='btn' type='submit'>{_icon('bolt')} Add</button>"
         f"</form>"
-        f"<p class='note' style='margin:5px 0 0;font-size:11px'>Type is detected automatically — web, PDF, or social</p>"
+        f"<span class='hint'>Type is detected automatically — web, PDF, or social</span>"
         f"</div>"
 
         # ── Right: File upload (multiple files) ──
-        f"<div>"
-        f"<label class='lbl' style='margin-bottom:4px;display:block'>📄 Upload files <span class='note' style='font-weight:400'>&nbsp;·&nbsp;PDF, TXT, MD</span></label>"
-        f"<form method='post' action='/projects/{pid}/kb/upload' enctype='multipart/form-data' style='display:flex;gap:6px'>"
+        f"<div class='field'>"
+        f"<label>📄 Upload files <span class='hint'>&nbsp;·&nbsp;PDF, TXT, MD</span></label>"
+        f"<form method='post' action='/projects/{pid}/kb/upload' enctype='multipart/form-data' class='inline'>"
         f"<input type='hidden' name='redirect' value='overview'>"
-        f"<input type='file' name='files' multiple accept='.pdf,.txt,.md' "
-        f"style='flex:1;min-width:0;font-size:12px;padding:6px 8px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;color:var(--text)'>"
-        f"<button class='btn' type='submit' style='white-space:nowrap;padding:8px 14px'>"
-        f"{_icon('bolt')} Upload</button>"
+        f"<input class='input' type='file' name='files' multiple accept='.pdf,.txt,.md' "
+        f"style='flex:1;min-width:0'>"
+        f"<button class='btn' type='submit'>{_icon('bolt')} Upload</button>"
         f"</form>"
-        f"<p class='note' style='margin:5px 0 0;font-size:11px'>Select one or more files to index into the Knowledge Base</p>"
+        f"<span class='hint'>Select one or more files to index into the Knowledge Base</span>"
         f"</div>"
 
         f"</div>"
-        f"<p class='note' style='margin:10px 0 0'>Need to chat with your sources? "
-        f"<a href='/projects/{pid}/kb' style='color:var(--accent-2)'>Open the full Knowledge Base</a></p>"
+        f"<p class='muted' style='margin:10px 0 0;font-size:13px'>Need to chat with your sources? "
+        f"<a href='/projects/{pid}/kb'>Open the full Knowledge Base</a></p>"
         f"</div>"
+    )
+
+    # ── Split: project context (right) is folded into the overview body ────────
+    site_row = (
+        f"<div class='row-between'><span class='muted'>Website</span><span>{site}</span></div>"
+        if project.website else ""
+    )
+    context_card = (
+        f"<div class='card'>"
+        f"<div class='card-head'><h2>Project context</h2></div>"
+        + (f"<p class='muted' style='font-size:13px;margin-top:0'>{escape(proj_desc)}</p>"
+           if proj_desc else
+           "<p class='muted' style='font-size:13px;margin-top:0'>No description yet.</p>")
+        + "<div class='divider'></div>"
+        f"<div class='stack'>"
+        f"{site_row}"
+        f"<div class='row-between'><span class='muted'>Completed</span>"
+        f"<span class='badge ok'>{len(done_tasks)}</span></div>"
+        f"<div class='row-between'><span class='muted'>In progress / planned</span>"
+        f"<span class='badge neutral'>{len(pending)}</span></div>"
+        + (f"<div class='row-between'><span class='muted'>Failed</span>"
+           f"<span class='badge bad'>{fail_count}</span></div>" if fail_count else "")
+        + (f"<div class='row-between'><span class='muted'>Agent context</span>"
+           f"<span class='badge ok'>set</span></div>" if proj_ctx else "")
+        + "</div></div>"
     )
 
     # ── What has been built (completed tasks with actual findings) ─────────────
     if done_tasks:
         brief_cards = "".join(_result_brief_card(t, pid) for t in done_tasks)
-        built_html = (
-            "<div class='section-h' style='margin-top:24px'>"
-            "<h2>What we have built</h2>"
-            f"<a class='btn ghost' href='/projects/{pid}/artifacts'>All artifacts</a></div>"
+        built_inner = (
+            f"<div class='card-head'><h2>What we have built</h2>"
+            f"<a class='btn sm ghost' href='/projects/{pid}/artifacts'>All artifacts</a></div>"
             + brief_cards
         )
     else:
-        built_html = ""
+        built_inner = (
+            "<div class='card-head'><h2>What we have built</h2></div>"
+            "<p class='muted' style='font-size:13px;margin-top:0'>No completed deliverables yet.</p>"
+        )
+    built_card = f"<div class='card'>{built_inner}</div>"
+
+    overview_split = (
+        f"<div class='split' style='align-items:start;margin-top:24px'>"
+        f"{built_card}{context_card}</div>"
+    )
 
     # ── What we are building (pending / in-progress tasks) ────────────────────
     if pending:
         p_rows = "".join(_pending_task_row(t, pid) for t in pending)
         building_html = (
-            "<div class='section-h' style='margin-top:24px'>"
-            "<h2>What we are building</h2>"
-            f"<a class='btn ghost' href='/projects/{pid}/tasks'>Manage</a></div>"
-            f"<div class='card' style='padding:0'>{p_rows}</div>"
+            "<div class='card' style='margin-top:24px'>"
+            "<div class='card-head'><h2>What we are building</h2>"
+            f"<a class='btn sm ghost' href='/projects/{pid}/tasks'>Manage</a></div>"
+            f"<div class='table-wrap'><table class='table'>"
+            "<thead><tr><th>Objective</th><th>Domain</th><th>Status</th><th></th></tr></thead>"
+            f"<tbody>{p_rows}</tbody></table></div>"
+            "</div>"
         )
     else:
         building_html = ""
@@ -400,65 +433,60 @@ def project_detail_page(*, project, tasks: list, backend: str,
     # ── Empty state ────────────────────────────────────────────────────────────
     if not tasks:
         building_html = (
-            "<div class='card' style='margin-top:16px;text-align:center;padding:32px 16px'>"
-            f"<div style='font-size:32px;margin-bottom:12px'>🔬</div>"
-            f"<div style='font-weight:600;margin-bottom:8px'>No research tasks yet</div>"
-            "<p class='note' style='max-width:400px;margin:0 auto 16px'>Add your first research task — "
+            "<div class='card' style='margin-top:24px'>"
+            "<div class='empty'>"
+            f"<div class='ico'>{_icon('search')}</div>"
+            "<div style='font-weight:600;margin-bottom:8px'>No research tasks yet</div>"
+            "<p style='max-width:400px;margin:0 auto 16px'>Add your first research task — "
             "define what you want to investigate, choose a domain, and the agent pipeline does the rest.</p>"
             f"<a class='btn' href='/projects/{pid}/tasks'>{_icon('bolt')} Create first task</a>"
-            "</div>"
+            "</div></div>"
         )
 
     # ── Quick-links row ────────────────────────────────────────────────────────
     _kb_count_label = (
-        f"<span style='color:var(--accent-2);font-weight:600'>{kb_source_count}</span> source{'s' if kb_source_count != 1 else ''} indexed"
+        f"{kb_source_count} source{'s' if kb_source_count != 1 else ''} indexed"
         if kb_source_count else "No sources yet"
     )
     quicklinks = (
-        "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:24px'>"
-        f"<a href='/projects/{pid}/kb' style='display:block;text-decoration:none'>"
-        "<div class='card' style='text-align:center;padding:16px 10px'>"
-        "<div style='font-size:20px;margin-bottom:6px'>📚</div>"
+        "<div class='grid cols-3' style='margin-top:24px'>"
+        f"<a class='card' href='/projects/{pid}/kb' style='text-align:center;text-decoration:none'>"
+        f"<div style='color:var(--accent-text);margin-bottom:6px'>{_icon('book')}</div>"
         "<div style='font-weight:600;font-size:13px'>Knowledge Base</div>"
-        f"<p class='note' style='margin:4px 0 0;font-size:12px'>{_kb_count_label}</p></div></a>"
-        f"<a href='/projects/{pid}/memory' style='display:block;text-decoration:none'>"
-        "<div class='card' style='text-align:center;padding:16px 10px'>"
-        "<div style='font-size:20px;margin-bottom:6px'>🧠</div>"
+        f"<p class='muted' style='margin:4px 0 0;font-size:12px'>{_kb_count_label}</p></a>"
+        f"<a class='card' href='/projects/{pid}/memory' style='text-align:center;text-decoration:none'>"
+        f"<div style='color:var(--accent-text);margin-bottom:6px'>{_icon('brain')}</div>"
         "<div style='font-weight:600;font-size:13px'>Memory</div>"
-        "<p class='note' style='margin:4px 0 0;font-size:12px'>Facts &amp; episodic records</p></div></a>"
-        f"<a href='/projects/{pid}/report' style='display:block;text-decoration:none'>"
-        "<div class='card' style='text-align:center;padding:16px 10px'>"
-        "<div style='font-size:20px;margin-bottom:6px'>📄</div>"
+        "<p class='muted' style='margin:4px 0 0;font-size:12px'>Facts &amp; episodic records</p></a>"
+        f"<a class='card' href='/projects/{pid}/report' style='text-align:center;text-decoration:none'>"
+        f"<div style='color:var(--accent-text);margin-bottom:6px'>{_icon('doc')}</div>"
         "<div style='font-weight:600;font-size:13px'>Report</div>"
-        "<p class='note' style='margin:4px 0 0;font-size:12px'>Full compiled report</p></div></a>"
+        "<p class='muted' style='margin:4px 0 0;font-size:12px'>Full compiled report</p></a>"
         "</div>"
     )
 
     # ── Danger zone ────────────────────────────────────────────────────────────
     danger_zone = (
-        "<div class='card' style='margin-top:32px;border-color:#5a1f1f;background:#140c0c'>"
-        "<div style='display:flex;align-items:center;gap:10px;margin-bottom:14px'>"
-        f"<span style='color:var(--bad);font-size:13px;font-weight:700;text-transform:uppercase;"
-        f"letter-spacing:.1em'>⚠ Danger Zone</span></div>"
-        "<div style='display:flex;align-items:flex-start;justify-content:space-between;"
-        "flex-wrap:wrap;gap:16px;padding:16px;background:#1c1011;border-radius:10px;"
-        "border:1px solid #5a1f1f'>"
+        "<div class='card' style='margin-top:32px;border-color:var(--bad)'>"
+        "<div class='card-head'>"
+        "<h2 style='color:var(--bad);font-size:13px;text-transform:uppercase;"
+        "letter-spacing:.1em'>⚠ Danger Zone</h2></div>"
+        "<div class='row-between' style='flex-wrap:wrap'>"
         "<div>"
         "<div style='font-weight:650;font-size:14px;margin-bottom:6px'>Delete this project</div>"
-        "<p class='note' style='margin:0;max-width:520px'>Permanently removes the project, "
+        "<p class='muted' style='margin:0;max-width:520px;font-size:13px'>Permanently removes the project, "
         "all its tasks, plans, and KB sources. "
         "Episodic memory run records are kept.</p>"
         "</div>"
         f"<form method='post' action='/projects/{pid}/delete' "
         f"onsubmit='return confirm(\"Delete project \" + {escape(json.dumps(project.name), quote=True)} + \"? All tasks and data will be permanently removed.\")'>"
-        "<button class='btn' type='submit' "
-        "style='background:#7f1d1d;border:1px solid #dc2626;color:#fca5a5;"
-        "padding:10px 18px;flex:0 0 auto'>"
+        "<button class='btn danger' type='submit'>"
         f"{_icon('shield')} Delete project</button></form>"
         "</div></div>"
     )
 
-    content = header + quick_source + built_html + building_html + quicklinks + danger_zone
+    content = (header + kpis + quick_source + overview_split
+               + building_html + quicklinks + danger_zone)
     return shell(
         active="projects", title=project.name, content=content, backend=backend,
         project=project.name,
@@ -477,16 +505,26 @@ def project_tasks_page(*, project, tasks: list, backend: str,
                            saved_personas=saved_personas)
     failed_count = sum(1 for t in tasks if t.status == "failed")
 
+    head_sub = (
+        escape(getattr(project, "description", "") or "")
+        or (escape(project.website) if project.website else "Research tasks")
+    )
+    page_head = (
+        f"<div class='page-head'>"
+        f"<div class='grow'><h1>{escape(project.name)}</h1><p>{head_sub}</p></div>"
+        f"<a class='btn ghost' href='/projects/{pid}'>Overview</a>"
+        f"</div>"
+    )
+
     # When tasks already exist, collapse the form behind a toggle button so the
     # task list is immediately visible on load.
     if tasks:
         form_block = (
             "<div style='margin-bottom:24px'>"
-            "<div class='section-h' style='margin-bottom:0'>"
-            "<button type='button' class='btn ghost' style='font-size:13px' "
+            "<button type='button' class='btn ghost' "
             "onclick=\"var p=document.getElementById('new-task-panel');"
             "p.style.display=p.style.display==='none'?'block':'none'\">"
-            "＋ New research task</button></div>"
+            "＋ New research task</button>"
             "<div id='new-task-panel' style='display:none;margin-top:12px'>"
             f"{form_html}</div></div>"
         )
@@ -496,19 +534,27 @@ def project_tasks_page(*, project, tasks: list, backend: str,
     if tasks:
         rows = "".join(_task_row(t, pid, show_full_obj=True) for t in tasks)
         failed_note = (
-            f"<span class='tag' style='color:#ff6b6b;margin-left:6px'>"
-            f"{failed_count} failed</span>"
+            f"<span class='badge bad'>{failed_count} failed</span>"
         ) if failed_count else ""
         tasks_html = (
-            f"<div class='section-h'><h2>Tasks{failed_note}</h2></div>"
-            f"<div class='card' style='padding:0'>{rows}</div>"
+            "<div class='card'>"
+            f"<div class='card-head'><h2>Tasks</h2>"
+            f"<span class='pill'>{len(tasks)}</span>{failed_note}</div>"
+            f"<div class='table-wrap'><table class='table'>"
+            "<thead><tr><th>Objective</th><th>Domain</th><th>Status</th><th></th></tr></thead>"
+            f"<tbody>{rows}</tbody></table></div>"
+            "</div>"
         )
     else:
         tasks_html = (
-            "<div class='section-h'><h2>Tasks</h2></div>"
-            "<div class='card'><div class='empty'>No tasks yet — create one above.</div></div>"
+            "<div class='card'>"
+            "<div class='card-head'><h2>Tasks</h2></div>"
+            "<div class='empty'>"
+            f"<div class='ico'>{_icon('search')}</div>"
+            "No tasks yet — create one above.</div>"
+            "</div>"
         )
-    content = form_block + tasks_html
+    content = page_head + form_block + tasks_html
     return shell(
         active="projects", title=f"{project.name} · Research", content=content,
         backend=backend, project=project.name,

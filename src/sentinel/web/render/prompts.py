@@ -20,9 +20,8 @@ def _prompt_role_badge(key: str, cfg) -> str:
         return ""
     colour, bg = _ROLE_COLOURS.get(role, ("#9aa0a6", "rgba(150,160,170,.15)"))
     return (
-        f"<span style='font-size:11px;font-weight:700;text-transform:uppercase;"
-        f"letter-spacing:.07em;padding:2px 8px;border-radius:999px;"
-        f"color:{colour};background:{bg};margin-left:10px'>{escape(role)}</span>"
+        f"<span class='badge' style='margin-left:10px;"
+        f"color:{colour};background:{bg}'>{escape(role)}</span>"
     )
 
 
@@ -36,19 +35,17 @@ def _prompt_crud_card(key: str, p, cfg) -> str:
 
     reset_btn = (
         f"<form method='post' action='/settings/prompts/{escape(key)}/reset' style='display:inline'>"
-        "<button class='btn ghost' type='submit' style='font-size:12px;padding:7px 12px'>Reset to default</button>"
+        "<button class='btn ghost sm' type='submit'>Reset to default</button>"
         "</form>"
     ) if not is_custom else (
         f"<form method='post' action='/settings/prompts/{escape(key)}/delete' style='display:inline' "
         f"onsubmit=\"return confirm('Delete custom prompt {escape(key)}? This cannot be undone.')\">"
-        "<button class='btn ghost' type='submit' style='font-size:12px;padding:7px 12px;"
-        "color:#f28b82;border-color:#5a1f1f'>Delete</button>"
+        "<button class='btn danger sm' type='submit'>Delete</button>"
         "</form>"
     )
 
     custom_badge = (
-        "<span style='font-size:10px;color:#fdd663;background:rgba(251,188,4,.15);"
-        "border-radius:999px;padding:1px 7px;margin-left:8px;font-weight:700'>custom</span>"
+        "<span class='badge warn' style='margin-left:8px'>custom</span>"
         if is_custom else ""
     )
 
@@ -62,10 +59,10 @@ def _prompt_crud_card(key: str, p, cfg) -> str:
         "</summary>"
         "<div style='padding:0 18px 18px'>"
         f"<form method='post' action='/settings/prompts/{escape(key)}' class='set-grid'>"
-        f"<textarea name='template' rows='8' style='font-size:12px'>{escape(p.template)}</textarea>"
+        f"<div class='field'><textarea class='mono' name='template' rows='8'>{escape(p.template)}</textarea></div>"
         f"{vars_html}"
         "<div class='set-actions'>"
-        "<button class='btn' type='submit' style='font-size:12px;padding:7px 14px'>Save</button>"
+        "<button class='btn sm' type='submit'>Save</button>"
         f"{reset_btn}"
         "</div>"
         "</form></div></details>"
@@ -94,25 +91,25 @@ def prompts_page(cfg, *, backend: str, ok: str = "", err: str = "") -> str:
     for group, keys in ordered:
         cards = "".join(_prompt_crud_card(k, cfg.prompts[k], cfg) for k in keys)
         sections.append(
-            f"<h2 class='sec' style='margin-top:28px' id='group-{escape(group)}'>"
-            f"{escape(group.replace('_',' ').title())} "
-            f"<span style='color:var(--muted);font-weight:400;font-size:11px'>{len(keys)} prompts</span>"
-            f"</h2>{cards}"
+            f"<div class='page-head' style='margin-top:28px' id='group-{escape(group)}'>"
+            f"<div class='grow'><h2>{escape(group.replace('_',' ').title())} "
+            f"<span class='muted' style='font-weight:400;font-size:11px'>{len(keys)} prompts</span>"
+            f"</h2></div></div>{cards}"
         )
 
     # Create new prompt form
     create_form = (
         "<div class='card' style='margin-bottom:24px'>"
-        "<h2 class='sec' style='margin-top:0'>New custom prompt</h2>"
+        "<div class='card-head'><h2>New custom prompt</h2></div>"
         "<form method='post' action='/settings/prompts/create' class='set-grid'>"
-        "<div class='row2'>"
-        "<div><label class='lbl' for='new-key'>Key <span class='note'>(e.g. finance.custom_scorer)</span></label>"
-        "<input id='new-key' name='key' placeholder='skill.step_name' required></div>"
-        "<div><label class='lbl' for='new-vars'>Variables <span class='note'>(comma-separated, no braces)</span></label>"
-        "<input id='new-vars' name='variables' placeholder='target, research_plan'></div>"
+        "<div class='grid cols-2'>"
+        "<div class='field'><label for='new-key'>Key <span class='hint'>(e.g. finance.custom_scorer)</span></label>"
+        "<input class='input mono' id='new-key' name='key' placeholder='skill.step_name' required></div>"
+        "<div class='field'><label for='new-vars'>Variables <span class='hint'>(comma-separated, no braces)</span></label>"
+        "<input class='input mono' id='new-vars' name='variables' placeholder='target, research_plan'></div>"
         "</div>"
-        "<div><label class='lbl' for='new-tmpl'>Template</label>"
-        "<textarea id='new-tmpl' name='template' rows='5' "
+        "<div class='field'><label for='new-tmpl'>Template</label>"
+        "<textarea class='mono' id='new-tmpl' name='template' rows='5' "
         "placeholder='You are a researcher. The topic is {target}...' required></textarea></div>"
         "<div class='set-actions'>"
         "<button class='btn' type='submit'>Create prompt</button>"
@@ -122,16 +119,14 @@ def prompts_page(cfg, *, backend: str, ok: str = "", err: str = "") -> str:
 
     # Search + jump bar
     group_links = " ".join(
-        f"<a href='#group-{escape(g)}' style='color:var(--accent-2);font-size:12px;"
-        f"padding:4px 10px;border:1px solid var(--line);border-radius:999px;"
-        f"background:var(--panel-2)'>{escape(g)}</a>"
+        f"<a class='pill' href='#group-{escape(g)}'>{escape(g)}</a>"
         for g, _ in ordered
     )
     controls = (
-        "<div style='display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap'>"
-        "<input id='prompt-search' placeholder='Filter prompts…' oninput='filterPrompts()' "
-        "style='width:260px;padding:9px 13px;font-size:13px'>"
-        f"<div style='display:flex;gap:7px;flex-wrap:wrap'>{group_links}</div>"
+        "<div class='inline' style='gap:12px;margin-bottom:20px'>"
+        "<input class='input' id='prompt-search' placeholder='Filter prompts…' oninput='filterPrompts()' "
+        "style='width:260px'>"
+        f"<div class='inline' style='gap:7px'>{group_links}</div>"
         "</div>"
         "<script>"
         "function filterPrompts(){"
@@ -154,15 +149,21 @@ def prompts_page(cfg, *, backend: str, ok: str = "", err: str = "") -> str:
     custom_count = sum(1 for p in cfg.prompts.values() if p.default_template is None)
 
     summary_bar = (
-        "<div class='card' style='margin-bottom:20px;padding:14px 18px;"
-        "display:flex;gap:24px;align-items:center'>"
+        "<div class='card pad-sm' style='margin-bottom:20px'>"
+        "<div class='row-between'>"
+        "<div class='inline' style='gap:24px'>"
         f"<span class='pill'><b>{total}</b> total prompts</span>"
         f"<span class='pill'><b>{len(ordered)}</b> skill groups</span>"
         f"<span class='pill'><b>{custom_count}</b> custom</span>"
-        "<span style='flex:1'></span>"
-        "<a href='/settings' class='btn ghost' style='font-size:12px;padding:7px 12px'>← Settings</a>"
         "</div>"
+        "<a href='/settings' class='btn ghost sm'>← Settings</a>"
+        "</div></div>"
     )
 
-    content = banner + summary_bar + controls + create_form + "".join(sections)
+    page_head = (
+        "<div class='page-head'><div class='grow'><h1>Prompts</h1>"
+        f"<p>System prompt library — {total} prompts across {len(ordered)} groups.</p></div></div>"
+    )
+
+    content = page_head + banner + summary_bar + controls + create_form + "".join(sections)
     return shell(active="prompts", title="Prompts", content=content, backend=backend)

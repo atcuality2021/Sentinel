@@ -11,7 +11,11 @@ from .focus import focus_card
 def dashboard_page(*, stats: dict, charts: dict, recent: list[dict], backend: str,
                    focus: list | None = None, project_by_entity: dict | None = None) -> str:
     kpis = (
-        "<div class='grid kpis'>"
+        "<div class='page-head'><div class='grow'><h1>Dashboard</h1>"
+        "<p>Research activity across every project on this sovereign instance.</p></div>"
+        "<a class='btn ghost' href='/accounts'>View accounts</a>"
+        "<a class='btn' href='/projects'>＋ New project</a></div>"
+        "<div class='grid cols-4' style='margin-bottom:24px'>"
         + _kpi("run", "Runs (session)", stats["runs"], "spark")
         + _kpi("art", "Artifacts", stats["artifacts"], "doc")
         + _kpi("pub", "Public findings", stats["public"], "globe")
@@ -22,19 +26,20 @@ def dashboard_page(*, stats: dict, charts: dict, recent: list[dict], backend: st
     has_data = stats["runs"] > 0
     if has_data:
         charts_html = (
-            "<div class='grid charts' style='margin-top:16px'>"
-            "<div class='card'><h3 class='ch'>Signal provenance</h3>"
+            "<div class='grid cols-3' style='margin-bottom:24px'>"
+            "<div class='card'><div class='card-head'><h2>Signal provenance</h2></div>"
             "<div class='chart-wrap'><canvas id='cProv'></canvas></div></div>"
-            "<div class='card'><h3 class='ch'>Runs by mode</h3>"
+            "<div class='card'><div class='card-head'><h2>Runs by mode</h2></div>"
             "<div class='chart-wrap'><canvas id='cMode'></canvas></div></div>"
-            "<div class='card'><h3 class='ch'>Backend usage</h3>"
+            "<div class='card'><div class='card-head'><h2>Backend usage</h2></div>"
             "<div class='chart-wrap'><canvas id='cBack'></canvas></div></div>"
             "</div>"
         )
     else:
         charts_html = (
-            "<div class='card' style='margin-top:16px'><div class='empty'>"
-            "No runs yet. <a href='/projects' style='color:var(--accent-2)'>Run your first "
+            "<div class='card' style='margin-bottom:24px'><div class='empty'>"
+            f"<div class='ico'>{_icon('spark')}</div>"
+            "No runs yet. <a href='/projects'>Run your first "
             "intelligence task</a> — the charts populate live, including the public vs "
             "private provenance split.</div></div>"
         )
@@ -43,26 +48,25 @@ def dashboard_page(*, stats: dict, charts: dict, recent: list[dict], backend: st
     for r in recent:
         name = escape(r["target"])
         if r.get("project_id") or r.get("entity"):
-            name = (f"<a href='{_run_href(r)}' "
-                    f"style='color:var(--accent-2)'>{name}</a>")
+            name = f"<a href='{_run_href(r)}'>{name}</a>"
         rows += (
             f"<tr><td><b>{name}</b></td>"
             f"<td>{escape(r['mode'])}</td>"
-            f"<td><span class='dotmark {'v' if r['backend']=='vllm' else 'g'}'></span> "
-            f"<span class='mono'>{escape(r['backend'])}</span></td>"
-            f"<td><span class='badge public'>{r['public']}</span>"
+            f"<td><span class='mono'>{escape(r['backend'])}</span></td>"
+            f"<td><span class='badge public'>{r['public']}</span> "
             f"<span class='badge private'>{r['private']}</span></td>"
             f"<td class='mono'>{escape(r['when'])}</td></tr>"
         )
     if not rows:
         rows = "<tr><td colspan='5' class='mono'>—</td></tr>"
     table = (
-        "<div class='section-h'><h2>Recent runs</h2>"
-        "<a class='btn ghost' href='/artifacts'>View all</a></div>"
-        "<div class='card' style='padding:6px 8px'><table>"
+        "<div class='card pad-sm'>"
+        "<div class='card-head' style='padding:0 4px'><h2>Recent runs</h2>"
+        "<a class='pill' href='/artifacts'>View all</a></div>"
+        "<div class='table-wrap'><table class='table'>"
         "<thead><tr><th>Target</th><th>Mode</th><th>Backend</th>"
         "<th>Public / Private</th><th>When</th></tr></thead>"
-        f"<tbody>{rows}</tbody></table></div>"
+        f"<tbody>{rows}</tbody></table></div></div>"
     )
 
     scripts = ""
@@ -94,7 +98,13 @@ def dashboard_page(*, stats: dict, charts: dict, recent: list[dict], backend: st
         scripts = js.replace("__DATA__", data)
 
     focus_html = focus_card(focus, project_by_entity) if focus else ""
-    content = kpis + charts_html + focus_html + table
+    # Recent runs (left, 2fr) beside the focus list (right, 1fr) per the redesign. When there
+    # is no focus list, the table spans full width on its own.
+    if focus_html:
+        recent_block = f"<div class='split'>{table}{focus_html}</div>"
+    else:
+        recent_block = table
+    content = kpis + charts_html + recent_block
     return shell(active="dashboard", title="Dashboard", content=content, backend=backend,
                  body_scripts=scripts)
 
@@ -129,28 +139,30 @@ def form_page(*, default_backend: str, private_configured: bool, vllm_model: str
         if sovereign else ""
     )
     content = f"""
+    <div class='page-head'><div class='grow'><h1>New Run</h1>
+      <p>Point Sentinel at a target and pick the reasoning backend.</p></div></div>
     <div class='card'>
-      <form class='run' method='post' action='/run'>
-        <div>
-          <label class='lbl' for='target'>Target</label>
-          <input id='target' name='target' placeholder='e.g. Stripe, or an account name'
-                 required autofocus>
+      <form method='post' action='/run'>
+        <div class='field'>
+          <label for='target'>Target</label>
+          <input class='input' id='target' name='target'
+                 placeholder='e.g. Stripe, or an account name' required autofocus>
         </div>
-        <div class='row2'>
-          <div>
-            <label class='lbl' for='mode'>Mode</label>
+        <div class='grid cols-2'>
+          <div class='field'>
+            <label for='mode'>Mode</label>
             <select id='mode' name='mode'>
               <option value='competitor'>Competitor → Battlecard</option>
               <option value='client'>Client / Account → Brief</option>
             </select>
           </div>
-          <div>
-            <label class='lbl' for='vertical'>Vertical (optional)</label>
-            <input id='vertical' name='vertical' placeholder='e.g. BFSI, healthcare'>
+          <div class='field'>
+            <label for='vertical'>Vertical (optional)</label>
+            <input class='input' id='vertical' name='vertical' placeholder='e.g. BFSI, healthcare'>
           </div>
         </div>
-        <div>
-          <label class='lbl'>Reasoning backend</label>
+        <div class='field'>
+          <label>Reasoning backend</label>
           <div class='seg'>
             <input class='cloud' type='radio' id='b-gemini' name='backend' value='gemini' {gemini_checked} {gemini_disabled}>
             <label class='l-cloud' for='b-gemini'>☁ Cloud · Gemini<span class='sub'>managed API</span></label>
@@ -158,17 +170,18 @@ def form_page(*, default_backend: str, private_configured: bool, vllm_model: str
             <label class='l-onprem' for='b-vllm'>🔒 On-prem · Gemma<span class='sub'>{escape(vllm_model)} · vLLM</span></label>
           </div>
         </div>
-        <div><button class='btn' type='submit'>{_icon('bolt')} Run Sentinel</button></div>
+        <button class='btn' type='submit'>{_icon('bolt')} Run Sentinel</button>
       </form>
-      <div style='margin-top:16px;display:flex;gap:10px;flex-wrap:wrap'>
+      <div class='inline' style='margin-top:16px'>
         <span class='pill'>Default: <b>{escape(default_backend)}</b></span>
         <span class='pill'>{priv}</span>
         {sovereign_chip}
       </div>
     </div>
-    <p class='note' style='margin-top:16px'>{sovereign_note}The <b>reasoning backend</b> toggle swaps
-    the LLM that plans and synthesizes — and, in client mode, reads your private CRM data.
-    <b>On-prem · Gemma</b> runs that reasoning on your own GPUs via vLLM; public web grounding
-    uses the configured search provider. Same agent, same code — config-only swap.</p>
+    <p class='note' style='margin-top:16px;color:var(--muted);font-size:13px'>{sovereign_note}The
+    <b>reasoning backend</b> toggle swaps the LLM that plans and synthesizes — and, in client mode,
+    reads your private CRM data. <b>On-prem · Gemma</b> runs that reasoning on your own GPUs via
+    vLLM; public web grounding uses the configured search provider. Same agent, same code —
+    config-only swap.</p>
     """
     return shell(active="new", title="New Run", content=content, backend=default_backend)

@@ -82,67 +82,64 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
     vllm_checked = "checked" if (default_backend == "vllm" or sovereign) else ""
     gemini_disabled = "disabled" if sovereign else ""
     sovereign_note = (
-        "<div class='note' style='margin-top:6px;color:var(--accent-2)'>Governance: "
+        "<div class='hint' style='margin-top:6px;color:var(--accent-text)'>Governance: "
         "<b>on_prem_required</b> — cloud blocked; tasks run on-prem only.</div>"
         if sovereign else ""
     )
     return (
-        "<div class='section-h'><h2>New task</h2></div>"
+        "<div class='card-head'><h2>New task</h2></div>"
         "<div class='card'>"
-        f"<form class='run' method='get' action='/projects/{escape(project_id)}/plan'>"
-        "<div><label class='lbl' for='t-obj'>Objective</label>"
-        "<input id='t-obj' name='objective' required "
+        f"<form method='get' action='/projects/{escape(project_id)}/plan'>"
+        "<div class='field'><label for='t-obj'>Objective</label>"
+        "<input class='input' id='t-obj' name='objective' required "
         "placeholder='e.g. Research Assam government departments and map BiltIQ capabilities'></div>"
-        "<div><label class='lbl' for='t-ctx'>Research context <span style='font-weight:400;"
-        "color:var(--muted)'>(optional — background injected into every agent)</span></label>"
-        "<textarea id='t-ctx' name='context' rows='3' "
-        "style='width:100%;padding:8px;background:var(--panel-2);border:1px solid var(--accent-line);"
-        "border-radius:6px;color:var(--ink);font-size:13px;resize:vertical' "
+        "<div class='field'><label for='t-ctx'>Research context "
+        "<span style='font-weight:400;color:var(--muted)'>(optional — background injected into "
+        "every agent)</span></label>"
+        "<textarea class='input' id='t-ctx' name='context' rows='3' "
         "placeholder='e.g. Vendor is BiltIQ AI — sovereign on-premise AI platform; "
         "buyer needs 16GB RAM + 1TB SSD under ₹1 lakh; target government is Assam state …'>"
         f"{escape(project_context)}</textarea>"
-        + ("<div class='note' style='margin-top:4px'>Inherited from the project — edit to "
+        + ("<div class='hint'>Inherited from the project — edit to "
            "override for this task.</div>" if project_context else "")
         + "</div>"
         # Client/partner URL — crawled into KB before agents run
-        "<div id='client-url-row'>"
-        "<label class='lbl' for='t-curl'>Client / research website "
-        "<span style='font-weight:400;color:var(--muted)'>(optional — crawled into KB before agents run)</span>"
-        "</label>"
-        "<input id='t-curl' name='client_url' type='url' "
-        "style='width:100%;padding:8px;background:var(--panel-2);border:1px solid var(--accent-line);"
-        "border-radius:6px;color:var(--ink);font-size:13px' "
+        "<div class='field' id='client-url-row'>"
+        "<label for='t-curl'>Client / research website "
+        "<span style='font-weight:400;color:var(--muted)'>(optional — crawled into KB before "
+        "agents run)</span></label>"
+        "<input class='input' id='t-curl' name='client_url' type='url' "
         "placeholder='https://assam.gov.in  or  https://client-site.com'></div>"
-        "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px'>"
-        "<div><label class='lbl' for='t-dom'>Domain</label>"
+        "<div class='grid cols-2'>"
+        "<div class='field'><label for='t-dom'>Domain</label>"
         f"<select id='t-dom' name='domain' onchange=\""
         "var d=this.value;"
         "var r=document.getElementById('client-url-row');"
         "var i=document.getElementById('t-curl');"
-        "if(d==='govt_proposal'){r.style.borderLeft='3px solid var(--accent-2)';r.style.paddingLeft='8px';"
+        "if(d==='govt_proposal'){r.style.borderLeft='3px solid var(--accent)';r.style.paddingLeft='8px';"
         "if(!i.value)i.placeholder='https://assam.gov.in — client site will be indexed into KB';}"
         "else{r.style.borderLeft='';r.style.paddingLeft='';}"
         f"\">{domains}</select></div>"
-        "<div><label class='lbl' for='t-per'>Persona</label>"
+        "<div class='field'><label for='t-per'>Persona</label>"
         f"<select id='t-per' name='persona'>{personas}</select></div>"
         "</div>"
         # Customise-persona: the full audience profile (reading level / tone / format / source
         # policy) behind the selected name, editable per task. Blank = the registry profile;
         # filled = override (the "custom" persona is exactly this with no named base).
         "<details id='t-pcust' style='margin-top:2px'>"
-        "<summary class='note' style='cursor:pointer'>Customise persona — reading level, tone, "
+        "<summary class='hint' style='cursor:pointer'>Customise persona — reading level, tone, "
         "format, source policy <span style='color:var(--muted)'>(optional)</span></summary>"
-        "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px'>"
-        "<div><label class='lbl' for='t-rl'>Reading level</label>"
-        "<input id='t-rl' name='reading_level'></div>"
-        "<div><label class='lbl' for='t-tone'>Tone</label>"
-        "<input id='t-tone' name='tone'></div>"
-        "<div><label class='lbl' for='t-fmt'>Output format</label>"
-        "<input id='t-fmt' name='format'></div>"
-        "<div><label class='lbl' for='t-sp'>Source policy</label>"
-        "<input id='t-sp' name='source_policy'></div>"
+        "<div class='grid cols-2' style='margin-top:8px'>"
+        "<div class='field'><label for='t-rl'>Reading level</label>"
+        "<input class='input' id='t-rl' name='reading_level'></div>"
+        "<div class='field'><label for='t-tone'>Tone</label>"
+        "<input class='input' id='t-tone' name='tone'></div>"
+        "<div class='field'><label for='t-fmt'>Output format</label>"
+        "<input class='input' id='t-fmt' name='format'></div>"
+        "<div class='field'><label for='t-sp'>Source policy</label>"
+        "<input class='input' id='t-sp' name='source_policy'></div>"
         "</div>"
-        "<div class='note' style='margin-top:4px'>Blank fields use the selected persona's profile "
+        "<div class='hint'>Blank fields use the selected persona's profile "
         "(shown as placeholder); filled fields override it for this task. Facts and citations never "
         "change — persona shapes presentation only.</div>"
         "</details>"
@@ -157,7 +154,7 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
         "document.getElementById('t-sp').placeholder=p.source_policy||'(none)';"
         "if(s.value==='custom'){document.getElementById('t-pcust').open=true;}}"
         "s.addEventListener('change',f);f();})();</script>"
-        "<div><label class='lbl'>Reasoning backend</label>"
+        "<div class='field'><label>Reasoning backend</label>"
         "<div class='seg'>"
         f"<input class='cloud' type='radio' id='tb-gemini' name='backend' value='gemini' "
         f"{gemini_checked} {gemini_disabled}>"
@@ -186,27 +183,28 @@ def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
     g = gen or {}
     banner = ""
     if ok:
-        banner = f"<div class='card banner ok' style='margin-bottom:16px'>{escape(ok)}</div>"
+        banner = f"<div class='badge ok' style='margin-bottom:16px'>{escape(ok)}</div>"
     elif err:
-        banner = f"<div class='card banner bad' style='margin-bottom:16px'>{escape(err)}</div>"
+        banner = f"<div class='badge bad' style='margin-bottom:16px'>{escape(err)}</div>"
 
     # --- generator card -----------------------------------------------------
     generator = (
-        "<div class='card' style='margin-bottom:20px'>"
-        "<h2 class='sec' style='margin-top:0'>Generate a persona</h2>"
-        "<div class='note' style='margin-bottom:10px'>Describe the audience in plain words — "
+        "<div class='card' style='background:var(--accent-weak);border-color:transparent;"
+        "margin-bottom:20px'>"
+        "<div class='card-head'><h2>Generate a persona</h2></div>"
+        "<div class='hint' style='margin-bottom:10px'>Describe the audience in plain words — "
         f"the {escape(backend)} model drafts the full profile, which lands in the form below "
         "for review before saving.</div>"
-        "<form method='post' action='/personas/generate' class='set-grid'>"
-        "<div><label class='lbl' for='gen-desc'>Audience description</label>"
-        "<textarea id='gen-desc' name='description' rows='2' required "
+        "<form method='post' action='/personas/generate'>"
+        "<div class='field'><label for='gen-desc'>Audience description</label>"
+        "<textarea class='input' id='gen-desc' name='description' rows='2' required "
         "placeholder='e.g. A hospital procurement officer comparing medical-device vendors "
         "under strict budget rules'></textarea></div>"
-        "<div class='row2'>"
-        "<div><label class='lbl' for='gen-name'>Persona name <span class='note'>(optional — "
+        "<div class='grid cols-2' style='align-items:end'>"
+        "<div class='field'><label for='gen-name'>Persona name <span class='hint'>(optional — "
         "carried into the form)</span></label>"
-        "<input id='gen-name' name='name' placeholder='e.g. procurement officer'></div>"
-        "<div style='align-self:end'><button class='btn' type='submit'>Generate profile</button></div>"
+        "<input class='input' id='gen-name' name='name' placeholder='e.g. procurement officer'></div>"
+        "<div class='field'><button class='btn' type='submit'>Generate profile</button></div>"
         "</div></form></div>"
     )
 
@@ -216,28 +214,28 @@ def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
 
     create_form = (
         "<div class='card' style='margin-bottom:24px' id='create'>"
-        "<h2 class='sec' style='margin-top:0'>New persona</h2>"
-        "<form method='post' action='/personas/create' class='set-grid'>"
-        "<div class='row2'>"
-        "<div><label class='lbl' for='p-name'>Name</label>"
-        f"<input id='p-name' name='name' required placeholder='e.g. CFO brief'{_val('name')}></div>"
-        "<div><label class='lbl' for='p-desc'>Description</label>"
-        f"<input id='p-desc' name='description' placeholder='who this audience is'{_val('desc')}></div>"
+        "<div class='card-head'><h2>New persona</h2></div>"
+        "<form method='post' action='/personas/create'>"
+        "<div class='grid cols-2'>"
+        "<div class='field'><label for='p-name'>Name</label>"
+        f"<input class='input' id='p-name' name='name' required placeholder='e.g. CFO brief'{_val('name')}></div>"
+        "<div class='field'><label for='p-desc'>Description</label>"
+        f"<input class='input' id='p-desc' name='description' placeholder='who this audience is'{_val('desc')}></div>"
         "</div>"
-        "<div class='row2'>"
-        "<div><label class='lbl' for='p-rl'>Reading level</label>"
-        f"<input id='p-rl' name='reading_level' placeholder='professional'{_val('rl')}></div>"
-        "<div><label class='lbl' for='p-tone'>Tone</label>"
-        f"<input id='p-tone' name='tone' placeholder='neutral'{_val('tone')}></div>"
+        "<div class='grid cols-2'>"
+        "<div class='field'><label for='p-rl'>Reading level</label>"
+        f"<input class='input' id='p-rl' name='reading_level' placeholder='professional'{_val('rl')}></div>"
+        "<div class='field'><label for='p-tone'>Tone</label>"
+        f"<input class='input' id='p-tone' name='tone' placeholder='neutral'{_val('tone')}></div>"
         "</div>"
-        "<div class='row2'>"
-        "<div><label class='lbl' for='p-fmt'>Output format</label>"
-        f"<input id='p-fmt' name='format' placeholder='brief'{_val('fmt')}></div>"
-        "<div><label class='lbl' for='p-sp'>Source policy</label>"
-        f"<input id='p-sp' name='source_policy' placeholder='(none)'{_val('sp')}></div>"
+        "<div class='grid cols-2'>"
+        "<div class='field'><label for='p-fmt'>Output format</label>"
+        f"<input class='input' id='p-fmt' name='format' placeholder='brief'{_val('fmt')}></div>"
+        "<div class='field'><label for='p-sp'>Source policy</label>"
+        f"<input class='input' id='p-sp' name='source_policy' placeholder='(none)'{_val('sp')}></div>"
         "</div>"
-        "<div class='set-actions'><button class='btn' type='submit'>Save persona</button>"
-        "<span class='note' style='align-self:center;margin-left:8px'>Saved personas appear in "
+        "<div class='inline'><button class='btn' type='submit'>Save persona</button>"
+        "<span class='hint'>Saved personas appear in "
         "every task form's persona dropdown.</span></div>"
         "</form></div>"
     )
@@ -248,7 +246,7 @@ def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
         if sp:
             rows.append(("sources", sp))
         return "".join(
-            f"<div style='display:flex;gap:8px;font-size:12px;margin-top:4px'>"
+            f"<div class='inline' style='gap:8px;font-size:12px;margin-top:4px'>"
             f"<span style='color:var(--muted);min-width:92px'>{label}</span>"
             f"<span>{escape(value)}</span></div>"
             for label, value in rows)
@@ -258,18 +256,20 @@ def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
     library = [p for p in saved if p.name.strip().lower() not in PERSONA_PROFILES]
     if library:
         saved_cards = "".join(
-            "<div class='card' style='margin-bottom:10px'>"
-            "<div style='display:flex;align-items:center;justify-content:space-between;gap:10px'>"
+            "<div class='card pad-sm' style='margin-bottom:10px'>"
+            "<div class='row-between' style='align-items:center'>"
             f"<div><b>{escape(p.name)}</b>"
-            + (f" <span class='note'>— {escape(p.description)}</span>" if p.description else "")
+            + (f" <span class='hint'>— {escape(p.description)}</span>" if p.description else "")
             + f"{_profile_rows(p.reading_level, p.tone, p.format, p.source_policy or '')}</div>"
             f"<form method='post' action='/personas/{escape(p.id)}/delete' "
             "onsubmit=\"return confirm('Delete this persona? Existing tasks keep their copy.')\">"
-            "<button class='btn ghost' type='submit' style='font-size:12px;color:#ff6b6b'>Delete</button>"
+            "<button class='btn sm danger' type='submit'>Delete</button>"
             "</form></div></div>"
             for p in library)
     else:
-        saved_cards = ("<div class='card'><div class='empty'>No saved personas yet — "
+        saved_cards = ("<div class='card'><div class='empty'>"
+                       f"<div class='ico'>{_icon('users')}</div>"
+                       "No saved personas yet — "
                        "create one above or generate from a description.</div></div>")
 
     # --- built-in cards (editable via override; enterprise stays read-only) ---
@@ -287,40 +287,42 @@ def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
             sp = profile.get("source_policy", "")
         # enterprise must stay == Persona() (dag skip-pass invariant) → not editable.
         editable = name != "enterprise"
-        tag = ("<span class='note' style='color:var(--accent-2)'>— overridden</span>"
-               if o is not None else "<span class='note'>— built-in</span>")
+        tag = ("<span class='badge warn'>overridden</span>"
+               if o is not None else "<span class='badge neutral'>built-in</span>")
         controls = ""
         if editable:
             edit_url = "/personas?" + "&".join([
                 f"gen_name={_qp(name)}", f"gen_rl={_qp(rl)}", f"gen_tone={_qp(tone)}",
                 f"gen_fmt={_qp(fmt)}", f"gen_sp={_qp(sp)}"]) + "#create"
-            controls += (f"<a class='btn ghost' style='font-size:12px' href='{edit_url}'>Edit</a>")
+            controls += (f"<a class='btn sm ghost' href='{edit_url}'>Edit</a>")
             if o is not None:
                 controls += (
                     f"<form method='post' action='/personas/{escape(o.id)}/delete' style='display:inline'"
                     " onsubmit=\"return confirm('Reset this persona to its built-in default?')\">"
-                    "<button class='btn ghost' type='submit' "
-                    "style='font-size:12px;color:#d4a017'>Reset to default</button></form>")
+                    "<button class='btn sm ghost' type='submit'>Reset to default</button></form>")
         body = (f"<div><b>{escape(name)}</b> {tag}"
                 + _profile_rows(rl, tone, fmt, sp)
-                + ("<div class='note' style='margin-top:6px'>Default audience — tasks with this "
+                + ("<div class='hint' style='margin-top:6px'>Default audience — tasks with this "
                    "persona skip the extra render pass (kept read-only).</div>"
                    if name == "enterprise" else "")
                 + "</div>")
-        return ("<div class='card' style='margin-bottom:10px'>"
-                "<div style='display:flex;align-items:flex-start;justify-content:space-between;gap:10px'>"
+        return ("<div class='card pad-sm' style='margin-bottom:10px'>"
+                "<div class='row-between' style='align-items:flex-start'>"
                 + body
-                + (f"<div style='display:flex;gap:6px;flex-shrink:0'>{controls}</div>" if controls else "")
+                + (f"<div class='inline' style='gap:6px;flex-shrink:0'>{controls}</div>"
+                   if controls else "")
                 + "</div></div>")
 
     builtin_cards = "".join(_builtin_card(name, profile) for name, profile in PERSONA_PROFILES.items())
 
     content = (
-        banner + generator + create_form
-        + f"<div class='section-h'><h2>Saved personas <span class='note'>{len(library)}</span></h2></div>"
+        "<div class='page-head'><div class='grow'><h1>Personas</h1>"
+        "<p>Audience profiles that shape reading level, tone, and format.</p></div></div>"
+        + banner + generator + create_form
+        + f"<div class='card-head'><h2>Saved personas</h2><span class='pill'>{len(library)}</span></div>"
         + saved_cards
-        + "<div class='section-h' style='margin-top:24px'><h2>Built-in personas</h2></div>"
-        + "<div class='note' style='margin-bottom:10px'><b>Edit</b> tweaks a built-in for every "
+        + "<div class='card-head' style='margin-top:24px'><h2>Built-in personas</h2></div>"
+        + "<div class='hint' style='margin-bottom:10px'><b>Edit</b> tweaks a built-in for every "
         "task (saved as an override); <b>Reset to default</b> restores the code profile. "
         "<b>enterprise</b> stays read-only. Pick <b>auto</b> in the task form to let the agent "
         "choose one by domain.</div>"

@@ -26,38 +26,37 @@ def _step_call_kind(capability: str) -> tuple[str, str]:
 
 def _calls_chip(capability: str) -> str:
     kind, label = _step_call_kind(capability)
-    colour = {"web": "rgba(66,133,244,.14);color:var(--accent-2)",
-              "mcp": "rgba(234,88,12,.16);color:#c2410c",
-              "synth": "rgba(139,92,246,.16);color:#7c3aed"}[kind]
-    return f"<span class='badge' style='background:{colour}'>{escape(label)}</span>"
+    # web search = public boundary, MCP = private boundary, reasoner-only = neutral
+    cls = {"web": "public", "mcp": "private", "synth": "neutral"}[kind]
+    return f"<span class='badge {cls}'>{escape(label)}</span>"
 
 
 def _plan_step_row(step) -> str:
     """One DAG step: id, capability, what it CALLS (web/MCP/reasoner — the boundary), deps, the agent
     it's assigned to, and whether that agent is REUSED (seed-*) or NEWLY created (created-*)."""
     reused = (step.agent_spec_id or "").startswith("seed-")
-    tag = ("<span class='badge' style='background:rgba(66,133,244,.14);color:var(--accent-2)'>reuse</span>"
-           if reused else
-           "<span class='badge' style='background:rgba(234,179,8,.16);color:#b78a00'>new</span>")
+    tag = ("<span class='badge ok'>reuse</span>" if reused
+           else "<span class='badge warn'>new</span>")
     deps = ", ".join(escape(d) for d in step.depends_on) or "—"
     return (
-        f"<tr><td><code>{escape(step.id)}</code></td><td><b>{escape(step.capability)}</b></td>"
+        f"<tr><td><code class='mono'>{escape(step.id)}</code></td><td><b>{escape(step.capability)}</b></td>"
         f"<td>{_calls_chip(step.capability)}</td>"
-        f"<td>{deps}</td><td><code style='font-size:.85em'>{escape(step.agent_spec_id or '—')}</code></td>"
+        f"<td>{deps}</td><td><code class='mono'>{escape(step.agent_spec_id or '—')}</code></td>"
         f"<td>{tag}</td></tr>"
     )
 
 
 def _dag_node(step) -> str:
-    """One node in the visual DAG: capability + call boundary + assigned agent, coloured reuse/new."""
+    """One node in the visual DAG: capability + call boundary + assigned agent, coloured reuse/new.
+    Newly-created agents (not seed-*) render as a dashed node to signal 'to be built'."""
     reused = (step.agent_spec_id or "").startswith("seed-")
-    border = "var(--accent-2)" if reused else "#b78a00"
+    cls = "node" if reused else "node dashed"
     return (
-        f"<div class='card' style='padding:10px 12px;border-left:3px solid {border};min-width:172px'>"
-        f"<div style='font-size:11px;color:var(--muted)'>{escape(step.id)}</div>"
-        f"<b>{escape(step.capability)}</b>"
+        f"<div class='{cls}'>"
+        f"<div class='cap'>{escape(step.id)}</div>"
+        f"<div class='nm'>{escape(step.capability)}</div>"
         f"<div style='margin-top:6px'>{_calls_chip(step.capability)}</div>"
-        f"<div style='margin-top:6px;font-size:11px;color:var(--muted);word-break:break-all'>"
+        f"<div class='mono' style='margin-top:6px;word-break:break-all'>"
         f"{escape(step.agent_spec_id or '—')}</div></div>"
     )
 
@@ -88,10 +87,9 @@ def _dag_graph(plan) -> str:
         + "".join(_dag_node(s) for s in cols[lvl]) + "</div>"
         for lvl in sorted(cols)
     ]
-    arrow = "<div style='align-self:center;color:var(--muted);font-size:22px'>&rarr;</div>"
-    return ("<div class='section-h'><h2>Flow</h2></div>"
-            "<div class='card' style='overflow-x:auto'>"
-            "<div style='display:flex;gap:14px;align-items:stretch'>" + arrow.join(columns)
+    arrow = "<span class='arrow'>&rarr;</span>"
+    return ("<div class='card'><div class='card-head'><h2>Flow</h2></div>"
+            "<div class='dag'>" + arrow.join(columns)
             + "</div></div>")
 
 
@@ -110,8 +108,8 @@ def _execution_log(trace: list[str]) -> str:
             f"<li style='display:flex;gap:8px;align-items:baseline'>"
             f"<span style='color:{dot};flex:0 0 auto'>&#9679;</span>"
             f"<code style='font-size:.82em;white-space:pre-wrap'>{escape(line)}</code></li>")
-    return ("<div class='section-h'><h2>Execution trace</h2></div>"
-            "<div class='card'><ul class='find' style='list-style:none;padding-left:0'>"
+    return ("<div class='card'><div class='card-head'><h2>Execution trace</h2></div>"
+            "<ul class='find' style='list-style:none;padding-left:0'>"
             + "".join(rows) + "</ul></div>")
 
 
@@ -154,61 +152,41 @@ def _step_timeline(plan) -> str:
         sub_steps = spec.steps if spec else []
 
         if sub_steps:
-            # Render the skill label as a group header
+            # Group header for the skill, then one timeline step per sub-step (all complete).
             idx += 1
             rows.append(
-                f"<div style='padding:8px 0 4px;border-bottom:1px solid var(--border)'>"
-                f"<div style='display:flex;gap:8px;align-items:center'>"
-                f"<span style='color:var(--accent-2);font-weight:700;font-size:13px'>#{idx}</span>"
-                f"<span style='font-weight:600;font-size:13px'>{escape(cap)}</span>"
-                f"<span class='tag' style='color:#5bd07f;font-size:11px'>skill pipeline</span>"
-                f"</div></div>"
+                f"<div class='tl-step done'><div class='tl-dot'>{escape(str(idx))}</div>"
+                f"<div class='tl-body'><div class='t'>{escape(cap)}</div>"
+                f"<div class='m'><span class='badge ok'>skill pipeline</span></div></div></div>"
             )
             for ss in sub_steps:
                 sub_key = ss.agent_key.split(".")[-1] if "." in ss.agent_key else ss.agent_key
                 icon, label = _SUBSTEP_LABELS.get(sub_key, ("⚙", f"{escape(sub_key)} step"))
                 rows.append(
-                    f"<div style='display:flex;gap:10px;align-items:flex-start;"
-                    f"padding:6px 0 6px 20px;border-bottom:1px solid var(--border)'>"
-                    f"<div style='font-size:15px;flex:0 0 auto'>{icon}</div>"
-                    f"<div style='flex:1'>"
-                    f"<div style='font-size:12px;font-weight:600'>{escape(sub_key)}</div>"
-                    f"<div style='font-size:11px;color:var(--text-secondary);margin-top:1px'>{label}</div>"
-                    f"</div>"
-                    f"<span style='font-size:13px'>✅</span>"
-                    f"</div>"
+                    f"<div class='tl-step done'><div class='tl-dot'>{icon}</div>"
+                    f"<div class='tl-body'><div class='t'>{escape(sub_key)}</div>"
+                    f"<div class='m'>{label}</div></div></div>"
                 )
         else:
-            # Fallback: show plan step directly
+            # Fallback: show plan step directly, mapping plan status to the timeline state.
             idx += 1
             label_key = cap if cap in _SUBSTEP_LABELS else (
                 step.id.split(".")[-1] if "." in step.id else cap)
             icon, label = _SUBSTEP_LABELS.get(label_key, ("⚙", f"Ran {escape(cap)} step"))
-            status_icon = ("✅" if plan_status == "done"
-                           else "❌" if plan_status == "failed" else "⏳")
+            state_cls = ("done" if plan_status == "done"
+                         else "running" if plan_status == "running" else "")
             rows.append(
-                f"<div style='display:flex;gap:10px;align-items:flex-start;padding:8px 0;"
-                f"border-bottom:1px solid var(--border)'>"
-                f"<span style='color:var(--accent-2);font-weight:700;font-size:12px;"
-                f"flex:0 0 24px'>#{idx}</span>"
-                f"<div style='font-size:15px;flex:0 0 auto'>{icon}</div>"
-                f"<div style='flex:1'>"
-                f"<div style='font-weight:600;font-size:13px'>{escape(cap)}</div>"
-                f"<div style='font-size:12px;color:var(--text-secondary);margin-top:2px'>{label}</div>"
-                f"<div style='margin-top:4px'>{_calls_chip(cap)}</div>"
-                f"</div>"
-                f"<span style='font-size:15px'>{status_icon}</span>"
-                f"</div>"
+                f"<div class='tl-step {state_cls}'><div class='tl-dot'>{icon}</div>"
+                f"<div class='tl-body'><div class='t'>{escape(cap)}</div>"
+                f"<div class='m'>{label}</div>"
+                f"<div style='margin-top:4px'>{_calls_chip(cap)}</div></div></div>"
             )
 
     return (
-        "<div style='margin-top:16px'>"
-        "<div style='font-weight:600;font-size:13px;margin-bottom:8px;color:var(--text-secondary)'>"
-        "How the agent worked</div>"
-        "<div style='background:var(--surface-2);border-radius:10px;padding:4px 12px'>"
-        + ("".join(rows) if rows else
-           "<div class='note' style='padding:8px 0'>No step details available.</div>")
-        + "</div></div>"
+        "<div class='card'><div class='card-head'><h2>How the agent worked</h2></div>"
+        + ("<div class='timeline'>" + "".join(rows) + "</div>" if rows else
+           "<div class='empty'>No step details available.</div>")
+        + "</div>"
     )
 
 
@@ -219,23 +197,23 @@ def _provenance_bar(public: int, private: int) -> str:
         return "<span class='pill'>no cited sources</span>"
     pub_pct = round(100 * public / total)
     return (
-        "<div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap'>"
+        "<div class='inline' style='flex-wrap:wrap'>"
         f"<span class='pill'>Public <b>{public}</b></span>"
         f"<span class='pill'>Private <b>{private}</b></span>"
         "<span style='flex:1 1 160px;height:10px;border-radius:6px;overflow:hidden;"
         "display:flex;min-width:120px;border:1px solid var(--line)'>"
-        f"<span style='width:{pub_pct}%;background:var(--accent-2)'></span>"
-        f"<span style='width:{100-pub_pct}%;background:#c2410c'></span></span></div>"
+        f"<span style='width:{pub_pct}%;background:var(--public)'></span>"
+        f"<span style='width:{100-pub_pct}%;background:var(--private)'></span></span></div>"
     )
 
 
 def _created_spec_card(spec) -> str:
     bounds = ", ".join(b.value for b in spec.boundaries)
     return (
-        "<div class='card' style='padding:10px 12px'>"
-        f"<div style='display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap'>"
-        f"<b>{escape(spec.name)}</b><span class='badge'>{escape(spec.role)}</span></div>"
-        f"<div style='margin-top:6px;display:flex;gap:8px;flex-wrap:wrap'>"
+        "<div class='card pad-sm'>"
+        f"<div class='row-between'>"
+        f"<b>{escape(spec.name)}</b><span class='badge neutral'>{escape(spec.role)}</span></div>"
+        f"<div class='inline' style='margin-top:6px;flex-wrap:wrap'>"
         f"<span class='pill'>capability: <b>{escape(spec.capability)}</b></span>"
         f"<span class='pill'>schema: <b>{escape(spec.output_schema_ref)}</b></span>"
         f"<span class='pill'>boundaries: <b>{escape(bounds)}</b></span>"
@@ -244,19 +222,17 @@ def _created_spec_card(spec) -> str:
 
 
 def _verdict_badge(v: str) -> str:
-    c = {"win": "rgba(22,163,74,.16);color:#16a34a", "lose": "rgba(220,38,38,.16);color:#dc2626",
-         "parity": "rgba(234,179,8,.16);color:#b78a00"}.get(v, "transparent;color:var(--muted)")
-    return f"<span class='badge' style='background:{c}'>{escape(v or '—')}</span>"
+    cls = {"win": "ok", "lose": "bad", "parity": "warn"}.get(v, "neutral")
+    return f"<span class='badge {cls}'>{escape(v or '—')}</span>"
 
 
 def _prio_badge(p: str) -> str:
-    c = {"high": "rgba(220,38,38,.16);color:#dc2626", "med": "rgba(234,179,8,.16);color:#b78a00",
-         "low": "transparent;color:var(--muted)"}.get(p, "transparent;color:var(--muted)")
-    return f"<span class='badge' style='background:{c}'>{escape(p or '—')}</span>"
+    cls = {"high": "bad", "med": "warn", "low": "neutral"}.get(p, "neutral")
+    return f"<span class='badge {cls}'>{escape(p or '—')}</span>"
 
 
 def _art_wrap(title: str, body: str) -> str:
-    return (f"<div class='card'><div class='section-h' style='margin-top:0'><h3>{escape(title)}</h3></div>"
+    return (f"<div class='card'><div class='card-head'><h2>{escape(title)}</h2></div>"
             f"{body}</div>")
 
 
@@ -632,26 +608,26 @@ def _result_card(result, *, task_id: str = "", project_id: str = "") -> str:
     """Render an orchestrated Result inline (the deliverable): summary + honesty flags, each produced
     artifact, the cited sources by boundary, and any persona-adapted prose / model grade. This is what
     makes 'the run produced something' visible instead of a dead link."""
-    deg = ("<span class='badge' style='background:rgba(234,179,8,.16);color:#b78a00'>partial</span>"
+    deg = ("<span class='badge warn'>partial</span>"
            if result.degraded else
-           "<span class='badge' style='background:rgba(22,163,74,.16);color:#16a34a'>complete</span>")
+           "<span class='badge ok'>complete</span>")
     pub = sum(1 for c in result.citations if getattr(c.boundary, "value", c.boundary) == "public")
     prv = len(result.citations) - pub
     if task_id and project_id:
         _exp = f"/projects/{project_id}/tasks/{task_id}/export.html"
         export_btns = (
-            "<div style='display:flex;gap:8px;margin-top:10px'>"
-            f"<button class='btn ghost' style='font-size:12px;padding:4px 12px' "
+            "<div class='inline' style='margin-top:10px'>"
+            f"<button class='btn ghost sm' "
             f"onclick=\"var w=window.open('{_exp}','_blank');"
             f"w.addEventListener('load',function(){{w.print();}})\">"
             "⬇ Export PDF</button>"
-            f"<a class='btn ghost' href='{_exp}' download style='font-size:12px;padding:4px 12px'>"
+            f"<a class='btn ghost sm' href='{_exp}' download>"
             "⬇ Export HTML</a>"
             "</div>"
         )
     else:
         export_btns = ""
-    head = (f"<div class='card'><div class='section-h' style='margin-top:0'><h2>Result</h2>{deg}</div>"
+    head = (f"<div class='card'><div class='card-head'><h2>Result</h2>{deg}</div>"
             f"<div class='note' style='margin:6px 0 10px'>{escape(result.summary)}</div>"
             f"{_provenance_bar(pub, prv)}{export_btns}</div>")
 
@@ -672,8 +648,8 @@ def _result_card(result, *, task_id: str = "", project_id: str = "") -> str:
             "</details>"
         )
     else:
-        arts_html = ("<div class='section-h'><h2>Artifacts</h2></div>"
-                     "<div class='card'><div class='empty'>No artifact content produced (the run "
+        arts_html = ("<div class='card'><div class='card-head'><h2>Artifacts</h2></div>"
+                     "<div class='empty'>No artifact content produced (the run "
                      "degraded — see the missing steps above).</div></div>")
 
     # Build citation list: primary = result.citations (model-produced);
@@ -732,14 +708,15 @@ def _result_card(result, *, task_id: str = "", project_id: str = "") -> str:
                   or _pr.lower().startswith("once you provide")
                   or "established findings" in _pr.lower())
     if _pr and not _pr_broken:
-        extra += ("<div class='section-h'><h2>Persona view</h2></div>"
-                  f"<div class='card'><div class='note'>{escape(_pr)}</div></div>")
+        extra += ("<div class='card'><div class='card-head'><h2>Persona view</h2></div>"
+                  f"<div class='note'>{escape(_pr)}</div></div>")
     if getattr(result, "grade", None) is not None:
         g = result.grade
         verdict = "pass" if getattr(g, "passed", False) else "review"
-        extra += ("<div class='section-h'><h2>Quality grade</h2></div>"
-                  f"<div class='card'><span class='pill'>score: <b>{getattr(g,'score',0):.2f}</b></span> "
-                  f"<span class='badge'>{escape(verdict)}</span></div>")
+        v_cls = "ok" if getattr(g, "passed", False) else "warn"
+        extra += ("<div class='card'><div class='card-head'><h2>Quality grade</h2></div>"
+                  f"<div class='inline'><span class='pill'>score: <b>{getattr(g,'score',0):.2f}</b></span> "
+                  f"<span class='badge {v_cls}'>{escape(verdict)}</span></div></div>")
 
     return (head + "<div style='margin-top:16px'></div>" + arts_html
             + "<div style='margin-top:16px'></div>" + cites_html + extra)
@@ -770,14 +747,15 @@ def _feedback_bar(task) -> str:
     )
     return (
         f"<script>{js}</script>"
-        "<div class='card' style='display:flex;align-items:center;gap:12px;padding:10px 14px'>"
-        "<span style='font-size:13px;color:var(--text-2)'>Was this result useful?</span>"
-        "<button id='fb-up' class='btn ghost' onclick='sendFb(1)' style='padding:4px 12px'>"
+        "<div class='card pad-sm row-between' style='flex-wrap:wrap;gap:12px'>"
+        "<span class='muted' style='font-size:13px'>Was this result useful?</span>"
+        "<div class='inline'>"
+        "<button id='fb-up' class='btn ghost sm' onclick='sendFb(1)'>"
         "&#128077; Helpful</button>"
-        "<button id='fb-dn' class='btn ghost' onclick='sendFb(-1)' style='padding:4px 12px'>"
+        "<button id='fb-dn' class='btn ghost sm' onclick='sendFb(-1)'>"
         "&#128078; Not useful</button>"
-        "<span id='fb-msg' style='font-size:12px;color:var(--text-2)'></span>"
-        "</div>"
+        "<span id='fb-msg' class='muted' style='font-size:12px'></span>"
+        "</div></div>"
     )
 
 
@@ -862,17 +840,16 @@ def _chat_panel(task) -> str:
     )
     return (
         "<div id='sentinel-chat-section' style='margin-top:16px'></div>"
-        "<div class='section-h'><h2>Refine &amp; Ask</h2>"
-        "<span class='badge' style='background:rgba(66,133,244,.12);color:var(--accent-2)'>AI chat on results</span></div>"
         "<div class='card' style='padding:0;overflow:hidden'>"
+        "<div class='card-head' style='padding:18px 20px 0;margin-bottom:0'><h2>Refine &amp; Ask</h2>"
+        "<span class='badge neutral'>AI chat on results</span></div>"
         f"<div id='sentinel-chat-msgs-{tid}' style='padding:16px;max-height:360px;overflow-y:auto;min-height:80px'>"
         f"{empty_note}{msgs_html}</div>"
         "<div style='border-top:1px solid var(--line);padding:12px 16px'>"
-        f"<form id='sentinel-chat-form-{tid}' style='display:flex;gap:8px'>"
-        f"<input id='sentinel-chat-input-{tid}' type='text' style='flex:1;background:var(--rail);"
-        "border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:inherit;font-size:13px' "
+        f"<form id='sentinel-chat-form-{tid}' class='inline' style='gap:8px'>"
+        f"<input id='sentinel-chat-input-{tid}' type='text' class='input' style='flex:1' "
         "placeholder='Ask about the findings, request follow-up research, explore next steps…'>"
-        f"<button id='sentinel-chat-btn-{tid}' type='submit' class='btn' style='padding:8px 18px'>Send</button>"
+        f"<button id='sentinel-chat-btn-{tid}' type='submit' class='btn'>Send</button>"
         "</form></div></div>"
         + chat_js
     )
@@ -946,9 +923,9 @@ def task_running_page(*, task, plan, backend: str, step_models: dict[str, str] |
         "#tl-handover.show{animation:tlhand 3.2s ease forwards}"
         "</style>"
         # header
-        "<div class='card'><div class='section-h' style='margin-top:0'>"
+        "<div class='card'><div class='card-head'>"
         "<h2 style='animation:tlpulse 2s ease-in-out infinite'>Agents running…</h2>"
-        f"<span class='badge' id='tl-count'>0/{len(plan.steps)} steps</span></div>"
+        f"<span class='badge warn' id='tl-count'>0/{len(plan.steps)} steps</span></div>"
         f"<div style='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap'>"
         f"<span class='pill' title='{escape(task.objective)}'>objective: <b>{obj}</b></span>"
         f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span></div>"
@@ -1022,9 +999,9 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
         if be_label else ""
     )
     header = (
-        "<div class='card'><div class='section-h' style='margin-top:0'><h2>Plan review</h2>"
-        f"<span class='badge'>autonomy: {escape(autonomy)}</span></div>"
-        f"<div style='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap'>"
+        "<div class='card'><div class='card-head'><h2>Plan review</h2>"
+        f"<span class='badge neutral'>autonomy: {escape(autonomy)}</span></div>"
+        f"<div class='inline' style='flex-wrap:wrap'>"
         f"<span class='pill' title='{escape(task.objective)}'>objective: <b>{escape(task.objective[:72] + ('…' if len(task.objective) > 72 else ''))}</b></span>"
         f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span>"
         f"<span class='pill' title='{escape(_persona_tip(task.persona))}'>persona: "
@@ -1071,13 +1048,11 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
             "page auto-refreshes every 6 s until complete.</p>" if _any_loading else ""
         )
         kb_panel = (
-            "<div class='section-h' style='margin-top:0'>"
+            "<div class='card'><div class='card-head'>"
             "<h2>KB context</h2>"
-            "<span class='badge' style='background:rgba(66,133,244,.12);color:var(--accent-2)'>"
-            f"{len(_sources)} source(s)</span></div>"
-            "<div class='card' style='padding:6px 8px;margin-bottom:0'>"
-            "<table><tbody>" + _rows + "</tbody></table>"
-            + _loading_note + "</div>"
+            f"<span class='badge neutral'>{len(_sources)} source(s)</span></div>"
+            "<div class='table-wrap'><table class='table'><tbody>" + _rows + "</tbody></table></div>"
+            + _loading_note
             + _auto_reload
         )
 
@@ -1085,24 +1060,25 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
     rows = "".join(_plan_step_row(s) for s in plan.steps)
     dag_html = (
         graph_html + "<div style='margin-top:16px'></div>"
-        "<div class='section-h'><h2>Step DAG — task → assigned agents</h2></div>"
-        "<div class='card' style='padding:6px 8px'><table><thead><tr>"
+        "<div class='card'><div class='card-head'><h2>Step DAG — task → assigned agents</h2></div>"
+        "<div class='table-wrap'><table class='table'><thead><tr>"
         "<th>Step</th><th>Capability</th><th>Calls</th><th>Depends on</th>"
         "<th>Assigned agent</th><th></th>"
-        f"</tr></thead><tbody>{rows}</tbody></table></div>"
+        f"</tr></thead><tbody>{rows}</tbody></table></div></div>"
     )
 
     if created:
         cards = "".join(_created_spec_card(s) for s in created)
         created_html = (
-            "<div class='section-h'><h2>Proposed new agents</h2></div>"
-            "<div style='display:grid;gap:10px'>" + cards + "</div>"
+            "<div class='card'><div class='card-head'><h2>Proposed new agents</h2>"
+            f"<span class='pill'>{len(created)}</span></div>"
+            "<div class='grid'>" + cards + "</div></div>"
         )
     else:
         created_html = (
-            "<div class='section-h'><h2>Proposed new agents</h2></div>"
-            "<div class='card'><div class='empty'>None — every step reuses an existing specialist."
-            "</div></div>"
+            "<div class='card'><div class='card-head'><h2>Proposed new agents</h2></div>"
+            "<div class='empty'><div class='ico'>" + _icon("agent") + "</div>"
+            "None — every step reuses an existing specialist.</div></div>"
         )
 
     proj_id = getattr(task, "project_id", "") or ""
@@ -1128,28 +1104,28 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
     # ── Post-run: result-first layout ─────────────────────────────────────────
     _obj_short = escape(task.objective[:80] + ("…" if len(task.objective) > 80 else ""))
     deg_badge = (
-        "<span class='badge' style='background:rgba(234,179,8,.16);color:#d4a017'>partial</span>"
+        "<span class='badge warn'>partial</span>"
         if (result and getattr(result, "degraded", False)) else
-        "<span class='badge' style='background:rgba(22,163,74,.16);color:#16a34a'>complete</span>"
+        "<span class='badge ok'>complete</span>"
     )
     status_bar = (
         f"<div class='card' style='margin-bottom:12px'>"
-        f"<div style='display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px'>"
-        f"<div>"
+        f"<div class='row-between' style='flex-wrap:wrap'>"
+        f"<div class='grow'>"
         f"<div style='font-weight:700;font-size:15px;margin-bottom:6px'>{_obj_short}</div>"
-        f"<div style='display:flex;gap:8px;flex-wrap:wrap'>"
+        f"<div class='inline' style='flex-wrap:wrap'>"
         f"<span class='pill'>domain: <b>{escape(task.domain.name)}</b></span>"
         f"<span class='pill' title='{escape(_persona_tip(task.persona))}'>persona: "
         f"<b>{_persona_label(task.persona)}</b></span>"
         f"{be_pill}{deg_badge}"
         + _task_context_pill(task)
         + f"</div></div>"
-        f"<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>"
-        f"<a class='btn ghost' href='/projects/{escape(proj_id)}' style='font-size:12px'>← Project</a>"
-        f"<a class='btn ghost' href='/projects/{escape(proj_id)}/artifacts' style='font-size:12px'>Artifacts</a>"
-        f"<a class='btn' href='#sentinel-chat-section' style='font-size:12px'>💬 Ask AI</a>"
-        f"<a class='btn ghost' href='/projects/{escape(proj_id)}/tasks/{escape(task.id)}/export.html' "
-        f"style='font-size:12px'>📄 Download Report</a>"
+        f"<div class='inline' style='flex-wrap:wrap'>"
+        f"<a class='btn ghost sm' href='/projects/{escape(proj_id)}'>← Project</a>"
+        f"<a class='btn ghost sm' href='/projects/{escape(proj_id)}/artifacts'>Artifacts</a>"
+        f"<a class='btn sm' href='#sentinel-chat-section'>💬 Ask AI</a>"
+        f"<a class='btn ghost sm' href='/projects/{escape(proj_id)}/tasks/{escape(task.id)}/export.html'>"
+        f"📄 Download Report</a>"
         f"</div></div></div>"
     )
 

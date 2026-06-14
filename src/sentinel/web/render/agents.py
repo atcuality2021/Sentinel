@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from html import escape
 
-from .base import _icon, shell
+from .base import shell
 
 # --------------------------------------------------------------------------- #
 # Agents — the live agent roster + pipeline flow graph (Google Agent Platform style).
@@ -22,19 +22,15 @@ _CHEVRON = (
 
 
 def _flow_node(n: dict) -> str:
-    kindcls = {"tool": "", "reason": "reason", "private": "private"}.get(n["kind"], "")
-    dark = " dark" if n["dark"] else ""
-    ico = _NODE_ICON.get(n["role"], "agent")
-    flag = (f"<div class='n-meta'><span class='pv dark'>{escape(n['flag'])} · off</span></div>"
-            if n["dark"] and n.get("flag") else "")
+    # New design-system DAG node: .node (.dashed when flagged-off) wrapping .cap + .nm.
+    dashed = " dashed" if n["dark"] else ""
+    cap = escape(n["role"])
+    if n["dark"] and n.get("flag"):
+        cap = f"{cap} · {escape(n['flag'])} off"
     return (
-        f"<div class='node {kindcls}{dark}'><div class='n-top'>"
-        f"<span class='n-ico'>{_icon(ico)}</span>"
-        f"<div><div class='n-name'>{escape(n['name'])}</div>"
-        f"<div class='n-role'>{escape(n['role'])}</div></div></div>"
-        f"<div class='n-meta'>{escape(n['tier'])}</div>"
-        f"<div class='n-meta'>{escape(n['desc'])}</div>"
-        f"<div class='n-out'>→ {escape(n['out'])}</div>{flag}</div>"
+        f"<div class='node{dashed}'>"
+        f"<div class='cap'>{cap}</div>"
+        f"<div class='nm'>{escape(n['name'])}</div></div>"
     )
 
 
@@ -126,22 +122,21 @@ def _agent_card(key: str, ac, *, is_default: bool) -> str:
 
 
 def _agent_row(key: str, ac, *, is_default: bool) -> str:
-    """Compact table row + expandable inline edit form for one agent."""
+    """One roster table row + an expandable inline edit-form row for one agent."""
     role    = getattr(ac, "role", "synthesizer")
     model   = getattr(ac, "model", None) or ""
     enabled = getattr(ac, "enabled", True)
     gen     = getattr(ac, "generation", None)
-    color   = _ROLE_COLOR.get(role, "#9aa0a6")
     suffix  = key.split(".", 1)[-1] if "." in key else key
     uid     = key.replace(".", "-").replace("_", "-")
 
+    # Role colour as a left-edge accent on a neutral badge (keeps the role palette).
+    color = _ROLE_COLOR.get(role, "#9aa0a6")
     role_badge = (
-        f"<span style='background:{color};color:#fff;padding:1px 8px;"
-        f"border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap'>"
+        f"<span class='badge neutral' style='border-left:3px solid {color}'>"
         f"{escape(role)}</span>"
     )
-    dot = ("<span style='color:#34a853;font-size:9px'>●</span>"
-           if enabled else "<span style='color:#ea4335;font-size:9px'>●</span>")
+    enabled_toggle = f"<div class='toggle{' on' if enabled else ''}'></div>"
 
     role_opts = "".join(
         f"<option value='{r}'{' selected' if r == role else ''}>{r}</option>"
@@ -149,6 +144,7 @@ def _agent_row(key: str, ac, *, is_default: bool) -> str:
     )
     temp_val = str(gen.temperature) if gen and gen.temperature is not None else ""
     tok_val  = str(gen.max_output_tokens) if gen and gen.max_output_tokens is not None else ""
+    temp_label = temp_val if temp_val else "—"
 
     # Flat model dropdown — backend is implicit in the model choice
     _ALL_MODELS = [
@@ -170,54 +166,52 @@ def _agent_row(key: str, ac, *, is_default: bool) -> str:
     elif model:
         model_label = escape(model)
     else:
-        model_label = "<span style='color:var(--muted)'>default</span>"
+        model_label = "<span class='mono'>default</span>"
 
     delete_btn = "" if is_default else (
         f"<form method='post' action='/agents/{escape(key)}/delete' style='display:inline;margin-left:6px' "
         f"onsubmit=\"return confirm('Delete agent ' + {escape(json.dumps(key), quote=True)} + '?')\">"
-        f"<button class='btn-sm warn' type='submit' style='font-size:11px'>Delete</button></form>"
+        f"<button class='btn sm danger' type='submit'>Delete</button></form>"
     )
 
     edit_form = (
-        f"<div id='edit-{uid}' style='display:none;background:var(--surface2);"
-        f"padding:12px 16px;border-top:1px solid var(--line)'>"
+        f"<tr id='edit-{uid}' style='display:none'>"
+        f"<td colspan='6' style='background:var(--surface-2)'>"
         f"<form method='post' action='/agents/{escape(key)}'>"
-        f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;align-items:end'>"
+        f"<div class='grid cols-4'>"
         # Model dropdown
-        f"<div><label class='lbl' style='font-size:11px'>Model</label>"
-        f"<select name='model' style='font-size:12px'>{model_opts}</select></div>"
+        f"<div class='field'><label>Model</label>"
+        f"<select name='model'>{model_opts}</select></div>"
         # Role
-        f"<div><label class='lbl' style='font-size:11px'>Role</label>"
-        f"<select name='role' style='font-size:12px'>{role_opts}</select></div>"
+        f"<div class='field'><label>Role</label>"
+        f"<select name='role'>{role_opts}</select></div>"
         # Temperature
-        f"<div><label class='lbl' style='font-size:11px'>Temperature</label>"
-        f"<input name='temperature' value='{escape(temp_val)}' placeholder='0.7' style='font-size:12px'></div>"
+        f"<div class='field'><label>Temperature</label>"
+        f"<input class='input' name='temperature' value='{escape(temp_val)}' placeholder='0.7'></div>"
         # Max tokens
-        f"<div><label class='lbl' style='font-size:11px'>Max tokens</label>"
-        f"<input name='max_output_tokens' value='{escape(tok_val)}' placeholder='4096' style='font-size:12px'></div>"
+        f"<div class='field'><label>Max tokens</label>"
+        f"<input class='input' name='max_output_tokens' value='{escape(tok_val)}' placeholder='4096'></div>"
         f"</div>"
         # Row 2: enabled + save + delete
-        f"<div style='display:flex;gap:12px;align-items:center;margin-top:8px'>"
-        f"<label style='font-size:12px;cursor:pointer'>"
+        f"<div class='inline'>"
+        f"<label style='font-size:12.5px;cursor:pointer'>"
         f"<input type='checkbox' name='enabled' value='1'{' checked' if enabled else ''}> Enabled</label>"
-        f"<button class='btn-sm' type='submit' style='margin-left:auto;font-size:12px'>Save</button>"
+        f"<button class='btn sm' type='submit' style='margin-left:auto'>Save</button>"
         f"{delete_btn}"
-        f"</div></form></div>"
+        f"</div></form></td></tr>"
     )
 
     row = (
-        f"<div style='display:grid;grid-template-columns:2fr 1fr 1fr 60px;"
-        f"align-items:center;padding:8px 16px;border-bottom:1px solid var(--line);gap:8px'>"
-        f"<span style='font-family:monospace;font-size:13px'>{escape(suffix)}</span>"
-        f"{role_badge}"
-        f"<span style='font-size:12px'>{model_label}</span>"
-        f"<div style='display:flex;align-items:center;gap:6px;justify-content:flex-end'>"
-        f"{dot}"
-        f"<button type='button' onclick=\"var d=document.getElementById('edit-{uid}');"
-        f"d.style.display=d.style.display==='none'?'block':'none'\""
-        f" style='background:none;border:none;color:var(--accent-2);font-size:12px;"
-        f"cursor:pointer;padding:2px 6px'>Edit</button>"
-        f"</div></div>"
+        f"<tr>"
+        f"<td><b class='mono'>{escape(suffix)}</b></td>"
+        f"<td>{role_badge}</td>"
+        f"<td class='mono'>{model_label}</td>"
+        f"<td class='num'>{escape(temp_label)}</td>"
+        f"<td>{enabled_toggle}</td>"
+        f"<td><button type='button' class='btn sm ghost'"
+        f" onclick=\"var d=document.getElementById('edit-{uid}');"
+        f"d.style.display=d.style.display==='none'?'table-row':'none'\">Edit</button></td>"
+        f"</tr>"
         f"{edit_form}"
     )
     return row
@@ -230,24 +224,24 @@ def agents_page(*, modes: list[dict], flags: dict, backend: str,
 
     banner = ""
     if ok:
-        banner = f"<div class='card banner ok' style='margin-bottom:16px'>{escape(ok)}</div>"
+        banner = f"<div class='card pad-sm badge ok' style='margin-bottom:16px'>{escape(ok)}</div>"
     elif err:
-        banner = f"<div class='card banner err' style='margin-bottom:16px'>{escape(err)}</div>"
+        banner = f"<div class='card pad-sm badge bad' style='margin-bottom:16px'>{escape(err)}</div>"
 
-    # ── flag chips ───────────────────────────────────────────────────────────
-    def chip(label: str, on: bool, warn: bool = False) -> str:
-        c = ("#ea8600" if warn else "#34a853") if on else "#9aa0a6"
-        return (f"<span style='background:{c}22;color:{c};border:1px solid {c}44;"
-                f"padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600'>"
-                f"{escape(label)}: {'on' if on else 'off'}</span>")
+    # ── feature flags ─────────────────────────────────────────────────────────
+    def flag_row(label: str, on: bool) -> str:
+        badge = "<span class='badge ok'>on</span>" if on else "<span class='badge neutral'>off</span>"
+        return f"<div class='row-between'><span>{escape(label)}</span>{badge}</div>"
 
-    flagline = (
-        "<div style='display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 18px'>"
-        + chip("two-tier extractor", flags.get("two_tier", False))
-        + chip("strategy overlay", flags.get("strategy", False))
-        + chip("coordinator", flags.get("coordinator", False))
-        + chip("private boundary", flags.get("private", False), warn=True)
-        + "</div>"
+    flags_card = (
+        "<div class='card' style='margin-bottom:24px'>"
+        "<div class='card-head'><h2>Feature flags</h2></div>"
+        "<div class='grid cols-4'>"
+        + flag_row("Two-tier extractor", flags.get("two_tier", False))
+        + flag_row("Strategy overlay", flags.get("strategy", False))
+        + flag_row("Private boundary", flags.get("private", False))
+        + flag_row("Coordinator", flags.get("coordinator", False))
+        + "</div></div>"
     )
 
     # ── create form ──────────────────────────────────────────────────────────
@@ -255,15 +249,15 @@ def agents_page(*, modes: list[dict], flags: dict, backend: str,
     create_form = (
         "<details style='margin-bottom:16px'>"
         "<summary style='cursor:pointer;font-size:13px;font-weight:600;"
-        "color:var(--accent-2);padding:9px 14px;background:var(--surface2);"
+        "color:var(--accent-text);padding:9px 14px;background:var(--surface-2);"
         "border-radius:8px;list-style:none;user-select:none'>＋ Add custom agent</summary>"
-        "<div class='card' style='margin-top:4px;padding:14px 16px;border-top:none;border-radius:0 0 8px 8px'>"
+        "<div class='card' style='margin-top:4px;border-radius:0 0 8px 8px'>"
         "<form method='post' action='/agents'>"
-        "<div style='display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;align-items:end'>"
-        "<div><label class='lbl'>Key</label>"
-        "<input name='key' placeholder='domain.role  e.g. custom.planner' required></div>"
-        f"<div><label class='lbl'>Role</label><select name='role'>{role_opts_new}</select></div>"
-        "<div><label class='lbl'>Model</label>"
+        "<div class='grid cols-3'>"
+        "<div class='field'><label>Key</label>"
+        "<input class='input' name='key' placeholder='domain.role  e.g. custom.planner' required></div>"
+        f"<div class='field'><label>Role</label><select name='role'>{role_opts_new}</select></div>"
+        "<div class='field'><label>Model</label>"
         "<select name='model'>"
         "<option value=''>default (from Settings)</option>"
         "<option value='gemini-2.5-flash'>Gemini · 2.5 Flash</option>"
@@ -272,7 +266,7 @@ def agents_page(*, modes: list[dict], flags: dict, backend: str,
         "<option value='gemma-4-27b-it'>vLLM · Gemma 26B (Reasoning)</option>"
         "</select></div>"
         "</div>"
-        "<div style='margin-top:10px'><button class='btn' type='submit'>Create</button></div>"
+        "<button class='btn' type='submit'>Create</button>"
         "</form></div></details>"
     )
 
@@ -304,44 +298,49 @@ def agents_page(*, modes: list[dict], flags: dict, backend: str,
     group_sections = ""
     for grp, keys in sorted(groups.items()):
         gc = _GRP_COLOR.get(grp, "#9aa0a6")
-        rows_html = (
-            "<div style='font-size:11px;color:var(--muted);display:grid;"
-            "grid-template-columns:2fr 1fr 1fr 60px;padding:6px 16px 4px;"
-            "border-bottom:1px solid var(--line);gap:8px'>"
-            "<span>Agent</span><span>Role</span><span>Model</span><span></span></div>"
-        )
+        rows_html = ""
         for key in keys:
             ac = agents_cfg.get(key)
             if ac is not None:
                 rows_html += _agent_row(key, ac, is_default=(key in default_keys))
 
+        table_html = (
+            "<div class='table-wrap'><table class='table'>"
+            "<thead><tr><th>Agent</th><th>Role</th><th>Model</th>"
+            "<th class='num'>Temp</th><th>Enabled</th><th></th></tr></thead>"
+            f"<tbody>{rows_html}</tbody></table></div>"
+        )
+
         group_sections += (
             f"<details style='margin-bottom:8px' open>"
             f"<summary style='cursor:pointer;list-style:none;user-select:none;"
-            f"padding:9px 14px;background:var(--surface2);border-radius:8px;"
+            f"padding:9px 14px;background:var(--surface-2);border-radius:8px;"
             f"display:flex;align-items:center;gap:8px'>"
-            f"<span style='width:10px;height:10px;border-radius:50%;"
-            f"background:{gc};display:inline-block;flex-shrink:0'></span>"
+            f"<span class='dot' style='background:{gc};flex-shrink:0'></span>"
             f"<span style='font-weight:600;font-size:13px'>{escape(grp)}</span>"
             f"<span style='color:var(--muted);font-size:12px'>{len(keys)} agent{'s' if len(keys)!=1 else ''}</span>"
             f"</summary>"
             f"<div class='card' style='padding:0;margin-top:4px;overflow:hidden'>"
-            f"{rows_html}</div></details>"
+            f"{table_html}</div></details>"
         )
+    roster_card = (
+        "<div class='card' style='margin-bottom:24px'>"
+        "<div class='card-head'><h2>Roster</h2></div>"
+        f"{group_sections}</div>"
+    )
 
     # ── collapsible pipeline view ────────────────────────────────────────────
     lanes = ""
     for m in modes:
         flow = (
-            "<div class='flowwrap'><div class='flow'>"
-            + ("<div class='arrow'>" + _CHEVRON + "</div>").join(_flow_node(n) for n in m["nodes"])
-            + "</div></div>"
+            "<div class='dag'>"
+            + "<span class='arrow'>→</span>".join(_flow_node(n) for n in m["nodes"])
+            + "</div>"
         )
         lanes += (
-            "<div class='lane-h'>"
-            f"<span class='n-ico'>{_icon('agent')}</span>"
-            f"<h2>{escape(m['title'])}</h2><span class='pv'>{escape(m['mode'])}</span>"
-            f"<span class='mut'>writes <b style='color:var(--ink)'>{escape(m['artifact'])}</b></span>"
+            "<div class='card-head' style='margin-top:18px'>"
+            f"<h2>{escape(m['title'])}</h2><span class='pill'>{escape(m['mode'])}</span>"
+            f"<span class='pill'>writes <b>{escape(m['artifact'])}</b></span>"
             "</div>" + flow
         )
 
@@ -353,33 +352,35 @@ def agents_page(*, modes: list[dict], flags: dict, backend: str,
         ("priority", "Recompute priority",    "deterministic 0–100 score — no LLM"),
     ]
     rail = "".join(
-        f"<span class='step'>{_icon('merge')} <b>{escape(t)}</b> · {escape(d)}</span>"
+        f"<div class='row-between'><span><b>{escape(t)}</b></span>"
+        f"<span style='color:var(--muted);font-size:12px'>{escape(d)}</span></div>"
         for _k, t, d in rail_steps
     )
     coord_card = (
         "<div class='card' style='margin-top:18px'>"
-        f"<div class='gc-t'>Execution topology <span class='pv'>{escape(topo)}</span></div>"
-        "<p class='gc-d'>A <b>SequentialAgent</b> runs stages in order, each writing its "
-        "<span class='agent-key'>output_key</span> into shared session state. "
+        f"<div class='card-head'><h2>Execution topology</h2><span class='pill'>{escape(topo)}</span></div>"
+        "<p style='color:var(--muted);margin:0 0 12px'>A <b>SequentialAgent</b> runs stages in order, "
+        "each writing its <span class='mono'>output_key</span> into shared session state. "
         "With <b>coordinator.enabled</b> an <b>LlmAgent</b> delegates via "
-        "<span class='agent-key'>AgentTool</span>.</p>"
-        "<div class='rail'>" + rail + "</div></div>"
+        "<span class='mono'>AgentTool</span>.</p>"
+        "<div class='stack'>" + rail + "</div></div>"
     )
     pipeline_section = (
         "<details style='margin-top:20px'>"
         "<summary style='cursor:pointer;list-style:none;user-select:none;"
         "font-size:13px;font-weight:600;color:var(--muted);"
-        "padding:9px 14px;background:var(--surface2);border-radius:8px'>"
+        "padding:9px 14px;background:var(--surface-2);border-radius:8px'>"
         "Pipeline topology view</summary>"
         f"<div style='margin-top:6px'>{lanes}{coord_card}</div>"
         "</details>"
     )
 
-    hero = (
-        "<div class='hero left' style='margin-bottom:4px'><h1>Agents</h1>"
-        "<p style='margin:0'>Configure the agents Sentinel runs — grouped by domain. "
-        "Click Edit on any row to change model, role, or generation settings.</p></div>"
+    page_head = (
+        "<div class='page-head'><div class='grow'><h1>Agents</h1>"
+        "<p>Configure the agents Sentinel runs — grouped by domain. "
+        "Click Edit on any row to change model, role, or generation settings.</p></div></div>"
     )
 
-    content = hero + flagline + banner + create_form + group_sections + pipeline_section
+    content = (page_head + banner + flags_card + create_form
+               + roster_card + pipeline_section)
     return shell(active="agents", title="Agents", content=content, backend=backend)

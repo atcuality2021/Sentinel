@@ -21,7 +21,7 @@ def _shell() -> str:
 def test_shell_renders_mobile_hamburger_and_scrim():
     html = _shell()
     assert "id='mobileNavToggle'" in html      # topbar hamburger (hidden on desktop via CSS)
-    assert "class='mobileNavBtn'" in html
+    assert "icon-btn mobile-only" in html       # redesign: hamburger is an icon-btn shown only on mobile
     assert "id='navScrim'" in html             # backdrop tap-to-close target
     assert "class='scrim'" in html
 

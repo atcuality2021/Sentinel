@@ -410,6 +410,213 @@ a.gc:hover{border-color:var(--accent-line);transform:translateY(-2px)}
   .rpt-cover{padding:28px 20px 24px} .rpt-cover h1{font-size:22px}
   .rpt-metrics,.acc-grid{grid-template-columns:1fr}
 }
+
+/* ==========================================================================
+   REDESIGN DESIGN SYSTEM (ported from Open Design sentinel-redesign/tokens.css)
+   One semantic token set themed by [data-theme]. Declared AFTER the legacy
+   block so its component rules win for shared class names; legacy rules above
+   still style un-migrated helper fragments. Light is the default.
+   ========================================================================== */
+:root,[data-theme="light"]{
+  --surface:#ffffff; --surface-2:#f1f3f6; --rail-active:#eef2ff;
+  --text:#161a20; --faint:#98a2b3; --line-strong:#d7dbe0;
+  --accent:#4f46e5; --accent-text:#4338ca; --accent-weak:#eef2ff; --accent-ring:rgba(79,70,229,.28);
+  --public:#2563eb; --public-bg:#eff5ff; --private:#b45309; --private-bg:#fff7ed;
+  --ok:#15803d; --ok-bg:#effaf1; --bad:#dc2626; --bad-bg:#fef2f2; --warn:#b45309; --warn-bg:#fff7ed;
+  --chip:#f1f3f6; --topbar-bg:rgba(255,255,255,.78);
+  --shadow-sm:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
+  --shadow-md:0 4px 12px rgba(16,24,40,.08),0 2px 4px rgba(16,24,40,.05);
+  --shadow-pop:0 12px 32px rgba(16,24,40,.16);
+}
+[data-theme="dark"]{
+  --surface:#151a23; --surface-2:#11151d; --rail-active:#1a2233;
+  --text:#e8eaed; --faint:#6b7280; --line-strong:#2f3744;
+  --accent:#818cf8; --accent-text:#a5b4fc; --accent-weak:#1b2236; --accent-ring:rgba(129,140,248,.35);
+  --public:#5aa9ff; --public-bg:#112138; --private:#ffb24d; --private-bg:#2c2310;
+  --ok:#34d399; --ok-bg:#0f2a1e; --bad:#f87171; --bad-bg:#2c1416; --warn:#fbbf24; --warn-bg:#2c2310;
+  --chip:#1b212c; --topbar-bg:rgba(11,14,20,.72);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35); --shadow-md:0 6px 18px rgba(0,0,0,.45); --shadow-pop:0 16px 40px rgba(0,0,0,.6);
+}
+:root{
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-pill:999px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; --sidebar-w:248px;
+}
+body{background:var(--bg);color:var(--text);font:14.5px/1.55 var(--font)}
+svg{flex:none;vertical-align:middle}
+h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.01em} h1{font-size:26px} h2{font-size:16px}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+.mono{font-family:var(--mono);font-size:12.5px}
+.eyebrow{font-size:11.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+/* shell */
+.shell{display:grid;grid-template-columns:var(--sidebar-w) 1fr;min-height:100vh}
+.sidebar{background:var(--rail);border-right:1px solid var(--line);padding:var(--sp-4);
+  display:flex;flex-direction:column;gap:var(--sp-2);position:sticky;top:0;height:100vh;overflow-y:auto}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 6px var(--sp-4);font-weight:700;font-size:16px}
+.brand .logo{width:28px;height:28px;border-radius:8px;background:var(--accent);color:#fff;
+  display:grid;place-items:center;font-weight:800;font-size:15px;box-shadow:var(--shadow-sm)}
+.nav-group{margin-top:var(--sp-3)} .nav-group>.eyebrow{padding:0 8px var(--sp-2)}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r-sm);
+  color:var(--muted);font-weight:500;cursor:pointer;border:none;transition:background .12s,color .12s}
+.nav-item:hover{background:var(--surface-2);color:var(--text)}
+.nav-item.active{background:var(--rail-active);color:var(--accent-text);font-weight:600}
+.nav-item svg{width:18px;height:18px}
+.side-foot{margin-top:auto;padding-top:var(--sp-4);color:var(--muted);font-size:11.5px;border-top:1px solid var(--line)}
+/* topbar */
+.main{display:flex;flex-direction:column;min-width:0}
+.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:var(--sp-3);
+  padding:var(--sp-3) var(--sp-5);background:var(--topbar-bg);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line)}
+.crumb{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.crumb b{color:var(--text);font-weight:600} .crumb .sep{color:var(--faint)}
+.spacer{flex:1}
+.search{display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:var(--r-pill);padding:8px 16px;color:var(--muted);min-width:240px;font-size:13px;cursor:text}
+.search:hover{border-color:var(--line-strong);color:var(--text)}
+.search svg{width:16px;height:16px}
+.search .kbd{margin-left:auto;font-size:11px;padding:1px 6px;border-radius:5px;border:1px solid var(--line);
+  background:var(--surface);color:var(--faint)}
+.icon-btn{width:38px;height:38px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface);
+  display:grid;place-items:center;cursor:pointer;color:var(--muted);transition:color .12s,border-color .12s,transform .08s}
+.icon-btn:active{transform:scale(.94)} .icon-btn svg{width:18px;height:18px}
+.icon-btn:hover{color:var(--text);border-color:var(--line-strong)}
+.mobile-only{display:none}
+/* content */
+.content{padding:var(--sp-6) var(--sp-6) var(--sp-7);max-width:1240px;width:100%;margin-inline:auto;
+  animation:fade .26s ease both}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+a.card{transition:border-color .14s,box-shadow .14s,transform .14s}
+a.card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);border-color:var(--line-strong)}
+.page-head{display:flex;align-items:flex-start;gap:var(--sp-4);margin-bottom:var(--sp-5)}
+.page-head .grow{flex:1;min-width:0} .page-head p{margin:6px 0 0;color:var(--muted)}
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:var(--sp-5);overflow-x:auto}
+.tab{padding:10px 14px;color:var(--muted);font-weight:500;border-bottom:2px solid transparent;
+  white-space:nowrap;cursor:pointer;display:flex;align-items:center;gap:7px}
+.tab:hover{color:var(--text)} .tab.active{color:var(--accent-text);border-bottom-color:var(--accent);font-weight:600}
+.tab svg{width:16px;height:16px}
+/* cards */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:var(--sp-5);box-shadow:var(--shadow-sm)}
+.card.pad-sm{padding:var(--sp-4)}
+.card-head{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-4)} .card-head h2{flex:1}
+.grid{display:grid;gap:var(--sp-4)}
+.cols-2{grid-template-columns:repeat(2,1fr)} .cols-3{grid-template-columns:repeat(3,1fr)}
+.cols-4{grid-template-columns:repeat(4,1fr)}
+.split{display:grid;grid-template-columns:2fr 1fr;gap:var(--sp-4)}
+/* kpi */
+.kpi{display:flex;flex-direction:column;gap:6px}
+.kpi .label{font-size:12px;color:var(--muted);font-weight:500}
+.kpi .value{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1}
+.kpi .delta{font-size:12px;font-weight:600} .kpi .delta.up{color:var(--ok)} .kpi .delta.down{color:var(--bad)}
+.kpi-icon{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;
+  background:var(--accent-weak);color:var(--accent-text);margin-bottom:4px}
+.kpi-icon svg{width:20px;height:20px}
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:8px;justify-content:center;padding:9px 16px;
+  border-radius:var(--r-sm);font-size:13.5px;font-weight:600;border:1px solid transparent;cursor:pointer;
+  transition:filter .12s,background .12s;background:var(--accent);color:#fff;box-shadow:var(--shadow-sm)}
+.btn:hover{filter:brightness(1.06)} .btn svg{width:16px;height:16px}
+.btn.ghost{background:var(--surface);color:var(--text);border-color:var(--line-strong);box-shadow:none}
+.btn.ghost:hover{background:var(--surface-2);filter:none}
+.btn.danger{background:var(--bad)} .btn.sm{padding:6px 11px;font-size:12.5px}
+/* pills + badges */
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:var(--r-pill);
+  background:var(--chip);color:var(--muted);font-size:12px;font-weight:600;border:1px solid var(--line)}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:var(--r-pill);
+  font-size:11px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+.badge.public{color:var(--public);background:var(--public-bg)}
+.badge.private{color:var(--private);background:var(--private-bg)}
+.badge.ok{color:var(--ok);background:var(--ok-bg)} .badge.bad{color:var(--bad);background:var(--bad-bg)}
+.badge.warn{color:var(--warn);background:var(--warn-bg)} .badge.neutral{color:var(--muted);background:var(--chip)}
+/* tables */
+.table{width:100%;border-collapse:collapse;font-size:13.5px}
+.table th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
+  font-weight:600;padding:0 12px 10px;border-bottom:1px solid var(--line)}
+.table td{padding:13px 12px;border-bottom:1px solid var(--line)}
+.table tr:last-child td{border-bottom:none} .table tr:hover td{background:var(--surface-2)}
+.table .num{text-align:right;font-variant-numeric:tabular-nums}
+.table-wrap{overflow-x:auto}
+/* forms */
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--sp-4)}
+.field label{font-size:12.5px;font-weight:600;color:var(--text)} .field .hint{font-size:12px;color:var(--muted)}
+.input,.field select,.field textarea{width:100%;padding:10px 12px;font:inherit;font-size:13.5px;
+  background:var(--surface);color:var(--text);border:1px solid var(--line-strong);border-radius:var(--r-sm);
+  outline:none;transition:border-color .12s,box-shadow .12s}
+.input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
+.field textarea{resize:vertical;min-height:90px}
+.seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:3px;gap:3px}
+.seg button{border:none;background:none;padding:7px 14px;border-radius:6px;font:inherit;font-weight:600;
+  font-size:12.5px;color:var(--muted);cursor:pointer}
+.seg button.on{background:var(--surface);color:var(--accent-text);box-shadow:var(--shadow-sm)}
+.toggle{width:40px;height:23px;border-radius:var(--r-pill);background:var(--line-strong);position:relative;
+  cursor:pointer;transition:background .15s;flex:none;display:inline-block}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;
+  background:#fff;transition:left .15s;box-shadow:var(--shadow-sm)}
+.toggle.on{background:var(--accent)} .toggle.on::after{left:19px}
+.row-between{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4)}
+/* charts */
+.donut{width:132px;height:132px;border-radius:50%;position:relative;flex:none}
+.donut::after{content:"";position:absolute;inset:22px;background:var(--surface);border-radius:50%}
+.donut .center{position:absolute;inset:0;display:grid;place-items:center;text-align:center;z-index:1}
+.donut .center b{font-size:22px} .donut .center span{font-size:11px;color:var(--muted)}
+.legend{display:flex;flex-direction:column;gap:9px}
+.legend .row{display:flex;align-items:center;gap:9px;font-size:13px}
+.legend .sw{width:11px;height:11px;border-radius:3px;flex:none}
+.legend .val{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--muted)}
+.bars{display:flex;align-items:flex-end;gap:12px;height:130px;padding-top:8px}
+.bars .bar{flex:1;background:var(--accent);border-radius:6px 6px 0 0;min-height:4px;position:relative;opacity:.85}
+.bars .bar span{position:absolute;top:-20px;left:0;right:0;text-align:center;font-size:11px;color:var(--muted)}
+.bars .bar small{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font-size:11px;color:var(--muted)}
+.spark{display:flex;align-items:flex-end;gap:3px;height:40px} .spark i{flex:1;background:var(--accent-weak);border-radius:2px}
+/* timeline */
+.timeline{display:flex;flex-direction:column}
+.tl-step{display:grid;grid-template-columns:28px 1fr;gap:14px;padding-bottom:var(--sp-4);position:relative}
+.tl-step::before{content:"";position:absolute;left:13px;top:26px;bottom:-4px;width:2px;background:var(--line)}
+.tl-step:last-child::before{display:none}
+.tl-dot{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);
+  border:2px solid var(--line-strong);color:var(--muted);z-index:1}
+.tl-step.done .tl-dot{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
+.tl-step.running .tl-dot{background:var(--accent-weak);border-color:var(--accent);color:var(--accent-text);
+  animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--accent-ring)}50%{box-shadow:0 0 0 6px transparent}}
+.tl-body{padding-top:2px} .tl-body .t{font-weight:600} .tl-body .m{font-size:12.5px;color:var(--muted);margin-top:2px}
+.tl-body .agent{font-family:var(--mono);font-size:11.5px;color:var(--accent-text)}
+/* DAG */
+.dag{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dag .node{background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-md);
+  padding:10px 14px;box-shadow:var(--shadow-sm);min-width:120px}
+.dag .node .cap{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.dag .node .nm{font-weight:600;font-size:13px;margin-top:3px}
+.dag .node.dashed{border-style:dashed;opacity:.65;box-shadow:none} .dag .arrow{color:var(--faint)}
+/* misc */
+.empty{text-align:center;padding:var(--sp-7) var(--sp-4);color:var(--muted)}
+.empty .ico{width:48px;height:48px;margin:0 auto var(--sp-3);color:var(--faint)}
+.divider{height:1px;background:var(--line);margin:var(--sp-4) 0}
+.stack{display:flex;flex-direction:column;gap:var(--sp-3)}
+.inline{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+.scrim{display:none}
+/* auth */
+.auth-wrap{min-height:100vh;display:grid;place-items:center;padding:var(--sp-4);
+  background:radial-gradient(900px 500px at 50% -10%,var(--accent-weak),var(--bg))}
+.auth-card{width:100%;max-width:380px}
+/* responsive */
+@media (max-width:980px){.split{grid-template-columns:1fr}.cols-4{grid-template-columns:repeat(2,1fr)}.cols-3{grid-template-columns:1fr}}
+@media (max-width:760px){
+  .shell{grid-template-columns:1fr}
+  .sidebar{position:fixed;z-index:50;width:280px;transform:translateX(-100%);transition:transform .22s ease}
+  .shell.nav-open .sidebar{transform:translateX(0);box-shadow:var(--shadow-pop)}
+  .shell.nav-open .scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40}
+  .mobile-only{display:grid}
+  .search{display:none}
+  .cols-2,.cols-4{grid-template-columns:1fr}
+  .content{padding:var(--sp-4)}
+}
+@media (max-width:460px){h1{font-size:22px}.page-head{flex-wrap:wrap}.topbar{padding:var(--sp-3) var(--sp-4)}.btn{padding:8px 13px}}
+@media (min-width:1700px){:root{--sidebar-w:276px}body{font-size:15px}.content{max-width:1520px}}
+@media (min-width:2400px){:root{--sidebar-w:320px}body{font-size:16.5px}.content{max-width:1960px;padding:44px 56px 72px}h1{font-size:30px}.kpi .value{font-size:34px}}
 """
 
 # --------------------------------------------------------------------------- #
@@ -475,40 +682,34 @@ def _sidebar(active: str) -> str:
             cls = "nav-item active" if key == active else "nav-item"
             rows.append(
                 f"<a class='{cls}' href='{href}' title='{label}'>{_icon(icon)}"
-                f"<span class='nav-label'>{label}</span></a>"
+                f"<span>{label}</span></a>"
             )
         blocks.append(
-            f"<div class='nav-group-label'>{group}</div><nav>{''.join(rows)}</nav>"
+            f"<div class='nav-group'><div class='eyebrow'>{group}</div>{''.join(rows)}</div>"
         )
     return (
         "<aside class='sidebar'>"
-        "<div class='side-top'><span class='brand-mark'>S</span>"
-        "<span class='brand-text'>Sentinel</span>"
-        "<button class='navToggle' id='navToggle' aria-label='Toggle menu'>"
-        f"{_icon('menu')}</button></div>"
+        "<div class='brand'><span class='logo'>S</span> Sentinel</div>"
         f"{''.join(blocks)}"
         "<div class='side-foot'>Sovereign Intelligence Agent<br>Public &amp; private signal, "
-        "separated by design.<br><a href='/logout' style='color:#9aa0a6;font-size:11px;"
-        "text-decoration:none;margin-top:6px;display:inline-block'>Sign out</a></div>"
+        "separated by design.<br><a href='/logout' style='color:var(--muted);font-size:11px;"
+        "margin-top:6px;display:inline-block'>Sign out</a></div>"
         "</aside>"
     )
 
 
-_COLLAPSE_JS = """
-(function(){var KEY='sentinel-nav-collapsed';var s=document.getElementById('shell');
-if(localStorage.getItem(KEY)==='1')s.classList.add('collapsed');
-var b=document.getElementById('navToggle');if(b)b.addEventListener('click',function(){
-s.classList.toggle('collapsed');localStorage.setItem(KEY,s.classList.contains('collapsed')?'1':'0');});})();
-"""
+# The redesign sidebar does not collapse (only the mobile drawer slides). Kept as a no-op so the
+# shell() script reference stays valid without a dead localStorage flag forcing a collapsed rail.
+_COLLAPSE_JS = ""
 
-# Mobile drawer: the topbar hamburger toggles `.mobile-open` on the shell (which slides the
+# Mobile drawer: the topbar hamburger toggles `.nav-open` on the shell (which slides the
 # fixed-position sidebar in via CSS); tapping the scrim or any nav link closes it again. No
 # localStorage — a phone drawer should always start closed on each page load.
 _MOBILE_NAV_JS = """
 (function(){var s=document.getElementById('shell');if(!s)return;
-function close(){s.classList.remove('mobile-open');}
+function close(){s.classList.remove('nav-open');}
 var mb=document.getElementById('mobileNavToggle');
-if(mb)mb.addEventListener('click',function(){s.classList.toggle('mobile-open');});
+if(mb)mb.addEventListener('click',function(){s.classList.toggle('nav-open');});
 var sc=document.getElementById('navScrim');if(sc)sc.addEventListener('click',close);
 s.querySelectorAll('.sidebar a').forEach(function(a){a.addEventListener('click',close);});
 window.addEventListener('keydown',function(e){if(e.key==='Escape')close();});})();
@@ -585,20 +786,11 @@ def _project_subnav(project_id: str, active_tab: str, project_name: str = "") ->
         "report":    f"/projects/{pid}/report",
     }
     tabs = "".join(
-        f"<a class='proj-tab {'active' if key == active_tab else ''}' href='{hrefs[key]}'>"
+        f"<a class='tab {'active' if key == active_tab else ''}' href='{hrefs[key]}'>"
         f"{_icon(icon)}{label}</a>"
         for key, label, icon in _PROJECT_TABS
     )
-    name_chip = (
-        f"<span class='pill' style='margin-right:8px;border-color:var(--accent-line);"
-        f"color:var(--accent-2)'>{_icon('plan')}{escape(project_name)}</span>"
-        if project_name else ""
-    )
-    return (
-        "<div class='proj-subnav'>"
-        f"<div class='proj-subnav-inner'>{name_chip}{tabs}</div>"
-        "</div>"
-    )
+    return f"<div class='tabs'>{tabs}</div>"
 
 
 def shell(*, active: str, title: str, content: str, backend: str, head_extra: str = "",
@@ -609,13 +801,9 @@ def shell(*, active: str, title: str, content: str, backend: str, head_extra: st
     ``subnav`` is an optional horizontal tab strip (rendered below the topbar, sticky).
     """
     backend_pill = (
-        f"<span class='pill'><span class='dotmark {'v' if backend=='vllm' else 'g'}'></span>"
+        f"<span class='pill'><span class='dot' style='background:"
+        f"{'var(--private)' if backend=='vllm' else 'var(--ok)'}'></span>"
         f"Backend: <b>{escape(backend)}</b></span>"
-    )
-    # When inside a project context, suppress the global "New Run" shortcut (Research tab owns it).
-    topbar_action = (
-        "" if subnav
-        else f"<a class='btn ghost' href='/projects'>{_icon('plan')} Projects</a>"
     )
     return (
         "<!doctype html><html lang='en' data-theme='light'><head><meta charset='utf-8'>"
@@ -623,26 +811,30 @@ def shell(*, active: str, title: str, content: str, backend: str, head_extra: st
         f"<script>{_THEME_INIT_JS}</script>"
         "<link rel='icon' href=\"data:image/svg+xml,"
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
-        "<rect x='5' y='5' width='22' height='22' rx='6' fill='%234285f4'/></svg>\">"
+        "<rect x='5' y='5' width='22' height='22' rx='6' fill='%234f46e5'/></svg>\">"
         f"<title>{escape(title)} · Sentinel</title><style>{CSS}</style>{head_extra}</head>"
         "<body><div class='shell' id='shell'>"
         f"{_sidebar(active)}"
+        "<div class='scrim' id='navScrim'></div>"
         "<div class='main'>"
-        f"<div class='topbar'><div class='topbar-inner'>"
-        "<button class='mobileNavBtn' id='mobileNavToggle' aria-label='Open menu'>"
+        "<header class='topbar'>"
+        "<button class='icon-btn mobile-only' id='mobileNavToggle' aria-label='Open menu'>"
         f"{_icon('menu')}</button>"
-        "<div class='crumb'><span>Agent Platform</span><span class='sep'>/</span>"
-        f"<b style='color:var(--ink);font-weight:600'>{escape(title)}</b></div>"
-        f"<div class='spacer'></div>"
-        "<span class='proj-pill'>" + _icon("shield") + " project: " + escape(project) + "</span>"
+        "<div class='crumb'><span>Sentinel</span><span class='sep'>/</span>"
+        f"<b>{escape(title)}</b></div>"
+        "<div class='spacer'></div>"
+        "<label class='search'>" + _icon("search") +
+        "<input type='search' placeholder='Search projects, entities…' "
+        "style='border:none;background:none;outline:none;padding:0;font:inherit;"
+        "color:var(--text);flex:1;min-width:0'><span class='kbd'>⌘K</span></label>"
+        f"<span class='pill'>{_icon('shield')} project: {escape(project)}</span>"
         f"{backend_pill}"
         "<button class='icon-btn' id='themeToggle' aria-label='Toggle light/dark theme' "
         f"title='Toggle theme'>{_icon('moon')}</button>"
-        f"{topbar_action}</div></div>"
+        "</header>"
         f"{subnav}"
         f"<div class='content'>{content}</div>"
         "</div>"
-        "<div class='scrim' id='navScrim'></div>"
         "</div>"
         f"{_LOADER_HTML}"
         f"<script>{_COLLAPSE_JS}{_MOBILE_NAV_JS}{_THEME_JS}{_LOADER_JS}</script>{body_scripts}</body></html>"
@@ -654,9 +846,9 @@ def shell(*, active: str, title: str, content: str, backend: str, head_extra: st
 # --------------------------------------------------------------------------- #
 def _kpi(cls: str, label: str, value, icon: str) -> str:
     return (
-        f"<div class='card kpi {cls}'><div class='k-top'><span>{escape(label)}</span>"
-        f"<span class='k-accent'>{_icon(icon)}</span></div>"
-        f"<div class='k-val'>{value}</div></div>"
+        f"<div class='card kpi {cls}'><div class='kpi-icon'>{_icon(icon)}</div>"
+        f"<div class='label'>{escape(label)}</div>"
+        f"<div class='value'>{value}</div></div>"
     )
 
 
