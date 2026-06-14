@@ -165,7 +165,6 @@ from .prompts import (
     prompts_page,
 )
 from .reports import (
-    _project_report_page_LEGACY,
     _rpt_callout,
     _rpt_metric,
     _rpt_section,
@@ -254,7 +253,6 @@ __all__ = [
     '_prio_badge',
     '_project_form',
     '_project_form_fields',
-    '_project_report_page_LEGACY',
     '_project_subnav',
     '_prompt_card',
     '_prompt_crud_card',
