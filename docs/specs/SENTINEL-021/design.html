@@ -197,8 +197,12 @@
         <tr><td><code>src/sentinel/web/render.py</code> (memory/accounts view)</td>
           <td>Surface a reconciliation count ("N superseded") from <code>list_conflicts(status=...)</code>
           / superseded entries. Exact render site confirmed in Build step 5; fail-soft to 0.</td></tr>
-        <tr><td>memory-curator skill / <code>/biltiq-engineering:siem</code> cadence</td>
-          <td>Call <code>reconcile_open_conflicts()</code> on the curator cadence (wiring, not logic).</td></tr>
+        <tr><td><code>src/sentinel/memory/curator.py</code> <span class="tag tag-new">CREATE</span></td>
+          <td>Product-memory cadence entry point: <code>run_curator()</code> + <code>python -m
+          sentinel.memory.curator</code> calls <code>reconcile_open_conflicts()</code>. Note: the
+          agent-side <code>memory-curator</code> / <code>siem</code> tools operate on the harness's
+          <code>.claude</code> memory (Target A), not this product DB — so the product needs its own
+          invokable hook for cron/operator/skill.</td></tr>
       </tbody>
     </table>
   </section>
@@ -291,6 +295,7 @@ def reconcile_open_conflicts(self, *, golden_top_n: int = 20) -> dict:
       </thead>
       <tbody>
         <tr><td>2026-06-14</td><td>all</td><td>Initial design — grounded in store.py:516/542/609/293 + schema.py:91; corrects the add()/line-517 naming; bakes OQ-1 (PRIVATE&gt;PUBLIC) and OQ-2 (write-time only) into the approach</td><td>SENTINEL-021</td></tr>
+        <tr><td>2026-06-14</td><td>Files to Touch</td><td>Build correction: cadence is a dedicated <code>sentinel.memory.curator</code> entry point, not <code>siem</code> (which operates on agent .claude memory, not the product DB)</td><td>Build Step 6</td></tr>
         <!-- Agent appends a new row here on every edit. Never delete rows. -->
       </tbody>
     </table>

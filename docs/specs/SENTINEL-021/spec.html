@@ -127,34 +127,34 @@
   <section id="acceptance-criteria">
     <h2>Acceptance Criteria</h2>
     <ul class="ac-list">
-      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+      <li class="ac-item"><span class="ac-badge ac-done">DONE</span>
         <span class="ac-label"><strong>AC1</strong> — Given two non-quarantined entries for the same
         <code>entity</code>+<code>boundary</code> sharing the 40-char topic prefix but differing in
         content, after the second write <code>recall()</code> returns <strong>exactly one</strong> — the
         policy winner.</span></li>
-      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+      <li class="ac-item"><span class="ac-badge ac-done">DONE</span>
         <span class="ac-label"><strong>AC2</strong> — <code>_pick_winner(a, b)</code> is a <strong>pure,
         deterministic</strong> function: newer <code>created_at</code> wins; tie → boundary trust
         (<strong>PRIVATE &gt; PUBLIC</strong>, OQ-1); tie → higher SM-2 <code>strength</code>/<code>access_count</code>;
         final tie → stable (lexicographic id). Unit-tested in both argument orders (same winner regardless
         of order).</span></li>
-      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+      <li class="ac-item"><span class="ac-badge ac-done">DONE</span>
         <span class="ac-label"><strong>AC3</strong> — The losing entry is <strong>quarantined, not
         deleted</strong>, and a new <code>superseded_by</code> field points at the winner's id (audit +
         wake-up path).</span></li>
-      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+      <li class="ac-item"><span class="ac-badge ac-done">DONE</span>
         <span class="ac-label"><strong>AC4</strong> — Exact-duplicate writes still reinforce via SM-2
         (<code>store.py:517</code> path) and do <strong>not</strong> create a conflict — no regression.</span></li>
-      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+      <li class="ac-item"><span class="ac-badge ac-done">DONE</span>
         <span class="ac-label"><strong>AC5</strong> — <code>reconcile_open_conflicts()</code> auto-resolves
         every <code>status='open'</code> backlog row via the policy, wrapped in a <strong>golden-question
         check</strong> (snapshot N entity recalls → reconcile → re-recall) that <strong>rolls back</strong>
         any entity whose recall answer degraded.</span></li>
-      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+      <li class="ac-item"><span class="ac-badge ac-done">DONE</span>
         <span class="ac-label"><strong>AC6</strong> — The <code>superseded_by</code> column is added via an
         idempotent migration (<code>_MEMORY_MIGRATIONS</code>, <code>store.py:293</code>); a pre-migration
         DB loads and runs unchanged (defensive <code>_col</code> read).</span></li>
-      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+      <li class="ac-item"><span class="ac-badge ac-done">DONE</span>
         <span class="ac-label"><strong>AC7</strong> — The memory/accounts UI surfaces a reconciliation
         count ("N superseded"); no conflict is dropped silently.</span></li>
     </ul>
@@ -199,6 +199,7 @@
       <tbody>
         <tr><td>2026-06-14</td><td>all</td><td>Initial draft — derived from docs/memory-quality-plan.md (Target B) and the memory-system-architecture head</td><td>SENTINEL-021</td></tr>
         <tr><td>2026-06-14</td><td>AC2, Out of Scope, Open Questions</td><td>Resolved OQ-1 (PRIVATE&gt;PUBLIC), OQ-2 (write-time resolution only; recall-collapse deferred), OQ-3 (auto-derived golden questions)</td><td>dev answers</td></tr>
+        <tr><td>2026-06-14</td><td>Acceptance Criteria</td><td>AC1–AC7 all marked DONE — implemented + tested across Build steps 1–6</td><td>Build complete</td></tr>
         <!-- Agent appends a new row here on every edit. Never delete rows. -->
       </tbody>
     </table>

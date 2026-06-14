@@ -323,3 +323,20 @@ def test_account_page_hides_count_when_none_superseded():
         summary=_summary(), runs=[], public_mem=[], private_mem=[], backend="vllm", superseded=0,
     )
     assert "superseded" not in html  # nothing demoted → no note at all
+
+
+# --------------------------------------------------------------------------- #
+# Step 6 — curator cadence entry point clears the backlog
+# --------------------------------------------------------------------------- #
+def test_curator_entry_point_clears_backlog(tmp_path):
+    from sentinel.memory.curator import run_curator
+
+    db = tmp_path / "s.db"
+    mem = MemoryStore(db)
+    a = mem.write(_entry(content="alpha distinct topic line", id="A"))
+    b = mem.write(_entry(content="beta distinct topic line", id="B"))
+    _insert_open_conflict(db, "c1", "acme", a, b)
+
+    out = run_curator(mem)
+    assert out["resolved"] == 1
+    assert mem.list_conflicts(status="open") == []  # cadence pass drained the backlog
