@@ -77,14 +77,25 @@ def test_dashboard_renders(client):
 
 def test_dashboard_has_sidebar_nav(client):
     r = client.get("/")
-    # collapsible sidebar — project-first nav (Build: Dashboard/Projects/Agents; Govern: Settings)
+    # collapsible sidebar — two intents: Workspace (Dashboard/Projects/Accounts/Focus) and
+    # Configure (Agents/Personas/Prompts/Settings).
     assert "navToggle" in r.text
-    for href in ("/projects", "/settings", "/agents"):
+    for href in ("/projects", "/settings", "/agents", "/accounts", "/focus", "/personas"):
         assert f"href='{href}'" in r.text
-    for group in ("Build", "Govern"):
+    for group in ("Workspace", "Configure"):
         assert group in r.text
     # New Run and global Artifacts are no longer in the sidebar (moved inside project scope)
     assert "href='/new'" not in r.text
+
+
+def test_shell_is_dual_theme_light_default(client):
+    """The shell ships light-by-default with a persisted dark toggle: <html data-theme='light'>,
+    a no-FOUC init reading localStorage 'sentinel-theme', a topbar toggle, and both palettes in CSS."""
+    r = client.get("/")
+    assert "data-theme='light'" in r.text          # light is the default
+    assert "sentinel-theme" in r.text              # persistence key (init + toggle)
+    assert "id='themeToggle'" in r.text            # the toggle control exists
+    assert '[data-theme="dark"]' in r.text         # dark palette is defined for the toggle
 
 
 def test_dashboard_run_rows_link_to_project_not_account():

@@ -23,15 +23,26 @@ from sentinel.strategy import discover_playbooks
 _CHARTJS = "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
 
 CSS = """
-:root{
+/* Dual-theme token contract. Components reference these names only; light is the default,
+   dark is the legacy palette verbatim. Switching themes flips [data-theme] on <html>. */
+:root,[data-theme="light"]{
+  --bg:#f5f6f8; --panel:#ffffff; --panel-2:#f4f6f9; --rail:#ffffff; --ink:#161a20;
+  --muted:#5f6b7a; --line:#e4e7ec; --public:#1a56db; --public-bg:#eaf1ff; --private:#b45309;
+  --private-bg:#fdf2e3; --accent:#2563eb; --accent-2:#1d4ed8; --ok:#15803d; --bad:#dc2626;
+  --chip:#eef1f5; --accent-soft:rgba(37,99,235,.10); --accent-line:#c7d6f5;
+  --topbar-bg:rgba(255,255,255,.82); --shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
+}
+[data-theme="dark"]{
   --bg:#0b0e14; --panel:#151a23; --panel-2:#11151d; --rail:#0c0f16; --ink:#e8eaed;
   --muted:#9aa0a6; --line:#2a2f3a; --public:#4ea1ff; --public-bg:#11233d; --private:#ffb24d;
   --private-bg:#2e2410; --accent:#4285f4; --accent-2:#8ab4f8; --ok:#34a853; --bad:#ea4335;
   --chip:#1b212c; --accent-soft:rgba(66,133,244,.14); --accent-line:#2c4a7a;
+  --topbar-bg:rgba(10,14,22,.82); --shadow:none;
 }
 *{box-sizing:border-box} html,body{margin:0;height:100%;overflow-x:hidden}
 body{background:var(--bg);color:var(--ink);font:14.5px/1.55 -apple-system,BlinkMacSystemFont,
-  "Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  "Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;
+  transition:background .2s ease,color .2s ease}
 a{color:inherit;text-decoration:none}
 
 /* ---- shell ---- */
@@ -66,7 +77,7 @@ nav{padding:10px 10px;display:flex;flex-direction:column;gap:3px;margin-top:6px}
 /* ---- main ---- */
 .main{min-width:0;display:flex;flex-direction:column}
 .topbar{border-bottom:1px solid var(--line);position:sticky;top:0;
-  background:rgba(10,14,22,.82);backdrop-filter:blur(8px);z-index:5}
+  background:var(--topbar-bg);backdrop-filter:blur(8px);z-index:5}
 .topbar-inner{max-width:1280px;margin:0 auto;width:100%;display:flex;align-items:center;
   gap:14px;padding:15px 26px}
 .topbar h1{font-size:17px;margin:0;font-weight:600}
@@ -88,7 +99,7 @@ nav{padding:10px 10px;display:flex;flex-direction:column;gap:3px;margin-top:6px}
 .btn:hover{filter:brightness(1.08)} .btn.ghost{background:var(--panel);border:1px solid var(--line);color:var(--ink)}
 
 /* ---- cards / grid ---- */
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow)}
 .grid{display:grid;gap:16px}
 .kpis{grid-template-columns:repeat(4,1fr)}
 .kpi .k-top{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:12.5px}
@@ -231,7 +242,7 @@ a.gc:hover{border-color:var(--accent-line);transform:translateY(-2px)}
   .shell-main{margin:0!important;padding:0!important}body{background:#fff;color:#111}}
 
 /* ---- project subnav ---- */
-.proj-subnav{border-bottom:1px solid var(--line);background:rgba(10,14,22,.88);
+.proj-subnav{border-bottom:1px solid var(--line);background:var(--topbar-bg);
   backdrop-filter:blur(8px);position:sticky;top:57px;z-index:4}
 .proj-subnav-inner{max-width:1280px;margin:0 auto;width:100%;display:flex;
   align-items:center;gap:2px;padding:0 22px}
@@ -406,6 +417,10 @@ a.gc:hover{border-color:var(--accent-line);transform:translateY(-2px)}
   .row2{grid-template-columns:1fr}
   .hero h1{font-size:26px} .hero.left h1{font-size:21px} .hero p{font-size:14px}
   .topbar h1{font-size:15px}
+  /* the topbar gets tight once the theme toggle is added — drop the redundant ghost button
+     (Projects lives in the drawer) and the verbose backend pill so the crumb + toggle fit */
+  .topbar-inner .btn.ghost{display:none}
+  .topbar-inner .pill{display:none}
   .content{padding:16px 12px 48px}
   .rpt-cover{padding:28px 20px 24px} .rpt-cover h1{font-size:22px}
   .rpt-metrics,.acc-grid{grid-template-columns:1fr}
@@ -438,6 +453,9 @@ def _icon(name: str) -> str:
         "database": "<ellipse cx='12' cy='5' rx='9' ry='3'/><path d='M21 12c0 1.66-4 3-9 3s-9-1.34-9-3'/><path d='M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5'/>",
         "folder": "<path d='M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z'/>",
         "brain": "<path d='M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2z'/><path d='M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2z'/>",
+        "target": "<circle cx='12' cy='12' r='9'/><circle cx='12' cy='12' r='4.5'/><circle cx='12' cy='12' r='1'/>",
+        "sun": "<circle cx='12' cy='12' r='4'/><path d='M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19'/>",
+        "moon": "<path d='M21 12.8A8 8 0 1 1 11.2 3 6.5 6.5 0 0 0 21 12.8z'/>",
     }.get(name, "")
     return (
         f"<svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' "
@@ -445,18 +463,21 @@ def _icon(name: str) -> str:
     )
 
 
-# Grouped navigation, mirroring the Google Cloud Agent Platform console (Build / Scale / Govern /
-# Optimize). Each item: (key, label, icon, href). The key matches the page's ``active`` marker.
+# Grouped navigation. Two intents: Workspace (where research happens — projects, accounts, focus)
+# and Configure (the agent platform's knobs — agents, personas, prompts, settings). Each item:
+# (key, label, icon, href). The key matches the page's ``active`` marker.
 _NAV_GROUPS = [
-    ("Build", [
+    ("Workspace", [
         ("dashboard", "Dashboard", "grid", "/"),
         ("projects", "Projects", "plan", "/projects"),
-        ("agents", "Agents", "agent", "/agents"),
+        ("accounts", "Accounts", "users", "/accounts"),
+        ("focus", "Focus", "target", "/focus"),
     ]),
-    ("Govern", [
-        ("settings", "Settings", "cog", "/settings"),
+    ("Configure", [
+        ("agents", "Agents", "agent", "/agents"),
+        ("personas", "Personas", "users", "/personas"),
         ("prompts", "Prompts", "doc", "/settings/prompts"),
-        ("personas", "Personas", "agent", "/personas"),
+        ("settings", "Settings", "cog", "/settings"),
     ]),
 ]
 
@@ -507,6 +528,30 @@ var sc=document.getElementById('navScrim');if(sc)sc.addEventListener('click',clo
 s.querySelectorAll('.sidebar a').forEach(function(a){a.addEventListener('click',close);});
 window.addEventListener('keydown',function(e){if(e.key==='Escape')close();});})();
 """
+
+# Theme toggle: light is the default; the choice persists in localStorage 'sentinel-theme'. The
+# no-FOUC init (set in <head> before paint) reads the same key, so a reload keeps the chosen theme
+# without a flash. The toggle button swaps its own sun/moon glyph to mirror the *next* theme.
+_THEME_INIT_JS = (
+    "(function(){try{var t=localStorage.getItem('sentinel-theme');"
+    "if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();"
+)
+_SUN_PATH = ("<circle cx='12' cy='12' r='4'/><path d='M12 2v2M12 20v2M2 12h2M20 12h2"
+             "M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19'/>")
+_MOON_PATH = "<path d='M21 12.8A8 8 0 1 1 11.2 3 6.5 6.5 0 0 0 21 12.8z'/>"
+_THEME_JS = (
+    "(function(){var b=document.getElementById('themeToggle');if(!b)return;"
+    "var SUN=\"%s\",MOON=\"%s\";"
+    "function paint(t){b.innerHTML=\"<svg width='18' height='18' viewBox='0 0 24 24' fill='none' \""
+    "+\"stroke='currentColor' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'>\""
+    "+(t==='dark'?SUN:MOON)+\"</svg>\";}"
+    "paint(document.documentElement.getAttribute('data-theme')||'light');"
+    "b.addEventListener('click',function(){"
+    "var cur=document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';"
+    "var next=cur==='dark'?'light':'dark';"
+    "document.documentElement.setAttribute('data-theme',next);"
+    "try{localStorage.setItem('sentinel-theme',next);}catch(e){}paint(next);});})();"
+) % (_SUN_PATH, _MOON_PATH)
 
 # A full-screen loading overlay shown while a form POSTs (planning/running take ~seconds on the live
 # engine) — so a click gives immediate feedback instead of a frozen page. The submit button's own label
@@ -588,8 +633,9 @@ def shell(*, active: str, title: str, content: str, backend: str, head_extra: st
         else f"<a class='btn ghost' href='/projects'>{_icon('plan')} Projects</a>"
     )
     return (
-        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<!doctype html><html lang='en' data-theme='light'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        f"<script>{_THEME_INIT_JS}</script>"
         "<link rel='icon' href=\"data:image/svg+xml,"
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
         "<rect x='5' y='5' width='22' height='22' rx='6' fill='%234285f4'/></svg>\">"
@@ -605,6 +651,8 @@ def shell(*, active: str, title: str, content: str, backend: str, head_extra: st
         f"<div class='spacer'></div>"
         "<span class='proj-pill'>" + _icon("shield") + " project: " + escape(project) + "</span>"
         f"{backend_pill}"
+        "<button class='icon-btn' id='themeToggle' aria-label='Toggle light/dark theme' "
+        f"title='Toggle theme'>{_icon('moon')}</button>"
         f"{topbar_action}</div></div>"
         f"{subnav}"
         f"<div class='content'>{content}</div>"
@@ -612,7 +660,7 @@ def shell(*, active: str, title: str, content: str, backend: str, head_extra: st
         "<div class='scrim' id='navScrim'></div>"
         "</div>"
         f"{_LOADER_HTML}"
-        f"<script>{_COLLAPSE_JS}{_MOBILE_NAV_JS}{_LOADER_JS}</script>{body_scripts}</body></html>"
+        f"<script>{_COLLAPSE_JS}{_MOBILE_NAV_JS}{_THEME_JS}{_LOADER_JS}</script>{body_scripts}</body></html>"
     )
 
 
@@ -690,11 +738,14 @@ def dashboard_page(*, stats: dict, charts: dict, recent: list[dict], backend: st
         js = (
             "<script src='" + _CHARTJS + "'></script><script>"
             "const D=__DATA__;"
-            "const T={plugins:{legend:{labels:{color:'#8b97a8',boxWidth:12,font:{size:11}}}}},"
-            "GRID='#1e2940',MUT='#8b97a8';"
+            "const _C=getComputedStyle(document.documentElement),"
+            "MUT=(_C.getPropertyValue('--muted')||'#8b97a8').trim(),"
+            "GRID=(_C.getPropertyValue('--line')||'#1e2940').trim(),"
+            "PANEL=(_C.getPropertyValue('--panel')||'#0e1420').trim();"
+            "const T={plugins:{legend:{labels:{color:MUT,boxWidth:12,font:{size:11}}}}};"
             "function donut(id,labels,vals,colors){new Chart(document.getElementById(id),"
             "{type:'doughnut',data:{labels:labels,datasets:[{data:vals,backgroundColor:colors,"
-            "borderColor:'#0e1420',borderWidth:2}]},options:{...T,cutout:'62%',"
+            "borderColor:PANEL,borderWidth:2}]},options:{...T,cutout:'62%',"
             "plugins:{legend:{position:'bottom',labels:{color:MUT,boxWidth:12,font:{size:11}}}}}});}"
             "donut('cProv',['Public','Private'],[D.provenance.public,D.provenance.private],"
             "['#4ea1ff','#ffb24d']);"
@@ -890,10 +941,13 @@ def _aside(artifact, backend: str, reference: str) -> str:
     data = json.dumps({"pub": pub, "priv": priv})
     js = (
         "<script src='" + _CHARTJS + "'></script><script>"
-        "var d=__DATA__;new Chart(document.getElementById('cArt'),{type:'doughnut',"
+        "var d=__DATA__,_C=getComputedStyle(document.documentElement),"
+        "MUT=(_C.getPropertyValue('--muted')||'#8b97a8').trim(),"
+        "PANEL=(_C.getPropertyValue('--panel')||'#0e1420').trim();"
+        "new Chart(document.getElementById('cArt'),{type:'doughnut',"
         "data:{labels:['Public','Private'],datasets:[{data:[d.pub,d.priv],"
-        "backgroundColor:['#4ea1ff','#ffb24d'],borderColor:'#0e1420',borderWidth:2}]},"
-        "options:{cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:'#8b97a8',"
+        "backgroundColor:['#4ea1ff','#ffb24d'],borderColor:PANEL,borderWidth:2}]},"
+        "options:{cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:MUT,"
         "boxWidth:12,font:{size:11}}}}}});</script>"
     ).replace("__DATA__", data)
     card = (
@@ -4074,10 +4128,13 @@ def _account_donut(public: int, private: int) -> tuple[str, str]:
     data = json.dumps({"pub": public, "priv": private})
     js = (
         "<script src='" + _CHARTJS + "'></script><script>"
-        "var a=__DATA__;new Chart(document.getElementById('cAcc'),{type:'doughnut',"
+        "var a=__DATA__,_C=getComputedStyle(document.documentElement),"
+        "MUT=(_C.getPropertyValue('--muted')||'#8b97a8').trim(),"
+        "PANEL=(_C.getPropertyValue('--panel')||'#0e1420').trim();"
+        "new Chart(document.getElementById('cAcc'),{type:'doughnut',"
         "data:{labels:['Public','Private'],datasets:[{data:[a.pub,a.priv],"
-        "backgroundColor:['#4ea1ff','#ffb24d'],borderColor:'#0e1420',borderWidth:2}]},"
-        "options:{cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:'#8b97a8',"
+        "backgroundColor:['#4ea1ff','#ffb24d'],borderColor:PANEL,borderWidth:2}]},"
+        "options:{cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:MUT,"
         "boxWidth:12,font:{size:11}}}}}});</script>"
     ).replace("__DATA__", data)
     card = (
@@ -5847,30 +5904,34 @@ def _project_report_page_LEGACY(*, project, tasks: list, backend: str) -> str:
 # --------------------------------------------------------------------------- #
 _AUTH_CSS = """
 <style>
+:root,[data-theme="light"]{--abg:#f5f6f8;--abox:#ffffff;--aline:#e4e7ec;--aink:#161a20;
+  --amut:#5f6b7a;--ainset:#f4f6f9;--aacc:#2563eb;--ashadow:0 8px 40px rgba(16,24,40,.12)}
+[data-theme="dark"]{--abg:#0b0e14;--abox:#151a23;--aline:#2a2f3a;--aink:#e8eaed;
+  --amut:#9aa0a6;--ainset:#11151d;--aacc:#4285f4;--ashadow:0 8px 48px rgba(0,0,0,.55)}
 *{box-sizing:border-box}
-html,body{margin:0;min-height:100%;background:#0b0e14;color:#e8eaed;
+html,body{margin:0;min-height:100%;background:var(--abg);color:var(--aink);
   font:14.5px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 .wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
-.box{background:#151a23;border:1px solid #2a2f3a;border-radius:18px;padding:40px 36px;
-  width:100%;max-width:400px;box-shadow:0 8px 48px rgba(0,0,0,.55)}
+.box{background:var(--abox);border:1px solid var(--aline);border-radius:18px;padding:40px 36px;
+  width:100%;max-width:400px;box-shadow:var(--ashadow)}
 .logo{display:flex;align-items:center;gap:12px;margin-bottom:28px}
 .logo-mark{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;
   justify-content:center;background:linear-gradient(135deg,#4285f4,#a142f4);
   color:#fff;font-weight:800;font-size:18px;flex:0 0 auto}
 .logo-text{font-size:20px;font-weight:700;letter-spacing:.2px}
 h2{font-size:16px;font-weight:600;margin:0 0 6px}
-.sub{color:#9aa0a6;font-size:13px;margin:0 0 24px}
-label{font-size:11.5px;text-transform:uppercase;letter-spacing:.1em;color:#9aa0a6;
+.sub{color:var(--amut);font-size:13px;margin:0 0 24px}
+label{font-size:11.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--amut);
   display:block;margin-bottom:6px}
-input[type=password]{width:100%;background:#11151d;border:1px solid #2a2f3a;color:#e8eaed;
+input[type=password]{width:100%;background:var(--ainset);border:1px solid var(--aline);color:var(--aink);
   padding:11px 13px;border-radius:10px;font-size:14.5px;margin-bottom:16px}
-input[type=password]:focus{outline:none;border-color:#4285f4}
-.btn-full{width:100%;background:#4285f4;color:#fff;border:0;padding:13px;border-radius:10px;
+input[type=password]:focus{outline:none;border-color:var(--aacc)}
+.btn-full{width:100%;background:var(--aacc);color:#fff;border:0;padding:13px;border-radius:10px;
   font-size:15px;font-weight:600;cursor:pointer;margin-top:4px}
 .btn-full:hover{filter:brightness(1.1)}
-.err{background:#1c1011;border:1px solid #5a1f1f;color:#ff6b6b;border-radius:8px;
+.err{background:rgba(220,38,38,.10);border:1px solid rgba(220,38,38,.35);color:#dc2626;border-radius:8px;
   padding:10px 14px;font-size:13px;margin-bottom:16px}
-.foot{color:#9aa0a6;font-size:12px;text-align:center;margin-top:18px}
+.foot{color:var(--amut);font-size:12px;text-align:center;margin-top:18px}
 </style>
 """
 
@@ -5878,8 +5939,9 @@ input[type=password]:focus{outline:none;border-color:#4285f4}
 def login_page(*, next_url: str = "", err: str = "") -> str:
     err_html = f"<div class='err'>{escape(err)}</div>" if err else ""
     next_field = f"<input type='hidden' name='next' value='{escape(next_url)}'>" if next_url else ""
-    return f"""<!doctype html><html lang='en'><head>
+    return f"""<!doctype html><html lang='en' data-theme='light'><head>
 <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<script>{_THEME_INIT_JS}</script>
 <title>Sign in · Sentinel</title>{_AUTH_CSS}</head>
 <body><div class='wrap'><div class='box'>
 <div class='logo'><div class='logo-mark'>S</div><div class='logo-text'>Sentinel</div></div>
@@ -5897,8 +5959,9 @@ def login_page(*, next_url: str = "", err: str = "") -> str:
 
 def setup_page(*, err: str = "") -> str:
     err_html = f"<div class='err'>{escape(err)}</div>" if err else ""
-    return f"""<!doctype html><html lang='en'><head>
+    return f"""<!doctype html><html lang='en' data-theme='light'><head>
 <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<script>{_THEME_INIT_JS}</script>
 <title>Set up password · Sentinel</title>{_AUTH_CSS}</head>
 <body><div class='wrap'><div class='box'>
 <div class='logo'><div class='logo-mark'>S</div><div class='logo-text'>Sentinel</div></div>
