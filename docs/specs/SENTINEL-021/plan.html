@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plan: Auto-reconcile product memory — one live head per entity/topic</title>
+  <!-- Design tokens: see /DESIGN.md for canonical BiltIQ design system -->
+  <style>
+    :root {
+      --color-border:    #e5e7eb;
+      --color-bg:        #ffffff;
+      --color-bg-subtle: #f9fafb;
+      --color-text:      #111827;
+      --color-muted:     #6b7280;
+      --color-step-bg:   #f0fdf4;
+      --color-step-bdr:  #bbf7d0;
+      --color-risk-high: #dc2626;
+      --color-risk-med:  #d97706;
+      --color-risk-low:  #16a34a;
+      --radius:          6px;
+      --max-width:       860px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--color-text);
+      background: var(--color-bg);
+      padding: 2rem 1rem;
+    }
+    main { max-width: var(--max-width); margin: 0 auto; }
+    header {
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 1.25rem;
+      margin-bottom: 2rem;
+    }
+    header h1 { font-size: 1.5rem; margin-bottom: 0.75rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+    .meta dt { font-weight: 600; color: var(--color-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta dd { font-size: 0.9rem; }
+    section { margin-bottom: 2rem; }
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      border-left: 4px solid var(--color-border);
+      padding-left: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    h3 { font-size: 0.95rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+    p, li { margin-bottom: 0.4rem; }
+    ul, ol { padding-left: 1.4rem; }
+    code { font-family: ui-monospace, monospace; font-size: 0.85em; background: var(--color-bg-subtle); padding: 0.1em 0.3em; border-radius: 3px; }
+    .step {
+      border: 1px solid var(--color-step-bdr);
+      background: var(--color-step-bg);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .step-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem; }
+    .step-title { font-weight: 700; font-size: 0.95rem; }
+    .band {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: 9999px;
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #7dd3fc;
+    }
+    .step-meta { font-size: 0.8rem; color: var(--color-muted); margin-bottom: 0.5rem; }
+    .step-tests { font-size: 0.82rem; margin-top: 0.5rem; }
+    .step-tests strong { color: var(--color-muted); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 0.5rem 0; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); }
+    th { background: var(--color-bg-subtle); font-weight: 600; }
+    .risk-h { color: var(--color-risk-high); font-weight: 700; }
+    .risk-m { color: var(--color-risk-med);  font-weight: 700; }
+    .risk-l { color: var(--color-risk-low);  font-weight: 700; }
+    .placeholder { color: var(--color-muted); font-style: italic; }
+    @media (max-width: 600px) { .meta { flex-direction: column; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Plan: Auto-reconcile product memory — one live head per entity/topic</h1>
+    <dl class="meta">
+      <div><dt>Task ID</dt><dd>SENTINEL-021</dd></div>
+      <div><dt>Branch</dt><dd>feature/SENTINEL-021-memory-reconcile</dd></div>
+      <div><dt>Base</dt><dd>main</dd></div>
+      <div><dt>Created</dt><dd>2026-06-14</dd></div>
+    </dl>
+  </header>
+
+  <section id="steps">
+    <h2>Build Sequence</h2>
+    <p style="margin-bottom:1rem; font-size:0.85rem; color:var(--color-muted);">
+      Each step = one logical commit. TDD: RED → GREEN in the same step. Run <code>pytest</code> before
+      proceeding. All step anchors verified against current code (store.py:516/542/609/293, schema.py:91).
+    </p>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 1 — Pure resolution policy <code>_pick_winner(a, b)</code></span>
+        <span class="band">M</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> The arbitrary <code>keep="a"</code> is the root
+      defect. Fix the <em>decision</em> first as a pure function, before wiring any trigger — it is the
+      shared policy for both the write-time path and the curator, so it must exist and be proven first.</p>
+      <p class="step-meta"><strong>Files:</strong> <code>src/sentinel/memory/store.py</code> (new module-level
+      <code>_pick_winner</code>); <code>tests/test_memory_reconcile.py</code> (new).</p>
+      <p class="step-meta"><strong>Logic:</strong> tie-break order — newer <code>created_at</code> →
+      boundary trust (PRIVATE&gt;PUBLIC) → higher <code>strength</code> then <code>access_count</code> →
+      stable lexicographic <code>id</code>. No DB, no clock, no LLM.</p>
+      <div class="step-tests">
+        <strong>Tests:</strong>
+        <ul>
+          <li><code>test_pick_winner_newer_wins</code> — later <code>created_at</code> is winner (AC2)</li>
+          <li><code>test_pick_winner_private_beats_public_on_tie</code> — equal <code>created_at</code> → PRIVATE wins (AC2/OQ-1)</li>
+          <li><code>test_pick_winner_strength_then_id_tiebreak</code> — equal time+boundary → strength, then id (AC2)</li>
+          <li><code>test_pick_winner_order_independent</code> — <code>_pick_winner(a,b)</code> and <code>(b,a)</code> return the same winner (AC2)</li>
+        </ul>
+      </div>
+      <p class="step-meta" style="margin-top:0.5rem"><strong>Gate:</strong> <code>pytest tests/test_memory_reconcile.py -k pick_winner</code> — GREEN</p>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 2 — <code>superseded_by</code> column (migration + schema + row I/O)</span>
+        <span class="band">S</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> The link is needed before auto-resolve can set it.
+      Land it additive + dormant so a pre-migration DB is provably unaffected.</p>
+      <p class="step-meta"><strong>Files:</strong> <code>store.py</code> — add
+      <code>("superseded_by","TEXT")</code> to <code>_MEMORY_MIGRATIONS</code> (293); read via
+      <code>_opt_col</code> in <code>_row_to_entry</code> (335); add to the <code>_insert</code> column
+      list + VALUES (765). <code>schema.py</code> — <code>superseded_by: str | None = None</code> on
+      <code>MemoryEntry</code> (91).</p>
+      <div class="step-tests">
+        <strong>Tests:</strong>
+        <ul>
+          <li><code>test_superseded_by_roundtrips</code> — set on write, reads back via <code>get/recall</code> (AC3/AC6)</li>
+          <li><code>test_premigration_db_loads_unchanged</code> — open a DB built without the column; rows read with <code>superseded_by=None</code>, no error (AC6)</li>
+        </ul>
+      </div>
+      <p class="step-meta" style="margin-top:0.5rem"><strong>Gate:</strong> <code>pytest tests/test_memory_reconcile.py -k superseded or migration</code> — GREEN</p>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 3 — Auto-resolve at write (close the gap)</span>
+        <span class="band">M</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> The core fix. Inside <code>write()</code>'s G-10
+      block (store.py:542–563), when a <code>rival</code> is found: load it via <code>_row_to_entry</code>,
+      call <code>_pick_winner(entry, rival)</code>, quarantine the loser + set
+      <code>superseded_by=winner.id</code>, and write the conflict row already-resolved
+      (<code>resolved_a/_b</code>) — never <code>'open'</code>. Stays inside the existing
+      <code>try/except: pass</code> so it can never break a write.</p>
+      <p class="step-meta"><strong>Files:</strong> <code>store.py</code> <code>write()</code>; tests.</p>
+      <div class="step-tests">
+        <strong>Tests:</strong>
+        <ul>
+          <li><code>test_two_contradictions_recall_returns_one</code> — write A then contradicting B (same entity+boundary, same 40-char prefix) → <code>recall()</code> returns exactly one = the winner (AC1)</li>
+          <li><code>test_loser_quarantined_and_linked</code> — loser has <code>quarantined=1</code> and <code>superseded_by=winner.id</code>; conflict row not <code>'open'</code> (AC3)</li>
+          <li><code>test_exact_dup_still_reinforces_no_conflict</code> — identical content → SM-2 reinforce path (535–539), no conflict row, no quarantine (AC4, regression)</li>
+          <li><code>test_resolver_failure_does_not_break_write</code> — force <code>_pick_winner</code> to raise → write still succeeds, entry persisted (fail-soft)</li>
+        </ul>
+      </div>
+      <p class="step-meta" style="margin-top:0.5rem"><strong>Gate:</strong> <code>pytest tests/test_memory_reconcile.py</code> + <code>tests/test_memory.py</code> — GREEN</p>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 4 — Backlog curator <code>reconcile_open_conflicts()</code> + golden-question rollback</span>
+        <span class="band">M</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> Step 3 only heals <em>new</em> writes; existing
+      <code>status='open'</code> rows (and any pre-fix near-dups) need a one-shot pass. Wrap it in the
+      safety net so a bad demotion is auto-reverted.</p>
+      <p class="step-meta"><strong>Files:</strong> <code>store.py</code> — <code>reconcile_open_conflicts()</code>
+      + private <code>_golden_snapshot(top_n)</code> helper (auto-derive golden set from top-N most-accessed
+      entities, OQ-3); tests.</p>
+      <p class="step-meta"><strong>Logic:</strong> snapshot <code>recall()</code> for top-N entities →
+      resolve every open row via <code>_pick_winner</code> → re-recall → if any entity's answer set
+      degraded (lost a previously-served live head with no replacement), un-quarantine that pair and flag
+      the row for human review. Returns <code>{resolved, rolled_back, flagged}</code>.</p>
+      <div class="step-tests">
+        <strong>Tests:</strong>
+        <ul>
+          <li><code>test_reconcile_clears_open_backlog</code> — seed N open conflicts → all become resolved, losers quarantined+linked (AC5)</li>
+          <li><code>test_golden_rollback_on_degraded_recall</code> — construct a case where reconciliation would empty an entity's recall → that entity is rolled back + flagged, not silently demoted (AC5)</li>
+          <li><code>test_reconcile_is_idempotent</code> — second run resolves nothing new, no double-quarantine</li>
+        </ul>
+      </div>
+      <p class="step-meta" style="margin-top:0.5rem"><strong>Gate:</strong> <code>pytest tests/test_memory_reconcile.py -k reconcile or golden</code> — GREEN</p>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 5 — Surface "N superseded" in the memory/accounts UI</span>
+        <span class="band">S</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> AC7 — no silent drops. The operator must see what was
+      demoted. Read-only render addition; fail-soft to 0 if the count query errors.</p>
+      <p class="step-meta"><strong>Files:</strong> <code>src/sentinel/web/render.py</code> (memory/accounts
+      view) — count of resolved conflicts / superseded entries; <code>tests/test_ux_*</code> or a render
+      assertion in the reconcile test.</p>
+      <div class="step-tests">
+        <strong>Tests:</strong>
+        <ul>
+          <li><code>test_ui_shows_superseded_count</code> — after a reconcile, the rendered memory view contains the "N superseded" label with the correct count (AC7)</li>
+        </ul>
+      </div>
+      <p class="step-meta" style="margin-top:0.5rem"><strong>Gate:</strong> <code>pytest -k superseded_count</code> — GREEN</p>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 6 — Wire curator cadence + full-suite green</span>
+        <span class="band">S</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> Connect <code>reconcile_open_conflicts()</code> to the
+      memory-curator / <code>/biltiq-engineering:siem</code> cadence so the backlog never re-accumulates.
+      Wiring only — logic is proven in Step 4.</p>
+      <p class="step-meta"><strong>Files:</strong> curator skill / siem cadence hook; no new store logic.</p>
+      <div class="step-tests">
+        <strong>Tests:</strong> full suite green (<code>pytest</code>, ~835+ baseline). Acceptance scenario:
+        seed two opposite findings for one entity → a research run cites only the newer/more-trusted one.
+      </div>
+      <p class="step-meta" style="margin-top:0.5rem"><strong>Gate:</strong> <code>pytest</code> — all GREEN; manual acceptance run</p>
+    </div>
+  </section>
+
+  <section id="test-strategy">
+    <h2>Test Strategy</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>What</th><th>Files</th></tr></thead>
+      <tbody>
+        <tr><td>Unit</td><td><code>_pick_winner</code> ordering + order-independence; migration round-trip</td><td>tests/test_memory_reconcile.py</td></tr>
+        <tr><td>Integration</td><td>write→recall returns one; backlog reconcile; golden rollback; exact-dup regression</td><td>tests/test_memory_reconcile.py, tests/test_memory.py</td></tr>
+        <tr><td>Manual</td><td>seed two opposite findings → run research → confirm single cited fact; UI shows count</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="rollback-plan">
+    <h2>Rollback Plan</h2>
+    <p>Revert the <code>write()</code> edit → new contradictions log <code>'open'</code> again (pre-fix
+    behavior); the dormant <code>superseded_by</code> column is harmless. To restore demoted entries:
+    <code>UPDATE memory_entries SET quarantined=0, superseded_by=NULL WHERE superseded_by IS NOT NULL</code>.
+    No data destroyed — fully lossless.</p>
+  </section>
+
+  <section id="risks">
+    <h2>Risks</h2>
+    <table>
+      <thead><tr><th>Risk</th><th>Step</th><th>Severity</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td>Topic-prefix (40-char) over-collapses two genuinely different facts that share an opening</td><td>3</td><td><span class="risk-m">MED</span></td>
+          <td>Out of scope to change detection (uses existing G-10 prefix); loser is quarantined+linked, not deleted, so a false demotion is reversible and the golden-question pass catches recall degradation.</td></tr>
+        <tr><td>Golden-question heuristic mislabels a correct demotion as "degraded" and rolls back</td><td>4</td><td><span class="risk-l">LOW</span></td>
+          <td>Conservative bias is acceptable — rollback flags for human review rather than dropping. Idempotent re-run resolves once corrected.</td></tr>
+        <tr><td>Backlog reconcile on a large existing DB is slow</td><td>4</td><td><span class="risk-l">LOW</span></td>
+          <td>O(open conflicts), off the hot path, curator cadence only. Current DB has a small conflict backlog.</td></tr>
+        <tr><td>UI count query errors on an old DB</td><td>5</td><td><span class="risk-l">LOW</span></td>
+          <td>Fail-soft to 0 (same pattern as <code>list_conflicts</code> try/except → []).</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="change-history">
+    <h2>Change History</h2>
+    <table>
+      <thead><tr><th>Date</th><th>Section</th><th>What Changed</th><th>Trigger</th></tr></thead>
+      <tbody>
+        <tr><td>2026-06-14</td><td>all</td><td>Initial plan — 6 TDD steps mapped to AC1–AC7; anchors verified against store.py:516/542/609/293 + schema.py:91; ports Target B from docs/memory-quality-plan.md into build-ready steps</td><td>SENTINEL-021</td></tr>
+        <!-- Agent appends a new row here on every edit. Never delete rows. -->
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

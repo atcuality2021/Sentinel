@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design: Auto-reconcile product memory — one live head per entity/topic</title>
+  <!-- Design tokens: see /DESIGN.md for canonical BiltIQ design system -->
+  <style>
+    :root {
+      --color-border:    #e5e7eb;
+      --color-bg:        #ffffff;
+      --color-bg-subtle: #f9fafb;
+      --color-text:      #111827;
+      --color-muted:     #6b7280;
+      --color-new:       #16a34a;
+      --color-modified:  #d97706;
+      --color-risk-high: #dc2626;
+      --color-risk-med:  #d97706;
+      --color-risk-low:  #16a34a;
+      --radius:          6px;
+      --max-width:       860px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--color-text);
+      background: var(--color-bg);
+      padding: 2rem 1rem;
+    }
+    main { max-width: var(--max-width); margin: 0 auto; }
+    header {
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 1.25rem;
+      margin-bottom: 2rem;
+    }
+    header h1 { font-size: 1.5rem; margin-bottom: 0.75rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+    .meta dt { font-weight: 600; color: var(--color-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta dd { font-size: 0.9rem; }
+    section { margin-bottom: 2rem; }
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      border-left: 4px solid var(--color-border);
+      padding-left: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    h3 { font-size: 0.95rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+    p, li { margin-bottom: 0.4rem; }
+    ul { padding-left: 1.4rem; }
+    pre {
+      background: var(--color-bg-subtle);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      margin: 0.5rem 0;
+    }
+    code { font-family: ui-monospace, monospace; font-size: 0.85em; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin: 0.5rem 0;
+    }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); }
+    th { background: var(--color-bg-subtle); font-weight: 600; }
+    .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.1rem 0.4rem;
+      border-radius: 9999px;
+      white-space: nowrap;
+    }
+    .tag-new      { background: #dcfce7; color: var(--color-new);      border: 1px solid #86efac; }
+    .tag-modified { background: #fef3c7; color: var(--color-modified); border: 1px solid #fcd34d; }
+    .tag-risk-h   { background: #fee2e2; color: var(--color-risk-high);border: 1px solid #fca5a5; }
+    .tag-risk-m   { background: #fef3c7; color: var(--color-risk-med); border: 1px solid #fcd34d; }
+    .placeholder { color: var(--color-muted); font-style: italic; }
+    @media (max-width: 600px) { .meta { flex-direction: column; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Design: Auto-reconcile product memory — one live head per entity/topic</h1>
+    <dl class="meta">
+      <div><dt>Task ID</dt><dd>SENTINEL-021</dd></div>
+      <div><dt>Author</dt><dd>@atcuality2021</dd></div>
+      <div><dt>Created</dt><dd>2026-06-14</dd></div>
+    </dl>
+  </header>
+
+  <section id="ground-truth">
+    <h2>Ground Truth (code as it is today)</h2>
+    <p>Every claim below is anchored to a real line. Read before designing.</p>
+    <table>
+      <thead><tr><th>Anchor</th><th>What it does today</th></tr></thead>
+      <tbody>
+        <tr><td><code>MemoryStore.write()</code> — <code>store.py:516</code></td>
+          <td>Inserts an entry; exact-dup (same <code>content_hash</code>) → SM-2 reinforce + early return
+          (lines 535–539). After a fresh insert, the <strong>G-10 block (lines 542–563)</strong> finds a
+          non-quarantined <code>rival</code> in the same <code>entity</code>+<code>boundary</code> sharing
+          the 40-char topic prefix and <code>INSERT OR IGNORE</code>s a <code>memory_conflicts</code> row
+          with <code>status='open'</code>. <strong>It quarantines nothing.</strong></td></tr>
+        <tr><td><code>recall()</code> — <code>store.py:407/441</code></td>
+          <td>Returns only <code>quarantined=0</code> rows. So quarantine already <em>is</em> the
+          not-live tier; recall honors it with no change needed.</td></tr>
+        <tr><td><code>resolve_conflict(conflict_id, keep="a")</code> — <code>store.py:609</code></td>
+          <td>The only resolver. Quarantines the loser, sets <code>status='resolved_a|resolved_b'</code>.
+          <code>keep="a"</code> is an <strong>arbitrary default</strong> and nothing calls it automatically.</td></tr>
+        <tr><td><code>_MEMORY_MIGRATIONS</code> — <code>store.py:293</code></td>
+          <td>Idempotent additive-column tuple, applied by <code>_apply_column_migrations</code>
+          (line 298, guarded by <code>PRAGMA table_info</code>). Today holds only <code>("project_id","TEXT")</code>.</td></tr>
+        <tr><td><code>_row_to_entry</code> / <code>_insert</code> — <code>store.py:335 / 765</code></td>
+          <td>Row↔model mapping. <code>_opt_col(r, name)</code> (line 329) is the defensive reader for
+          migrated columns (returns <code>None</code> if the column predates the DB).</td></tr>
+        <tr><td><code>MemoryEntry</code> — <code>schema.py:91</code></td>
+          <td>Pydantic model with SM-2 state (<code>strength</code>, <code>ease</code>,
+          <code>interval_days</code>, <code>access_count</code>), <code>created_at</code>,
+          <code>boundary</code>, <code>quarantined</code>, <code>project_id</code>.</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Naming correction (honesty):</strong> earlier Think/plan notes referred to <code>add()</code>
+    / <code>store.py:517</code>. The real method is <code>write()</code> at <code>store.py:516</code>, with
+    the conflict block at 542–563. This design uses the true names.</p>
+  </section>
+
+  <section id="approach">
+    <h2>Approach</h2>
+    <h3>Name</h3>
+    <p>Write-time deterministic reconciliation: resolve in the same transaction the conflict is detected.</p>
+    <h3>Description</h3>
+    <p>The defect is the gap between "conflict detected" and "conflict resolved": during it, both
+    contradicting entries are <code>quarantined=0</code>, so <code>recall()</code> serves both. We close
+    the gap by resolving <em>at the moment of detection</em>. In <code>write()</code>'s G-10 block, the
+    instant a <code>rival</code> is found, a pure <code>_pick_winner(a, b)</code> chooses the live head;
+    the loser is quarantined and gets a <code>superseded_by</code> link to the winner; the conflict row is
+    written already-resolved (never <code>'open'</code>). Because the live set is repaired before the
+    transaction returns, <code>recall()</code> needs no change — the existing <code>quarantined=0</code>
+    filter does the read-side work. A <code>reconcile_open_conflicts()</code> curator applies the same
+    pure policy to the historical backlog, wrapped in a golden-question rollback so a bad demotion can
+    never degrade a real recall. The whole path is deterministic and model-free, so it is
+    compliance-safe regardless of the repo's compliance mode and trivially unit-testable.</p>
+  </section>
+
+  <section id="alternatives">
+    <h2>Alternatives Considered</h2>
+    <table>
+      <thead><tr><th>#</th><th>Alternative</th><th>Why Rejected</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Recall-time collapse — leave writes as-is, dedup contradictions in <code>recall()</code></td>
+          <td>Puts policy on the hot read path (every recall re-runs it), and leaves the DB in a
+          permanently-contradicted state that every other reader (UI, exports, curator) must also defend
+          against. Deferred to a follow-up safety net only (spec OQ-2 / Out of Scope).</td></tr>
+        <tr><td>2</td><td>LLM-judged "which fact is true"</td>
+          <td>Non-deterministic, costs tokens, and violates <code>on_prem_required</code>/cost posture for
+          what is fundamentally a recency+trust ordering. The deterministic policy is sufficient and auditable.</td></tr>
+        <tr><td>3</td><td>Hard-delete the loser</td>
+          <td>Destroys the audit trail and the wake-up path. Sovereignty/provenance is the moat — we keep
+          the loser quarantined and linked, never gone (architecture §6: "never delete silently").</td></tr>
+        <tr><td>4</td><td>Keep <code>resolve_conflict(keep="a")</code> and just schedule it</td>
+          <td>The arbitrary <code>keep</code> side is the bug, not the trigger. Auto-calling an arbitrary
+          policy automates the wrong outcome. We must fix the policy first.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="files-to-touch">
+    <h2>Files to Touch</h2>
+    <h3>New <span class="tag tag-new">CREATE</span></h3>
+    <table>
+      <thead><tr><th>File</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>tests/test_memory_reconcile.py</code></td>
+          <td>Unit + integration tests for <code>_pick_winner</code>, write-time auto-resolve, the
+          migration, the backlog curator, and the golden-question rollback (AC1–AC7).</td></tr>
+      </tbody>
+    </table>
+    <h3>Modified <span class="tag tag-modified">EDIT</span></h3>
+    <table>
+      <thead><tr><th>File</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td><code>src/sentinel/memory/store.py</code></td>
+          <td>(a) add pure <code>_pick_winner(a, b)</code>; (b) auto-resolve inside the G-10 block of
+          <code>write()</code> (542–563); (c) add <code>("superseded_by","TEXT")</code> to
+          <code>_MEMORY_MIGRATIONS</code> (293) and thread it through <code>_row_to_entry</code> (via
+          <code>_opt_col</code>) + <code>_insert</code> column list; (d) add
+          <code>reconcile_open_conflicts()</code> + a private golden-question helper.</td></tr>
+        <tr><td><code>src/sentinel/memory/schema.py</code></td>
+          <td>Add <code>superseded_by: str | None = None</code> to <code>MemoryEntry</code> (schema.py:91).</td></tr>
+        <tr><td><code>src/sentinel/web/render.py</code> (memory/accounts view)</td>
+          <td>Surface a reconciliation count ("N superseded") from <code>list_conflicts(status=...)</code>
+          / superseded entries. Exact render site confirmed in Build step 5; fail-soft to 0.</td></tr>
+        <tr><td>memory-curator skill / <code>/biltiq-engineering:siem</code> cadence</td>
+          <td>Call <code>reconcile_open_conflicts()</code> on the curator cadence (wiring, not logic).</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="data-model">
+    <h2>Data Model Changes</h2>
+    <p>One additive column on <code>memory_entries</code>, via the proven idempotent pattern. No table
+    drops, no backfill, no change to <code>memory_conflicts</code> DDL (we reuse its existing
+    <code>status</code> enum <code>'open'|'resolved_a'|'resolved_b'|'dismissed'</code>).</p>
+    <pre><code># store.py:293
+_MEMORY_MIGRATIONS = (
+    ("project_id",    "TEXT"),
+    ("superseded_by", "TEXT"),   # NEW — id of the winning entry; NULL for live/legacy rows
+)
+# schema.py MemoryEntry
+superseded_by: str | None = None   # set on the quarantined loser → winner.id
+</code></pre>
+    <p>A pre-migration DB: <code>_apply_column_migrations</code> ALTERs the column in; old rows read back
+    <code>superseded_by = None</code> via <code>_opt_col</code>. Exactly the <code>project_id</code> precedent.</p>
+  </section>
+
+  <section id="api-contract">
+    <h2>API Contract Changes</h2>
+    <p>One new pure function and one new method. No signature changes to existing callers (additive).</p>
+    <pre><code># pure, deterministic, no DB / no LLM / no clock — order-independent
+def _pick_winner(a: MemoryEntry, b: MemoryEntry) -> tuple[MemoryEntry, MemoryEntry]:
+    """Return (winner, loser). Tie-break order (AC2):
+      1. newer created_at wins
+      2. boundary trust: PRIVATE > PUBLIC          (OQ-1, sovereign posture)
+      3. higher SM-2 strength, then access_count
+      4. stable lexicographic id (final deterministic tiebreaker)
+    """
+
+# curator entry point; fail-soft; wrapped in golden-question rollback
+def reconcile_open_conflicts(self, *, golden_top_n: int = 20) -> dict:
+    """Resolve every status='open' memory_conflicts row via _pick_winner.
+    Snapshot recall() answers for the top-N most-accessed entities, reconcile,
+    re-recall; roll back (un-quarantine) any entity whose answer degraded.
+    Returns {resolved, rolled_back, flagged}.
+    """
+</code></pre>
+    <p>Note: <code>resolve_conflict(keep="a")</code> stays for manual/UI use but is no longer the only
+    path; the write-time resolver and the curator both route through <code>_pick_winner</code> so there is
+    one policy, not two.</p>
+  </section>
+
+  <section id="security-compliance">
+    <h2>Security &amp; Compliance</h2>
+    <ul>
+      <li>Compliance: the resolver is <strong>deterministic and model-free</strong> — no external/LLM call,
+      so it is safe under any compliance mode (no ADR needed).</li>
+      <li>Boundary integrity: PRIVATE &gt; PUBLIC tie-break (OQ-1) means web-sourced PUBLIC data can never
+      silently overwrite an operator-vetted PRIVATE fact of equal recency. One-line ADR note recorded.</li>
+      <li>No data loss: the loser is <strong>quarantined, not deleted</strong>, and linked via
+      <code>superseded_by</code>. Fully reversible (un-quarantine + clear link).</li>
+      <li>Fail-soft preserved: the G-10 block is wrapped in <code>try/except: pass</code> today
+      (store.py:562) — auto-resolve stays inside that guard so a resolver bug can never break a write.</li>
+    </ul>
+  </section>
+
+  <section id="performance">
+    <h2>Performance Considerations</h2>
+    <p>Write path: the rival lookup already runs (line 548). We add one <code>_row_to_entry</code> on the
+    rival + a pure comparison + the same UPDATE/INSERT the manual resolver already does — O(1), same
+    transaction, negligible. Recall path: <strong>unchanged</strong> (no new work). Curator pass is O(open
+    conflicts) and runs off the hot path on the cadence only.</p>
+  </section>
+
+  <section id="rollout">
+    <h2>Rollout Plan</h2>
+    <ol style="padding-left: 1.4rem;">
+      <li>Land <code>_pick_winner</code> + unit tests (no behavior change yet — pure fn).</li>
+      <li>Add the migration + schema field + row/insert threading (additive, dormant).</li>
+      <li>Wire auto-resolve into <code>write()</code>'s G-10 block (new contradictions self-heal).</li>
+      <li>Add <code>reconcile_open_conflicts()</code> + golden-question guard; clear the backlog.</li>
+      <li>Surface the count in the UI; wire the curator cadence.</li>
+    </ol>
+    <h3>Rollback</h3>
+    <p>Revert the <code>write()</code> edit → new contradictions log <code>'open'</code> again (pre-fix
+    behavior). The <code>superseded_by</code> column is harmless if unused. To restore demoted entries:
+    <code>UPDATE memory_entries SET quarantined=0, superseded_by=NULL WHERE superseded_by IS NOT NULL</code>.
+    No data was destroyed, so rollback is lossless.</p>
+  </section>
+
+  <section id="change-history">
+    <h2>Change History</h2>
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Section</th><th>What Changed</th><th>Trigger</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>2026-06-14</td><td>all</td><td>Initial design — grounded in store.py:516/542/609/293 + schema.py:91; corrects the add()/line-517 naming; bakes OQ-1 (PRIVATE&gt;PUBLIC) and OQ-2 (write-time only) into the approach</td><td>SENTINEL-021</td></tr>
+        <!-- Agent appends a new row here on every edit. Never delete rows. -->
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

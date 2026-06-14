@@ -333,6 +333,41 @@ def _opt_col(r: sqlite3.Row, name: str):
     return r[name] if name in r.keys() else None
 
 
+# --------------------------------------------------------------------------- #
+# Conflict resolution policy (SENTINEL-021)
+# --------------------------------------------------------------------------- #
+def _boundary_rank(boundary: DataBoundary | str) -> int:
+    """Trust rank for a tie-break: PRIVATE (operator-vetted) outranks PUBLIC (web-sourced).
+
+    SENTINEL-021 OQ-1 / ADR: on equal recency we keep the sovereign, human-vetted fact rather than
+    letting web-sourced data silently overwrite it.
+    """
+    return 1 if DataBoundary(boundary) == DataBoundary.PRIVATE else 0
+
+
+def _pick_winner(a: MemoryEntry, b: MemoryEntry) -> tuple[MemoryEntry, MemoryEntry]:
+    """Return ``(winner, loser)`` for two contradicting entries (SENTINEL-021 AC2).
+
+    Pure and deterministic — no DB, no clock, no LLM. Ranking, highest precedence first:
+
+      1. newer ``created_at`` wins (recency);
+      2. boundary trust — PRIVATE > PUBLIC (OQ-1);
+      3. higher SM-2 ``strength``, then ``access_count`` (reinforced/used more);
+      4. stable lexicographic ``id`` (smaller id wins) — final deterministic tiebreaker.
+
+    The ranked dimensions form a key tuple, so the result is identical regardless of argument
+    order: ``_pick_winner(a, b)`` and ``_pick_winner(b, a)`` name the same winner.
+    """
+    key_a = (a.created_at, _boundary_rank(a.boundary), a.strength, a.access_count)
+    key_b = (b.created_at, _boundary_rank(b.boundary), b.strength, b.access_count)
+    if key_a > key_b:
+        return a, b
+    if key_b > key_a:
+        return b, a
+    # Full tie on every ranked dimension → smaller id wins (deterministic, order-independent).
+    return (a, b) if a.id <= b.id else (b, a)
+
+
 def _row_to_entry(r: sqlite3.Row) -> MemoryEntry:
     return MemoryEntry(
         id=r["id"],
