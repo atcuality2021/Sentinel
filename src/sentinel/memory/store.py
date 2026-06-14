@@ -261,6 +261,15 @@ CREATE TABLE IF NOT EXISTS personas (
     data       TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+-- SENTINEL-022: per-query-class memory of which search leg last yielded priced results.
+-- Lets the find_deals cascade try the historically-winning tool first. query_class is a
+-- coarse, bounded key (e.g. "product_research:shopping"), never the raw query.
+CREATE TABLE IF NOT EXISTS tool_preference (
+    query_class  TEXT PRIMARY KEY,
+    winning_tool TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
 """
 
 
@@ -1957,3 +1966,67 @@ class PersonaStore:
                 out[key] = {"reading_level": p.reading_level, "tone": p.tone,
                             "format": p.format, "source_policy": p.source_policy or ""}
         return out
+
+
+# ---------------------------------------------------------------------------
+# SENTINEL-022 — search-tool preference memory ("agent learns which leg works")
+# ---------------------------------------------------------------------------
+
+class ToolPreferenceStore:
+    """Per-query-class memory of which search leg last produced priced results.
+
+    The ``find_deals`` cascade (``tools/shopping.py``) tries shopping → SERP → Firecrawl in
+    order; after a run it records the leg that actually returned priced rows, keyed by a coarse
+    ``query_class`` (e.g. ``"product_research:shopping"`` — never the raw query, so the table stays
+    bounded). On the next run the cascade reads the recorded winner and tries it first.
+
+    Deliberately decoupled from :class:`MemoryStore` so this signal never entangles with the
+    SENTINEL-021 entity/topic reconciliation (superseded_by / quarantine / live-head). Every
+    operation is fail-soft: a bad or missing preference must never block a research run — reads
+    return ``None`` (⇒ the cascade falls back to its default order) and writes swallow errors.
+    """
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path else db_path()
+        _ensure_schema(self.path)
+
+    def get(self, query_class: str) -> str | None:
+        """Return the tool that last yielded priced rows for ``query_class``, or ``None``.
+
+        ``None`` means "no signal yet" — the caller uses its default cascade order. Any read
+        error (corrupt/locked DB) also returns ``None`` so a research run is never blocked.
+        """
+        if not query_class:
+            return None
+        try:
+            with _connect(self.path) as conn:
+                row = conn.execute(
+                    "SELECT winning_tool FROM tool_preference WHERE query_class=?",
+                    (query_class,),
+                ).fetchone()
+            return row["winning_tool"] if row is not None else None
+        except Exception:
+            return None  # fail-soft: degrade to default cascade order
+
+    def record(self, query_class: str, winning_tool: str) -> None:
+        """Upsert the winning tool for ``query_class`` (last-writer-wins).
+
+        No-op when either argument is empty. Swallows all errors — recording a preference is a
+        best-effort optimisation, never a precondition for the run that just produced it.
+        """
+        if not query_class or not winning_tool:
+            return
+        try:
+            import datetime as _datetime
+            now = _datetime.datetime.now(_datetime.timezone.utc).isoformat()
+            with _connect(self.path) as conn:
+                conn.execute(
+                    "INSERT INTO tool_preference (query_class, winning_tool, updated_at) "
+                    "VALUES (?,?,?) "
+                    "ON CONFLICT(query_class) DO UPDATE SET "
+                    "winning_tool=excluded.winning_tool, updated_at=excluded.updated_at",
+                    (query_class, winning_tool, now),
+                )
+                conn.commit()
+        except Exception:
+            pass  # fail-soft: a preference write must never break a run
