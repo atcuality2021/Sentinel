@@ -529,8 +529,12 @@ async def account_detail(entity: str, confirm: str = "") -> str:
         mem = MemoryStore()
         public_mem = mem.list_for_entity(key, allowed={DataBoundary.PUBLIC})
         private_mem = mem.list_for_entity(key, allowed={DataBoundary.PRIVATE})
+        # SENTINEL-021 AC7: count entries demoted by conflict reconciliation (quarantined + linked).
+        superseded = sum(
+            1 for e in mem.list_for_entity(key, include_quarantined=True) if e.superseded_by
+        )
     except Exception:  # fail-soft (NFR-6)
-        runs, public_mem, private_mem = [], [], []
+        runs, public_mem, private_mem, superseded = [], [], [], 0
 
     if not runs and not public_mem and not private_mem:  # unknown entity (AC-9)
         return render.not_found_page(what=entity, backend=_active())
@@ -538,7 +542,7 @@ async def account_detail(entity: str, confirm: str = "") -> str:
     summary = _summary_for(key, runs)
     return render.account_detail_page(
         summary=summary, runs=runs, public_mem=public_mem, private_mem=private_mem,
-        backend=_active(), confirm=(confirm == "purge"),
+        backend=_active(), confirm=(confirm == "purge"), superseded=superseded,
     )
 
 

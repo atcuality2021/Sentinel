@@ -297,3 +297,29 @@ def test_reconcile_is_idempotent(tmp_path):
     second = mem.reconcile_open_conflicts()
     assert first["resolved"] == 1
     assert second == {"resolved": 0, "rolled_back": 0, "flagged": 0}  # nothing left to do
+
+
+# --------------------------------------------------------------------------- #
+# Step 5 — UI surfaces the superseded count, never a silent drop (AC7)
+# --------------------------------------------------------------------------- #
+def _summary():
+    from sentinel.memory.schema import EntitySummary
+    return EntitySummary(
+        entity="acme", display_name="Acme", runs=1, last_run_at=utcnow(), public=1, private=0,
+    )
+
+
+def test_account_page_shows_superseded_count():
+    from sentinel.web import render
+    html = render.account_detail_page(
+        summary=_summary(), runs=[], public_mem=[], private_mem=[], backend="vllm", superseded=2,
+    )
+    assert "2 superseded" in html
+
+
+def test_account_page_hides_count_when_none_superseded():
+    from sentinel.web import render
+    html = render.account_detail_page(
+        summary=_summary(), runs=[], public_mem=[], private_mem=[], backend="vllm", superseded=0,
+    )
+    assert "superseded" not in html  # nothing demoted → no note at all

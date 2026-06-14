@@ -4116,8 +4116,12 @@ def _danger_zone(entity: str, *, confirm: bool) -> str:
 
 
 def account_detail_page(*, summary, runs: list, public_mem: list, private_mem: list,
-                        backend: str, confirm: bool = False, ok: str = "") -> str:
-    """One account: header + provenance donut + run timeline + boundary-separated memory."""
+                        backend: str, confirm: bool = False, ok: str = "",
+                        superseded: int = 0) -> str:
+    """One account: header + provenance donut + run timeline + boundary-separated memory.
+
+    ``superseded`` is the count of entries demoted by conflict reconciliation (SENTINEL-021 AC7) —
+    surfaced so a demotion is visible to the operator, never a silent drop."""
     banner = f"<div class='card banner ok' style='margin-bottom:18px'>{escape(ok)}</div>" if ok else ""
     pills = "".join(
         f"<span class='pill'>{escape(label)}: <b>{escape(val)}</b></span>"
@@ -4164,6 +4168,15 @@ def account_detail_page(*, summary, runs: list, public_mem: list, private_mem: l
         memory = ("<h2 class='sec'>Accumulated memory</h2>"
                   "<div class='card'><div class='empty'>No memory retained for this account "
                   "(entity memory may be off, or findings have decayed).</div></div>")
+    if superseded > 0:
+        # AC7: reconciliation demotes the loser of a contradiction; show it rather than drop silently.
+        plural = "y" if superseded == 1 else "ies"
+        memory += (
+            "<div class='card' style='margin-top:10px'>"
+            f"<span class='pill'><span class='dotmark v'></span>{int(superseded)} superseded</span>"
+            f"<span class='src' style='margin-left:8px'>contradicting entr{plural} reconciled to "
+            "one live head per topic; demoted entries are retained for audit.</span></div>"
+        )
 
     left = header + timeline + memory + _danger_zone(summary.entity, confirm=confirm)
     content = (
