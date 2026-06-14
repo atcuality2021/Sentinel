@@ -19,7 +19,11 @@ This module is split by concern:
 
 from __future__ import annotations
 
-from typing import TypedDict
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, TypedDict
+
+if TYPE_CHECKING:  # avoid importing the store at module load (keeps this file I/O-free)
+    from sentinel.memory.store import ToolPreferenceStore
 
 # OQ-3 (design): "thin" shopping results = fewer than this many rows carrying a usable price.
 # One named constant so the threshold is one-line tunable and pinned by a unit test.
@@ -87,3 +91,91 @@ def classify_query_class(domain: str, target: str) -> str:
     t = (target or "").lower()
     intent = "shopping" if any(h in t for h in _BUYING_HINTS) else "research"
     return f"{d}:{intent}"
+
+
+# --------------------------------------------------------------------------- #
+# Cascade orchestrator (Step 4) — the deterministic find_deals tool
+# --------------------------------------------------------------------------- #
+
+# Canonical tool names recorded in ToolPreferenceStore + reported to the synthesizer.
+TOOL_SHOPPING = "google_shopping_search"
+TOOL_SERP = "web_search"
+TOOL_FIRECRAWL = "firecrawl"
+
+# A cascade leg: query (or, for firecrawl, a candidate URL) → normalized priced rows.
+DealLeg = Callable[[str], Awaitable[list[PricedRow]]]
+
+
+def _top_candidate(rows: list[PricedRow] | None) -> str:
+    """First usable source URL among *rows* (the page firecrawl should deep-read), or ``""``."""
+    for r in rows or []:
+        if isinstance(r, dict) and r.get("source_url"):
+            return str(r["source_url"])
+    return ""
+
+
+def build_deal_search_tool(
+    *,
+    domain: str,
+    shopping_leg: DealLeg,
+    serp_leg: DealLeg,
+    firecrawl_leg: DealLeg,
+    prefs: "ToolPreferenceStore | None" = None,
+    min_priced: int = DEFAULT_MIN_PRICED,
+) -> DealLeg:
+    """Assemble the injected legs into the async ``find_deals`` tool the product-research agent calls.
+
+    Deterministic cascade: the two query-driven legs (shopping, then SERP) run in order until one
+    returns non-thin priced rows; if both are thin, the firecrawl leg deep-reads the best candidate
+    URL (or the raw query) as a last resort. The winning leg is recorded in *prefs* per query-class,
+    and on the next call a recorded SERP win is tried before shopping (so a query-class where
+    shopping never works stops paying the wasted shopping call). Legs are injected, so this whole
+    decision path is unit-tested with fakes — no network.
+    """
+    legmap: dict[str, tuple[DealLeg, str]] = {
+        "shopping": (shopping_leg, TOOL_SHOPPING),
+        "serp": (serp_leg, TOOL_SERP),
+    }
+
+    async def find_deals(query: str) -> dict:
+        """Find current e-commerce prices and the best deal for a product query.
+
+        Use this for ANY pricing question — it returns live priced listings from shopping engines
+        (and per-seller offers) so you can name exact prices, sellers, and the best value. Returns
+        ``{status, tool, results}`` where each result has ``title``, ``price``, ``source_url``,
+        ``seller``. Cite the ``source_url``. Prefer this over generic web search for prices.
+        """
+        q = (query or "").strip()
+        if not q:
+            return {"status": "error", "message": "empty query", "results": []}
+
+        qclass = classify_query_class(domain, q)
+        order = ["shopping", "serp"]
+        if prefs is not None and prefs.get(qclass) == TOOL_SERP:
+            order = ["serp", "shopping"]  # learned: skip the wasted shopping call first
+
+        best: list[PricedRow] = []
+        for name in order:
+            leg, tool_name = legmap[name]
+            rows = await leg(q)
+            if rows:
+                best = rows
+            if not shopping_results_thin(rows, min_priced=min_priced):
+                if prefs is not None:
+                    prefs.record(qclass, tool_name)
+                return {"status": "success", "tool": tool_name, "results": rows}
+
+        # last resort: deep-read the best candidate page (a real URL if we have one, else the query)
+        candidate = _top_candidate(best) or q
+        fc_rows = await firecrawl_leg(candidate)
+        if fc_rows:
+            best = fc_rows
+            if not shopping_results_thin(fc_rows, min_priced=min_priced) and prefs is not None:
+                prefs.record(qclass, TOOL_FIRECRAWL)
+            return {"status": "success", "tool": TOOL_FIRECRAWL, "results": fc_rows}
+
+        # everything was thin — return the richest partial set we saw, flagged thin for the synthesizer
+        return {"status": "thin", "tool": legmap[order[-1]][1], "results": best}
+
+    find_deals.__name__ = "find_deals"
+    return find_deals
