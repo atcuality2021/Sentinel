@@ -806,31 +806,49 @@ def _chat_panel(task) -> str:
   var input = document.getElementById('sentinel-chat-input-{tid}');
   var btn = document.getElementById('sentinel-chat-btn-{tid}');
   if (!form) return;
+  // Build a message bubble; returns its (empty) body node — set .textContent to
+  // fill it safely (auto-escapes, so streamed deltas can't inject markup).
+  function bubble(label, who){{
+    var wrap = document.createElement('div');
+    var end = who === 'user' ? 'flex-end' : 'flex-start';
+    var bg  = who === 'user' ? 'var(--accent-line)' : 'var(--card)';
+    var bd  = who === 'user' ? '2px solid var(--accent-2)' : '1px solid var(--line)';
+    wrap.style.cssText = 'display:flex;justify-content:' + end + ';margin-bottom:10px';
+    wrap.innerHTML = '<div style="max-width:80%;padding:10px 14px;border-radius:10px;background:' + bg + ';border:' + bd + ';font-size:13px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px">' + label + '</div><div class="bubble-body" style="white-space:pre-wrap"></div></div>';
+    msgs.appendChild(wrap);
+    return wrap.querySelector('.bubble-body');
+  }}
   form.addEventListener('submit', function(e) {{
     e.preventDefault();
     var msg = input.value.trim();
     if (!msg) return;
-    btn.disabled = true; btn.textContent = 'Thinking…';
-    var userDiv = document.createElement('div');
-    userDiv.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:10px';
-    userDiv.innerHTML = '<div style="max-width:80%;padding:10px 14px;border-radius:10px;background:var(--accent-line);border:2px solid var(--accent-2);font-size:13px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px">You</div><div style="white-space:pre-wrap">' + msg.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div></div>';
-    msgs.appendChild(userDiv);
+    btn.disabled = true; btn.textContent = '\\u2026';
+    bubble('You', 'user').textContent = msg;
+    var body = bubble('Sentinel', 'bot');
+    body.textContent = '\\u258d';            // typing cursor while we wait for the first token
     msgs.scrollTop = msgs.scrollHeight;
     input.value = '';
-    var fd = new FormData();
-    fd.append('message', msg);
+    var acc = '';
+    var fd = new FormData(); fd.append('message', msg);
     fetch('/projects/{pid}/tasks/{tid}/chat', {{method:'POST', body:fd}})
-      .then(function(r){{ return r.json(); }})
-      .then(function(d){{
-        btn.disabled = false; btn.textContent = 'Send';
-        var reply = d.reply || d.error || '(no reply)';
-        var botDiv = document.createElement('div');
-        botDiv.style.cssText = 'display:flex;justify-content:flex-start;margin-bottom:10px';
-        botDiv.innerHTML = '<div style="max-width:80%;padding:10px 14px;border-radius:10px;background:var(--card);border:1px solid var(--line);font-size:13px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px">Sentinel</div><div style="white-space:pre-wrap">' + reply.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div></div>';
-        msgs.appendChild(botDiv);
-        msgs.scrollTop = msgs.scrollHeight;
+      .then(function(r){{
+        if (!r.body || !r.body.getReader) {{                       // no stream support → one-shot
+          return r.text().then(function(t){{ acc = t; body.textContent = t; }});
+        }}
+        var reader = r.body.getReader(); var dec = new TextDecoder();
+        function pump(){{
+          return reader.read().then(function(res){{
+            if (res.done) {{ body.textContent = acc || '(no reply)'; return; }}
+            acc += dec.decode(res.value, {{stream:true}});
+            body.textContent = acc + '\\u258d';                    // append delta + keep cursor
+            msgs.scrollTop = msgs.scrollHeight;
+            return pump();
+          }});
+        }}
+        return pump();
       }})
-      .catch(function(err){{ btn.disabled=false; btn.textContent='Send'; console.error(err); }});
+      .then(function(){{ btn.disabled=false; btn.textContent='Send'; msgs.scrollTop=msgs.scrollHeight; }})
+      .catch(function(err){{ btn.disabled=false; btn.textContent='Send'; body.textContent = acc + ' [connection error]'; console.error(err); }});
   }});
 }})();
 </script>"""
@@ -846,7 +864,7 @@ def _chat_panel(task) -> str:
         f"<div id='sentinel-chat-msgs-{tid}' style='padding:16px;max-height:360px;overflow-y:auto;min-height:80px'>"
         f"{empty_note}{msgs_html}</div>"
         "<div style='border-top:1px solid var(--line);padding:12px 16px'>"
-        f"<form id='sentinel-chat-form-{tid}' class='inline' style='gap:8px'>"
+        f"<form id='sentinel-chat-form-{tid}' data-no-loader class='inline' style='gap:8px'>"
         f"<input id='sentinel-chat-input-{tid}' type='text' class='input' style='flex:1' "
         "placeholder='Ask about the findings, request follow-up research, explore next steps…'>"
         f"<button id='sentinel-chat-btn-{tid}' type='submit' class='btn'>Send</button>"

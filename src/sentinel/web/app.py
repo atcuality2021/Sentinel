@@ -2087,8 +2087,13 @@ async def run_plan_route(background_tasks: BackgroundTasks,
 @app.post("/projects/{project_id}/tasks/{task_id}/chat")
 async def task_chat(project_id: str, task_id: str,
                     message: str = Form(...)):
-    """Conversational refinement on a completed task — Claude.ai-style post-run chat."""
+    """Conversational refinement on a completed task — Claude.ai-style post-run chat.
+
+    Streams the reply token-by-token (chunked text/plain) so the UI renders it
+    progressively like ChatGPT/Claude, instead of blocking on the full response.
+    """
     from fastapi.responses import JSONResponse as _J
+    from fastapi.responses import StreamingResponse as _Stream
     import litellm as _litellm
 
     store = ProjectStore()
@@ -2126,22 +2131,34 @@ async def task_chat(project_id: str, task_id: str,
 
     messages = [{"role": "system", "content": system_prompt}] + history
 
-    try:
-        resp = await _litellm.acompletion(
-            model=f"gemini/{get_config().backend.gemini.model}",
-            messages=messages,
-            api_key=os.environ.get("GOOGLE_API_KEY"),
-            max_tokens=1024,
-            drop_params=True,
-        )
-        reply = resp.choices[0].message.content or ""
-    except Exception as exc:
-        return _J({"error": f"LLM error: {type(exc).__name__}: {exc}"}, status_code=500)
+    async def _gen():
+        """Yield reply deltas as they arrive; persist the full turn once complete."""
+        chunks: list[str] = []
+        try:
+            stream = await _litellm.acompletion(
+                model=f"gemini/{get_config().backend.gemini.model}",
+                messages=messages,
+                api_key=os.environ.get("GOOGLE_API_KEY"),
+                max_tokens=1024,
+                drop_params=True,
+                stream=True,
+            )
+            async for chunk in stream:
+                choices = getattr(chunk, "choices", None) or []
+                delta = (getattr(choices[0].delta, "content", "") or "") if choices else ""
+                if delta:
+                    chunks.append(delta)
+                    yield delta
+        except Exception as exc:
+            yield f"\n[LLM error: {type(exc).__name__}: {exc}]"
+        finally:
+            reply = "".join(chunks)
+            if reply:
+                history.append({"role": "assistant", "content": reply})
+                task.chat = history
+                store.save_task(task)
 
-    history.append({"role": "assistant", "content": reply})
-    task.chat = history
-    store.save_task(task)
-    return _J({"reply": reply, "success": True})
+    return _Stream(_gen(), media_type="text/plain; charset=utf-8")
 
 
 @app.get("/projects/{project_id}/tasks/{task_id}/export.html", response_class=HTMLResponse)

@@ -757,6 +757,9 @@ _LOADER_JS = """
 (function(){var o=document.getElementById('ld');if(!o)return;
 document.querySelectorAll('form').forEach(function(f){
 var a=f.getAttribute('action')||'';
+// JS-fetch forms (chat, inline async) have no action / opt out — they never navigate,
+// so the full-screen loader would get stuck. Skip them.
+if(a===''||f.hasAttribute('data-no-loader'))return;
 if(a.indexOf('run-plan')>-1||/\\/run$/.test(a))return; // runs redirect to the live timeline — no popup
 f.addEventListener('submit',function(){
 var b=f.querySelector('button[type=submit],button:not([type])');var m=document.getElementById('ldmsg');
