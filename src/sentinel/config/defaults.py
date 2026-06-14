@@ -697,21 +697,26 @@ _P_PRODUCT_RESEARCH_PLANNER = (
 _P_PRODUCT_RESEARCH_PUBLIC = (
     "You are a product price-comparison researcher. Request: {target}\n"
     "Research plan:\n{research_plan}\n\n"
-    "ATTACK SEQUENCE — run ALL of these searches in order, do NOT stop after one:\n"
-    "1. Search 'site:flipkart.com <product_type> <key_spec> buy price' — get live Flipkart listings "
-    "with MRP, offer price, seller rating.\n"
-    "2. Search 'site:amazon.in <product_type> <key_spec> buy price' — get live Amazon India listings "
-    "with MRP, deal price, Prime badge.\n"
-    "3. Search '<product_type> <key_spec> price comparison India 2025' — find comparison articles "
-    "that list multiple models side-by-side.\n"
-    "4. Search '<product_type> <key_spec> review 91mobiles OR notebookcheck OR digit.in 2025' — "
-    "get expert review scores, pros/cons per model.\n"
-    "5. If budget and spec constraints are given (e.g. '₹1 lakh', '16GB RAM'), run a fifth search: "
-    "'<product_type> under <budget> <spec> best value India 2025'.\n\n"
-    "For EACH product model found, record: name, brand, exact price (₹) with source, RAM, storage, "
+    "ATTACK SEQUENCE — run these in order, do NOT stop after one:\n"
+    "1. PRICES FIRST — call the `find_deals` tool with '<product_type> <key_spec>'. It runs "
+    "`google_shopping_search` for live priced listings, then `google_product` to expand the top "
+    "model into per-seller offers with direct retailer links. This is the authoritative source for "
+    "current prices and the best deal across sellers — use it BEFORE any generic web search. Each "
+    "result carries title, price (₹), source_url, seller.\n"
+    "2. MORE OFFERS — for the other strong candidates from step 1, call `google_product` with their "
+    "product_token to get each model's multi-seller offers (Flipkart, Amazon India, Reliance, …), so "
+    "you can record the lowest price and its direct URL per model.\n"
+    "3. REVIEWS — search '<product_type> <key_spec> review 91mobiles OR notebookcheck OR digit.in' "
+    "for expert scores and pros/cons per model.\n"
+    "4. COMPARISON — search '<product_type> <key_spec> price comparison India' for articles that list "
+    "multiple models side-by-side.\n"
+    "5. FALLBACK ONLY if `find_deals` returned nothing usable — search "
+    "'site:flipkart.com <product_type> <key_spec> buy price' and "
+    "'site:amazon.in <product_type> <key_spec> buy price'.\n\n"
+    "For EACH product model found, record: name, brand, exact price (₹) with source_url, RAM, storage, "
     "processor, display, battery, expert score (X/10), top 3 pros, top 3 cons, direct product URL. "
     "Group findings by product model. Include AT LEAST 5 qualifying models. "
-    "If Flipkart and Amazon show different prices for the same model, record BOTH prices. "
+    "If sellers show different prices for the same model, record the lowest with its seller + URL. "
     "Do NOT summarise — output raw per-model findings with source URLs."
     + _INJECTION_STANCE
 )
@@ -1014,7 +1019,9 @@ def _default_mcp_servers() -> dict:
             # engines selected when creating the integration). Add engines there, not here.
             tool_filter=[],
             domains=[],
-            description="SearchAPI.io engines — toolset curated in the SearchAPI dashboard.",
+            description=("SearchAPI.io shopping engines — google_shopping_search (live priced "
+                         "e-commerce listings with seller + product_token) and google_product "
+                         "(token → multi-seller offers + price history). Use for product prices/deals."),
         ),
         "gdrive": MCPServerConfig(
             transport="stdio", command="npx", args="-y @isaacphi/mcp-gdrive",
