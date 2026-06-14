@@ -91,7 +91,9 @@ def account_detail_page(*, summary, runs: list, public_mem: list, private_mem: l
     subtitle = (f"{summary.runs} runs · last {_fmt_when(summary.last_run_at)} · {escape(modes)}")
     head = (
         "<div class='page-head'><div class='grow'>"
-        f"<h1>{escape(summary.display_name)}</h1><p>{subtitle}</p></div></div>"
+        f"<h1>{escape(summary.display_name)}</h1><p>{subtitle}</p></div>"
+        f"<a class='btn ghost danger' href='{_account_href(summary.entity)}?confirm=purge'>"
+        "Purge memory</a></div>"
     )
 
     kpis = (

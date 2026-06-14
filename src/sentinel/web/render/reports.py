@@ -101,6 +101,10 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
 
     _SUB = "font-size:13px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)"
     sections: list[str] = []
+    # OD report frame: a per-task results overview table + the first executive
+    # summary, rendered above the detailed per-task sections.
+    overview_rows: list[list[str]] = []
+    exec_summary_text = ""
 
     for i, task in enumerate(done_tasks, 1):
         result  = task.get("result") or {}
@@ -133,6 +137,31 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
             prod_art    = None
 
         citations = result.get("citations") or []
+
+        # ── OD frame: derive a one-line summary + capture exec text ───────────
+        if govt_art:
+            _depts = [d for d in (govt_art.get("department_mappings") or []) if isinstance(d, dict)]
+            _ov_summary = f"{len(_depts)} departments mapped" if _depts else "Govt proposal"
+            if not exec_summary_text and govt_art.get("executive_summary"):
+                exec_summary_text = str(govt_art["executive_summary"])
+        elif prod_art:
+            _prods = [p for p in (prod_art.get("products_found") or []) if isinstance(p, dict)]
+            _win = str(prod_art.get("winner") or "").strip()
+            _ov_summary = (f"{len(_prods)} products" + (f" · winner {_win}" if _win else "")) \
+                if _prods else "Product research"
+            if not exec_summary_text and prod_art.get("one_line_summary"):
+                exec_summary_text = str(prod_art["one_line_summary"])
+        else:
+            _np = len([p for p in (self_prof.get("products") or []) if isinstance(p, dict)]) \
+                if self_prof else 0
+            _ov_summary = f"{_np} product(s) · {len(comparisons)} competitor(s)"
+            if not exec_summary_text and strategy and strategy.get("assessment"):
+                exec_summary_text = str(strategy["assessment"])
+        overview_rows.append([
+            f"<b>{escape(obj_raw[:70] + ('…' if len(obj_raw) > 70 else ''))}</b>",
+            "<span class='badge ok'>done</span>",
+            f"<span class='muted'>{escape(_ov_summary)}</span>",
+        ])
 
         obj_trunc_display = obj_raw[:80] + ("…" if len(obj_raw) > 80 else "")
         body = (f"<p class='note' style='margin-bottom:16px'>"
@@ -369,10 +398,26 @@ def project_report_page(*, project, tasks: list, backend: str) -> str:
         obj_trunc = obj_raw[:70] + ("…" if len(obj_raw) > 70 else "")
         sections.append(_rpt_section(str(i).zfill(2), f"Task {i}: {obj_trunc}", body))
 
+    # ── OD top frame: exec-summary card + per-task results table ──────────────
+    exec_card = ""
+    if exec_summary_text:
+        exec_card = (
+            "<div class='card' style='margin-bottom:16px'>"
+            "<p class='eyebrow'>Executive summary</p>"
+            f"<p style='margin-top:6px'>{escape(exec_summary_text[:600])}</p></div>"
+        )
+    overview_card = (
+        "<div class='card' style='margin-bottom:16px'>"
+        "<div class='card-head'><h2>Per-task results</h2>"
+        f"<span class='pill'>{len(done_tasks)} complete</span></div>"
+        + _rpt_table(["Task", "Status", "Summary"], overview_rows)
+        + "</div>"
+    )
+
     return shell(
         active="projects",
         title=f"{project.name} · Report",
-        content=cover + "".join(sections),
+        content=cover + exec_card + overview_card + "".join(sections),
         backend=backend,
         subnav=subnav,
         project=project.name,

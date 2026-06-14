@@ -1154,12 +1154,10 @@ def plan_review_page(*, task, proposal, autonomy: str, backend: str, ran: bool =
         f"<summary {_details_style}>KB context used</summary>"
         "<div style='margin-top:6px'>" + kb_panel + "</div></details>"
     ) if kb_panel else ""
-    timeline_details = (
-        "<details style='margin-top:12px'>"
-        f"<summary {_details_style}>Agent timeline</summary>"
-        "<div style='margin-top:6px'>" + timeline_html + "</div></details>"
-    )
+    # _step_timeline already returns a titled card; render it directly (visible
+    # immediately, per OD) rather than hiding it inside a collapsed <details>.
+    timeline_block = "<div style='margin-top:12px'></div>" + timeline_html
     content = (status_bar + result_html + fb_html + chat_html
-               + timeline_details + kb_post + exec_html + plan_toggle)
+               + timeline_block + kb_post + exec_html + plan_toggle)
     return shell(active="projects", title=task.objective[:60], content=content, backend=backend,
                  subnav=_project_subnav(proj_id, "tasks") if proj_id else "")

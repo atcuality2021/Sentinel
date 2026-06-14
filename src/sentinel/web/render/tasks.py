@@ -516,21 +516,8 @@ def project_tasks_page(*, project, tasks: list, backend: str,
         f"</div>"
     )
 
-    # When tasks already exist, collapse the form behind a toggle button so the
-    # task list is immediately visible on load.
-    if tasks:
-        form_block = (
-            "<div style='margin-bottom:24px'>"
-            "<button type='button' class='btn ghost' "
-            "onclick=\"var p=document.getElementById('new-task-panel');"
-            "p.style.display=p.style.display==='none'?'block':'none'\">"
-            "＋ New research task</button>"
-            "<div id='new-task-panel' style='display:none;margin-top:12px'>"
-            f"{form_html}</div></div>"
-        )
-    else:
-        form_block = form_html + "<div style='margin-top:24px'></div>"
-
+    # OD research layout = a 2-col .split: Tasks table (left, 2fr) beside the
+    # New-task form (right, 1fr), both always visible.
     if tasks:
         rows = "".join(_task_row(t, pid, show_full_obj=True) for t in tasks)
         failed_note = (
@@ -551,10 +538,15 @@ def project_tasks_page(*, project, tasks: list, backend: str,
             "<div class='card-head'><h2>Tasks</h2></div>"
             "<div class='empty'>"
             f"<div class='ico'>{_icon('search')}</div>"
-            "No tasks yet — create one above.</div>"
+            "No tasks yet — create one with the form.</div>"
             "</div>"
         )
-    content = page_head + form_block + tasks_html
+    content = (
+        page_head
+        + "<div class='split' style='align-items:start'>"
+        + tasks_html + form_html
+        + "</div>"
+    )
     return shell(
         active="projects", title=f"{project.name} · Research", content=content,
         backend=backend, project=project.name,

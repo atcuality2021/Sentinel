@@ -87,8 +87,8 @@ def _task_form(project_id: str, *, default_backend: str = "gemini",
         if sovereign else ""
     )
     return (
-        "<div class='card-head'><h2>New task</h2></div>"
         "<div class='card'>"
+        "<div class='card-head'><h2>New task</h2></div>"
         f"<form method='get' action='/projects/{escape(project_id)}/plan'>"
         "<div class='field'><label for='t-obj'>Objective</label>"
         "<input class='input' id='t-obj' name='objective' required "
@@ -255,22 +255,33 @@ def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
     # card (as "overridden"), not here, so it isn't listed twice.
     library = [p for p in saved if p.name.strip().lower() not in PERSONA_PROFILES]
     if library:
-        saved_cards = "".join(
-            "<div class='card pad-sm' style='margin-bottom:10px'>"
-            "<div class='row-between' style='align-items:center'>"
-            f"<div><b>{escape(p.name)}</b>"
-            + (f" <span class='hint'>— {escape(p.description)}</span>" if p.description else "")
-            + f"{_profile_rows(p.reading_level, p.tone, p.format, p.source_policy or '')}</div>"
-            f"<form method='post' action='/personas/{escape(p.id)}/delete' "
+        saved_rows = "".join(
+            "<tr>"
+            f"<td><b>{escape(p.name)}</b>"
+            + (f"<div class='hint'>{escape(p.description)}</div>" if p.description else "")
+            + "</td>"
+            f"<td>{escape(p.reading_level)}</td>"
+            f"<td>{escape(p.tone)}</td>"
+            f"<td>{escape(p.format)}</td>"
+            f"<td><form method='post' action='/personas/{escape(p.id)}/delete' "
             "onsubmit=\"return confirm('Delete this persona? Existing tasks keep their copy.')\">"
-            "<button class='btn sm danger' type='submit'>Delete</button>"
-            "</form></div></div>"
+            "<button class='btn sm danger' type='submit'>Delete</button></form></td>"
+            "</tr>"
             for p in library)
+        saved_block = (
+            "<div class='card'>"
+            f"<div class='card-head'><h2>Saved personas</h2><span class='pill'>{len(library)}</span></div>"
+            "<div class='table-wrap'><table class='table'><thead><tr>"
+            "<th>Name</th><th>Reading level</th><th>Tone</th><th>Format</th><th></th>"
+            f"</tr></thead><tbody>{saved_rows}</tbody></table></div></div>"
+        )
     else:
-        saved_cards = ("<div class='card'><div class='empty'>"
+        saved_block = ("<div class='card'>"
+                       "<div class='card-head'><h2>Saved personas</h2></div>"
+                       "<div class='empty'>"
                        f"<div class='ico'>{_icon('users')}</div>"
                        "No saved personas yet — "
-                       "create one above or generate from a description.</div></div>")
+                       "create or generate one.</div></div>")
 
     # --- built-in cards (editable via override; enterprise stays read-only) ---
     from urllib.parse import quote as _qp
@@ -315,16 +326,24 @@ def personas_page(saved: list, *, backend: str, ok: str = "", err: str = "",
 
     builtin_cards = "".join(_builtin_card(name, profile) for name, profile in PERSONA_PROFILES.items())
 
-    content = (
-        "<div class='page-head'><div class='grow'><h1>Personas</h1>"
-        "<p>Audience profiles that shape reading level, tone, and format.</p></div></div>"
-        + banner + generator + create_form
-        + f"<div class='card-head'><h2>Saved personas</h2><span class='pill'>{len(library)}</span></div>"
-        + saved_cards
-        + "<div class='card-head' style='margin-top:24px'><h2>Built-in personas</h2></div>"
-        + "<div class='hint' style='margin-bottom:10px'><b>Edit</b> tweaks a built-in for every "
+    # OD personas layout = a 2-col .split: saved personas (table) + built-ins on
+    # the left; the create form and generator stacked on the right.
+    builtin_block = (
+        "<div style='margin-top:16px'>"
+        "<div class='card-head'><h2>Built-in personas</h2></div>"
+        "<div class='hint' style='margin-bottom:10px'><b>Edit</b> tweaks a built-in for every "
         "task (saved as an override); <b>Reset to default</b> restores the code profile. "
         "<b>enterprise</b> stays read-only. Pick <b>auto</b> in the task form to let the agent "
         "choose one by domain.</div>"
-        + builtin_cards)
+        + builtin_cards + "</div>"
+    )
+    content = (
+        "<div class='page-head'><div class='grow'><h1>Personas</h1>"
+        "<p>Audience profiles that shape reading level, tone, and format.</p></div></div>"
+        + banner
+        + "<div class='split' style='align-items:start'>"
+        + "<div class='stack'>" + saved_block + builtin_block + "</div>"
+        + "<div class='stack'>" + create_form + generator + "</div>"
+        + "</div>"
+    )
     return shell(active="personas", title="Personas", content=content, backend=backend)

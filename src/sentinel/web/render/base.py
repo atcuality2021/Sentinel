@@ -827,7 +827,7 @@ def shell(*, active: str, title: str, content: str, backend: str, head_extra: st
         "<input type='search' placeholder='Search projects, entities…' "
         "style='border:none;background:none;outline:none;padding:0;font:inherit;"
         "color:var(--text);flex:1;min-width:0'><span class='kbd'>⌘K</span></label>"
-        f"<span class='pill'>{_icon('shield')} project: {escape(project)}</span>"
+        f"<span class='pill proj-pill'>{_icon('shield')} project: {escape(project)}</span>"
         f"{backend_pill}"
         "<button class='icon-btn' id='themeToggle' aria-label='Toggle light/dark theme' "
         f"title='Toggle theme'>{_icon('moon')}</button>"

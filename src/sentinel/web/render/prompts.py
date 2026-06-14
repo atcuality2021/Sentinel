@@ -99,7 +99,7 @@ def prompts_page(cfg, *, backend: str, ok: str = "", err: str = "") -> str:
 
     # Create new prompt form
     create_form = (
-        "<div class='card' style='margin-bottom:24px'>"
+        "<div class='card' style='margin-bottom:24px' id='new-prompt'>"
         "<div class='card-head'><h2>New custom prompt</h2></div>"
         "<form method='post' action='/settings/prompts/create' class='set-grid'>"
         "<div class='grid cols-2'>"
@@ -162,7 +162,8 @@ def prompts_page(cfg, *, backend: str, ok: str = "", err: str = "") -> str:
 
     page_head = (
         "<div class='page-head'><div class='grow'><h1>Prompts</h1>"
-        f"<p>System prompt library — {total} prompts across {len(ordered)} groups.</p></div></div>"
+        f"<p>System prompt library — {total} prompts across {len(ordered)} groups.</p></div>"
+        "<a class='btn' href='#new-prompt'>＋ New prompt</a></div>"
     )
 
     content = page_head + banner + summary_bar + controls + create_form + "".join(sections)

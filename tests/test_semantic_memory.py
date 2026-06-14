@@ -158,17 +158,19 @@ def test_memory_page_semantic_live_when_facts_present(tmp_path, monkeypatch):
     html = render.project_memory_page(
         project=_project(), records=[], backend="vllm", semantic_facts=facts,
     )
-    assert "Semantic Memory" in html          # section header rendered
+    assert "Semantic facts" in html          # OD card header rendered
     assert "Winner at" in html               # fact content visible
-    assert "1 entity fact" in html           # count in header
+    assert "live heads" in html              # live-heads pill in header
+    assert "badge ok" in html                # fact shown as a live head
 
 
-def test_memory_page_semantic_phase2_when_no_facts():
+def test_memory_page_semantic_empty_when_no_facts():
     html = render.project_memory_page(
         project=_project(), records=[], backend="vllm", semantic_facts=[],
     )
-    assert "phase 2" in html                 # card still shows phase 2
-    assert "Semantic Memory" not in html     # no section rendered
+    assert "Semantic facts" in html                     # OD card always present
+    assert "No entity facts accumulated yet." in html   # empty state shown
+    assert "live heads" not in html                     # no live-heads pill when empty
 
 
 # --------------------------------------------------------------------------- #

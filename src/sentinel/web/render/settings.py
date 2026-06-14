@@ -437,11 +437,17 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         "<div class='page-head'><div class='grow'><h1>Settings</h1>"
         "<p>Backends, governance, search, and memory for this instance.</p></div></div>"
     )
+    # OD settings layout = a 2-col .split of two card stacks. Form-heavy cards go
+    # in the wider (2fr) left column; toggle/list cards in the 1fr right column.
     content = (
         page_head + banner
+        + "<div class='split' style='align-items:start'>"
         + "<div class='stack' style='gap:var(--sp-5)'>"
-        + backends + models + coordinator + governance + search + mcp_section
-        + strategy + generation + memory + harness + agents + prompts + security
+        + backends + models + coordinator + generation + agents + prompts
+        + "</div>"
+        + "<div class='stack' style='gap:var(--sp-5)'>"
+        + governance + search + mcp_section + strategy + memory + harness + security
+        + "</div>"
         + "</div>"
     )
     return shell(active="settings", title="Settings", content=content, backend=backend)
