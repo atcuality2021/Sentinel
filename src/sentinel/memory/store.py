@@ -684,6 +684,104 @@ class MemoryStore:
         except Exception:
             pass
 
+    def _load_entry(self, conn, entry_id: str) -> MemoryEntry | None:
+        """Load one entry by id (any quarantine state), or None if it no longer exists."""
+        row = conn.execute(
+            "SELECT * FROM memory_entries WHERE id=?", (entry_id,)
+        ).fetchone()
+        return _row_to_entry(row) if row is not None else None
+
+    def _golden_recall(self, entity: str, allowed: Iterable[DataBoundary]) -> list[MemoryEntry]:
+        """Read-only recall used only for the golden-question safety check — never reinforces, so
+        snapshotting an entity's live heads cannot mutate their SM-2 strength."""
+        return self.recall(
+            entity, allowed, limit=100, token_budget=10**9, reinforce_on_read=False
+        )
+
+    def reconcile_open_conflicts(self, *, golden_top_n: int = 20) -> dict:
+        """Auto-resolve every ``status='open'`` conflict via the :func:`_pick_winner` policy, guarded
+        by a golden-question check (SENTINEL-021 AC5).
+
+        Backlog rows predate the write-time resolver (pre-021 DBs) or arrive from races. For each,
+        the deterministic policy demotes the loser (quarantine + ``superseded_by``) exactly as the
+        write path does. Safety net: before resolving, snapshot the live head-ids of the top-N
+        most-accessed entities (auto-derived per OQ-3); after resolving, re-recall each; if any
+        snapshotted entity loses **all** of its previously-served heads (zero id overlap), roll back
+        that entity's just-applied demotions and flag the conflicts for human review. A correct
+        demotion always keeps the winner live, so zero overlap signals a bad resolution rather than
+        the intended narrowing.
+
+        Returns ``{"resolved": int, "rolled_back": int, "flagged": int}``. Fail-soft: best-effort
+        counts; never raises.
+        """
+        resolved = rolled_back = flagged = 0
+        both = {DataBoundary.PUBLIC, DataBoundary.PRIVATE}
+        try:
+            # 1. Golden snapshot — top-N entities by total access, with their current live head-ids.
+            with _connect(self.path) as conn:
+                golden_rows = conn.execute(
+                    "SELECT entity, SUM(access_count) AS a FROM memory_entries "
+                    "WHERE quarantined=0 GROUP BY entity ORDER BY a DESC, entity LIMIT ?",
+                    (golden_top_n,),
+                ).fetchall()
+            before = {
+                r["entity"]: {e.id for e in self._golden_recall(r["entity"], both)}
+                for r in golden_rows
+            }
+
+            # 2. Resolve each open conflict; record the demotion so it can be undone per entity.
+            applied: dict[str, list[tuple[str, str]]] = {}  # entity -> [(conflict_id, loser_id)]
+            for c in self.list_conflicts(status="open"):
+                with _connect(self.path) as conn:
+                    a = self._load_entry(conn, c["entry_id_a"])
+                    b = self._load_entry(conn, c["entry_id_b"])
+                if a is None or b is None:
+                    # Stale reference — an entry was purged. Retire the row, don't resolve.
+                    with _connect(self.path) as conn:
+                        conn.execute(
+                            "UPDATE memory_conflicts SET status='dismissed' WHERE id=?", (c["id"],)
+                        )
+                        conn.commit()
+                    continue
+                winner, loser = _pick_winner(a, b)
+                status = "resolved_a" if winner.id == c["entry_id_a"] else "resolved_b"
+                with _connect(self.path) as conn:
+                    conn.execute(
+                        "UPDATE memory_entries SET quarantined=1, superseded_by=? WHERE id=?",
+                        (winner.id, loser.id),
+                    )
+                    conn.execute(
+                        "UPDATE memory_conflicts SET status=? WHERE id=?", (status, c["id"])
+                    )
+                    conn.commit()
+                applied.setdefault(c["entity"], []).append((c["id"], loser.id))
+                resolved += 1
+
+            # 3. Golden-question check — undo any entity that lost ALL of its prior live heads.
+            for entity, demotions in applied.items():
+                prior = before.get(entity)
+                if not prior:
+                    continue  # not a golden entity, or it had no live head to protect
+                after = {e.id for e in self._golden_recall(entity, both)}
+                if prior & after:
+                    continue  # at least one prior head survived → intended narrowing, keep it
+                for conflict_id, loser_id in demotions:
+                    with _connect(self.path) as conn:
+                        conn.execute(
+                            "UPDATE memory_entries SET quarantined=0, superseded_by=NULL WHERE id=?",
+                            (loser_id,),
+                        )
+                        conn.execute(
+                            "UPDATE memory_conflicts SET status='flagged' WHERE id=?", (conflict_id,)
+                        )
+                        conn.commit()
+                    resolved -= 1
+                    rolled_back += 1
+                    flagged += 1
+        except Exception:
+            pass  # curator is best-effort — never raises into the cadence that calls it
+        return {"resolved": resolved, "rolled_back": rolled_back, "flagged": flagged}
+
     # ---------------------------------------------------------------------- #
     # Knowledge graph: entity relations (SENTINEL-016 G-06)
     # ---------------------------------------------------------------------- #

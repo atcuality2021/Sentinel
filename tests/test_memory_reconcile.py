@@ -230,3 +230,70 @@ def test_resolver_failure_does_not_break_write(tmp_path, monkeypatch):
     assert returned == "new"  # the write itself succeeded despite the resolver failing
     ids = {r.id for r in mem.list_for_entity("acme", include_quarantined=True)}
     assert ids == {"old", "new"}  # both persisted (fail-soft: logged-but-unresolved at worst)
+
+
+# --------------------------------------------------------------------------- #
+# Step 4 — reconcile_open_conflicts + golden-question rollback (AC5)
+# --------------------------------------------------------------------------- #
+def _insert_open_conflict(db_path, cid: str, entity: str, a_id: str, b_id: str) -> None:
+    """Seed an 'open' backlog conflict directly (write() now auto-resolves, so the backlog only
+    arises from pre-021 DBs / races). Uses distinct-topic entries so write() didn't already resolve."""
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "INSERT INTO memory_conflicts (id, entity, entry_id_a, entry_id_b, topic_prefix, status) "
+        "VALUES (?,?,?,?,'seed','open')",
+        (cid, entity, a_id, b_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_reconcile_clears_open_backlog(tmp_path):
+    db = tmp_path / "s.db"
+    mem = MemoryStore(db)
+    now = utcnow()
+    a = mem.write(_entry(content="alpha distinct topic line", id="A", created_at=now - timedelta(hours=1)))
+    b = mem.write(_entry(content="beta distinct topic line", id="B", created_at=now))
+    _insert_open_conflict(db, "c1", "acme", a, b)
+
+    out = mem.reconcile_open_conflicts()
+    assert out == {"resolved": 1, "rolled_back": 0, "flagged": 0}
+    assert mem.list_conflicts(status="open") == []
+    live = {e.id for e in mem.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)}
+    assert live == {"B"}  # newer wins; A demoted
+    rows = {r.id: r for r in mem.list_for_entity("acme", include_quarantined=True)}
+    assert rows["A"].quarantined is True and rows["A"].superseded_by == "B"
+
+
+def test_golden_rollback_on_degraded_recall(tmp_path):
+    db = tmp_path / "s.db"
+    mem = MemoryStore(db)
+    now = utcnow()
+    # A is the entity's only LIVE head. B is newer but already quarantined (demoted earlier).
+    mem.write(_entry(content="alpha sole live head", id="A", created_at=now - timedelta(hours=1)))
+    b = _entry(content="beta already demoted elsewhere", id="B", created_at=now)
+    b.quarantined = True
+    mem.write(b)
+    _insert_open_conflict(db, "c1", "acme", "A", "B")
+    # Policy would pick newer B as winner and quarantine A — but B is already quarantined, so the
+    # entity would lose its ONLY live head. The golden-question check must roll this back.
+    out = mem.reconcile_open_conflicts()
+    assert out["rolled_back"] == 1
+    assert out["flagged"] == 1
+    assert out["resolved"] == 0  # net: the demotion was undone
+    assert len(mem.list_conflicts("acme", status="flagged")) == 1
+    live = {e.id for e in mem.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)}
+    assert live == {"A"}  # A restored by the safety net
+
+
+def test_reconcile_is_idempotent(tmp_path):
+    db = tmp_path / "s.db"
+    mem = MemoryStore(db)
+    a = mem.write(_entry(content="alpha distinct topic line", id="A"))
+    b = mem.write(_entry(content="beta distinct topic line", id="B"))
+    _insert_open_conflict(db, "c1", "acme", a, b)
+
+    first = mem.reconcile_open_conflicts()
+    second = mem.reconcile_open_conflicts()
+    assert first["resolved"] == 1
+    assert second == {"resolved": 0, "rolled_back": 0, "flagged": 0}  # nothing left to do
