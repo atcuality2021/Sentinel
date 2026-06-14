@@ -176,20 +176,28 @@ try:
 except Exception:
     mcp_tools = []          # fail-soft, unchanged
 
-# widen the existing vLLM-only swap: ANY step that also carries MCP function-tools
-# cannot use the gemini built-in google_search (built-in vs function-calling = 400).
-_eff_provider = _search_provider_for_step(
-    requested=search_provider, resolved=_resolved,
+_eff_provider, _keep_mcp = _resolve_search_tools(
+    requested=search_provider, resolved=_resolved, pin_gemini=_pin,
     has_mcp_funcs=bool(mcp_tools), onprem_fallback=cfg.search.onprem_fallback,
 )
+if not _keep_mcp: mcp_tools = []
 tools = [get_search_tool(_eff_provider, results=cfg.search.results, ...)]
 if kb_tool is not None: tools.append(kb_tool)
 tools.extend(mcp_tools)</pre>
-    <p><code>_search_provider_for_step(...)</code> is a new <strong>pure</strong> helper (no I/O) so the
-       rule is unit-tested directly: <code>gemini + has_mcp_funcs → onprem_fallback</code>;
-       <code>gemini + vLLM-resolved → onprem_fallback</code> (existing behavior preserved);
-       <code>gemini + cloud + no MCP → gemini</code> (built-in still used where it's safe);
-       any explicit non-gemini provider → unchanged.</p>
+    <p><code>_resolve_search_tools(...)</code> is a new <strong>pure</strong> helper (no I/O) returning
+       <code>(effective_provider, keep_mcp)</code>, unit-tested across every branch.
+       <strong>Build-time discovery (important):</strong> with SearchAPI + Firecrawl configured
+       (<code>domains=[]</code> ⇒ they attach to <em>every</em> domain), the built-in/function-tool
+       collision is not unique to product_research — <em>every</em> cloud + gemini research step was
+       already attaching the built-in <code>google_search</code> alongside 2 MCP function-toolsets (the
+       same 400). To keep SENTINEL-022 scoped, the swap fires <strong>only for non-pinned steps</strong>:
+       <code>product_research</code> (not pinned) → <code>onprem_fallback</code>, keep MCP; the three
+       <code>pin_gemini</code> modes (competitor / client / self_profile) are left
+       <strong>exactly as-is</strong> (built-in + MCP), so no existing test or behavior changes.
+       Resolving the pinned modes' latent collision is a tracked follow-up
+       (<strong>TD-SENTINEL-022</strong>), not bundled here. Branch matrix: non-gemini → as-is;
+       gemini+vLLM → fallback; gemini+pinned → unchanged; gemini+unpinned+MCP → fallback;
+       gemini+unpinned+no-MCP → built-in.</p>
     <p><strong>Layer 2 — shopping-first prompt (AC2).</strong> Rewrite
        <code>_P_PRODUCT_RESEARCH_PUBLIC</code> so steps 1-2 of the attack sequence are
        <code>google_shopping_search</code> (criteria → priced listings, capture each
@@ -310,7 +318,7 @@ tools.extend(mcp_tools)</pre>
                 learning-key helper.</td>
             <td>AC3, AC4</td></tr>
         <tr><td><code>tests/test_search_provider_collision.py</code></td>
-            <td>Unit tests for <code>_search_provider_for_step</code> — every swap/no-swap branch,
+            <td>Unit tests for <code>_resolve_search_tools</code> — every swap/no-swap branch,
                 incl. the AC6 sovereign case (<code>cloud_allowed=False</code> → no MCP → provider
                 unchanged).</td>
             <td>AC1, AC6</td></tr>
@@ -340,7 +348,7 @@ tools.extend(mcp_tools)</pre>
       <tbody>
         <tr><td><code>src/sentinel/agent/modes/spec.py</code></td>
             <td>Reorder the <code>step.tool == "search"</code> branch to build MCP toolsets first; add
-                + call pure <code>_search_provider_for_step()</code> (widen the vLLM-only swap to
+                + call pure <code>_resolve_search_tools()</code> (widen the vLLM-only swap to
                 &ldquo;MCP function-tools present&rdquo;); attach the <code>find_deals</code> cascade
                 tool for <code>product_research</code> when <code>cloud_allowed=True</code>.</td>
             <td>AC1, AC3, AC6</td></tr>
@@ -386,7 +394,7 @@ tools.extend(mcp_tools)</pre>
        <code>ProductResearch</code> / <code>ProductOption</code> output schema is unchanged — the whole
        point is that the <em>existing</em> <code>price</code> / <code>source_url</code> /
        <code>winner</code> / <code>value_ranking</code> fields finally get populated. Internal-only new
-       symbols: <code>_search_provider_for_step()</code>, <code>shopping_results_thin()</code>,
+       symbols: <code>_resolve_search_tools()</code>, <code>shopping_results_thin()</code>,
        <code>classify_query_class()</code>, <code>ToolPreferenceStore</code>.</p>
   </section>
 

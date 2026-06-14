@@ -331,6 +331,90 @@ SKILL_SPECS: dict[str, ResearchModeSpec] = {
 }
 
 
+def _resolve_search_tools(
+    *, requested: str, resolved: str, pin_gemini: bool,
+    has_mcp_funcs: bool, onprem_fallback: str,
+) -> tuple[str, bool]:
+    """Resolve the builtin-vs-function-tool collision for a search step (SENTINEL-022 AC1).
+
+    ADK's gemini builtin ``google_search`` cannot share an agent with function-calling tools
+    (builtin + function-call ⇒ 400 INVALID_ARGUMENT). Returns ``(effective_provider, keep_mcp)``:
+
+    * non-gemini requested → honored as-is; keep MCP.
+    * gemini + vLLM-resolved → the builtin can't run on vLLM at all → fallback; keep MCP.
+    * gemini + ``pin_gemini`` → the step explicitly opted into native gemini grounding; left
+      **exactly as-is** (builtin, keep whatever MCP attaches). SENTINEL-022 does not change the
+      competitor/client/self_profile modes — their pre-existing builtin+MCP coexistence is a
+      separate concern (see TD note below), out of this task's product_research scope.
+    * gemini + not pinned + function-tools → **MCP wins**: swap to the on-prem function-tool
+      provider, keep MCP (the product_research path — its prices come from the cascade + MCP).
+    * gemini + not pinned + no function-tools → keep the builtin.
+
+    Pure (no I/O) so every branch is unit-tested directly.
+
+    TD-SENTINEL-022: pin_gemini steps with configured MCP attach the gemini builtin *and* MCP
+    function-toolsets — a latent builtin/function-call collision predating this task. Resolving it
+    (builtin-wins-drop-MCP vs MCP-wins-swap) is a product decision for those modes; tracked for a
+    follow-up, deliberately not bundled into the product_research fix.
+    """
+    if requested != "gemini":
+        return requested, True
+    if resolved == "vllm":
+        return onprem_fallback, True          # builtin can't run on vLLM
+    if pin_gemini:
+        return "gemini", True                 # out of scope: leave pinned modes exactly as-is
+    if not has_mcp_funcs:
+        return "gemini", True                 # builtin safe; nothing to collide with
+    return onprem_fallback, True              # non-pinned + MCP → MCP wins, swap off the builtin
+
+
+def _build_product_deal_tool(cfg: "SentinelConfig"):
+    """Bind the real cascade legs and return the ``find_deals`` tool for product research (AC3).
+
+    Shopping leg = SearchAPI ``google_shopping_search`` enriched with the top model's per-seller
+    ``google_product`` offers (direct retailer links). SERP leg = the on-prem fallback web search,
+    run off the event loop (it does blocking HTTP). Firecrawl leg is a v1 stub returning ``[]`` —
+    the agent retains Firecrawl via its McpToolset; a programmatic deep-read client is a follow-up.
+    """
+    import asyncio
+
+    from sentinel.memory.store import ToolPreferenceStore
+    from sentinel.tools.shopping import build_deal_search_tool
+    from sentinel.tools.shopping_client import call_google_product, call_shopping_search
+
+    async def shopping_leg(query: str) -> list:
+        rows = await call_shopping_search(query)
+        # Enrich the top model with per-seller offers — direct retailer links = best deal across
+        # sellers. One extra call (bounded latency); failure leaves the broad listing intact.
+        if rows and rows[0].get("product_token"):
+            offers = await call_google_product(rows[0]["product_token"])
+            if offers:
+                rows = offers + rows
+        return rows
+
+    _serp = get_search_tool(cfg.search.onprem_fallback, results=cfg.search.results)
+
+    async def serp_leg(query: str) -> list:
+        resp = await asyncio.to_thread(_serp, query)  # blocking HTTP off the loop (AP#8)
+        results = resp.get("results") if isinstance(resp, dict) else None
+        return [
+            {"title": r.get("title", ""), "price": "",
+             "source_url": r.get("url", ""), "seller": ""}
+            for r in (results or []) if isinstance(r, dict)
+        ]
+
+    async def firecrawl_leg(_candidate: str) -> list:
+        # v1 stub: programmatic Firecrawl price deep-read is a follow-up. Returning [] keeps the
+        # cascade's last-resort graceful — it returns the best partial set it already gathered.
+        return []
+
+    return build_deal_search_tool(
+        domain="product_research",
+        shopping_leg=shopping_leg, serp_leg=serp_leg, firecrawl_leg=firecrawl_leg,
+        prefs=ToolPreferenceStore(),
+    )
+
+
 def build_step_agents(
     spec: ResearchModeSpec,
     cfg: SentinelConfig | None = None,
@@ -375,19 +459,25 @@ def build_step_agents(
                 continue                      # boundary not configured → omit the private step
             tools: list | None = [private_toolset]
         elif step.tool == "search":
-            # ADK's google_search builtin is Gemini-native — it hard-errors when given to a
-            # LiteLLM (vLLM) model. Detect the mismatch: if this step's agent resolves to vLLM
-            # (pin_gemini=False and mode_backend=vllm, or cloud_allowed=False) and the caller
-            # passed "gemini" as the search provider, fall back to duckduckgo so the research
-            # step can actually run with the 12B tool-caller.
             from sentinel.llm.gateway import resolve_backend as _rb
             _ac = cfg.agents.get(step.agent_key)
             _pin = _ac.pin_gemini if _ac else False
             _resolved = "vllm" if not cloud_allowed else ("gemini" if _pin else _rb(backend or cfg.backend.default))
-            _eff_provider = (
-                "duckduckgo" if (_resolved == "vllm" and search_provider == "gemini")
-                else search_provider
+            # Build the external MCP function-toolsets (Firecrawl, SearchAPI, …) FIRST: knowing
+            # whether any function-tool attaches decides the search provider, because ADK's gemini
+            # builtin google_search cannot coexist with function-calling (SENTINEL-022 AC1).
+            mcp_tools: list = []
+            try:
+                from sentinel.tools.mcp_registry import build_mcp_toolsets
+                mcp_tools = build_mcp_toolsets(cfg, spec.domain, cloud_allowed=cloud_allowed)
+            except Exception:
+                mcp_tools = []  # fail-soft: research runs even if the MCP layer is unavailable
+            _eff_provider, _keep_mcp = _resolve_search_tools(
+                requested=search_provider, resolved=_resolved, pin_gemini=_pin,
+                has_mcp_funcs=bool(mcp_tools), onprem_fallback=cfg.search.onprem_fallback,
             )
+            if not _keep_mcp:
+                mcp_tools = []  # pin_gemini step keeps the builtin → drop colliding function-tools
             tools = [get_search_tool(
                 _eff_provider, results=cfg.search.results,
                 max_calls=getattr(cfg.search, "max_calls", 0),
@@ -396,15 +486,16 @@ def build_step_agents(
             # Append KB tool so agents can query indexed project documents mid-research.
             if kb_tool is not None:
                 tools.append(kb_tool)
-            # External MCP toolsets (Firecrawl, SearchAPI, …) — config-driven, domain-scoped,
-            # cloud-gated. The tool-calling model selects them per step from their descriptions.
-            try:
-                from sentinel.tools.mcp_registry import build_mcp_toolsets
-                tools.extend(build_mcp_toolsets(
-                    cfg, spec.domain, cloud_allowed=cloud_allowed,
-                ))
-            except Exception:
-                pass  # fail-soft: research runs even if the MCP layer is unavailable
+            tools.extend(mcp_tools)
+            # SENTINEL-022 (AC3): deterministic price-discovery cascade for product research.
+            # Cloud-only (it calls SearchAPI — same sovereign gate as the MCP toolsets) and only on
+            # the function-tool path: find_deals is itself a function-tool, so it must not attach
+            # alongside the gemini builtin (_eff_provider == "gemini").
+            if spec.domain == "product_research" and cloud_allowed and _eff_provider != "gemini":
+                try:
+                    tools.append(_build_product_deal_tool(cfg))
+                except Exception:
+                    pass  # fail-soft: research still runs without the cascade tool
         else:
             tools = None
 
