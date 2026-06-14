@@ -107,6 +107,9 @@ class MemoryEntry(BaseModel):
     last_reinforced_at: datetime = Field(default_factory=utcnow)
     access_count: int = 0
     quarantined: bool = False
+    # SENTINEL-021: when this entry loses a conflict it is quarantined and this points at the
+    # winning entry's id (audit trail + wake-up path). None for live/legacy entries.
+    superseded_by: str | None = None
     # Best-effort project provenance (SENTINEL-012 / ADR-0003). NOT a scoping key: memory is
     # entity-keyed and deliberately cross-project, so `recall` never filters by it. Records the
     # first writer of a deduped fact; None for legacy/unscoped entries.

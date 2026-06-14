@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS memory_entries (
     last_reinforced_at TEXT NOT NULL,
     access_count       INTEGER NOT NULL,
     quarantined        INTEGER NOT NULL,
-    project_id         TEXT
+    project_id         TEXT,
+    superseded_by      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mem_entity ON memory_entries(entity);
 CREATE INDEX IF NOT EXISTS idx_mem_dedup
@@ -292,6 +293,7 @@ _RUN_MIGRATIONS = (
 )
 _MEMORY_MIGRATIONS = (
     ("project_id", "TEXT"),
+    ("superseded_by", "TEXT"),  # SENTINEL-021: loser→winner link on conflict resolution
 )
 
 
@@ -386,6 +388,7 @@ def _row_to_entry(r: sqlite3.Row) -> MemoryEntry:
         access_count=r["access_count"],
         quarantined=bool(r["quarantined"]),
         project_id=_opt_col(r, "project_id"),
+        superseded_by=_opt_col(r, "superseded_by"),
     )
 
 
@@ -803,8 +806,8 @@ class MemoryStore:
                 "INSERT OR REPLACE INTO memory_entries "
                 "(id, entity, boundary, memory_type, content, source_label, source_url, "
                 " created_at, content_hash, strength, interval_days, ease, last_reinforced_at, "
-                " access_count, quarantined, project_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " access_count, quarantined, project_id, superseded_by) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     entry.id,
                     entry.entity,
@@ -824,6 +827,7 @@ class MemoryStore:
                     entry.access_count,
                     int(entry.quarantined),
                     entry.project_id,
+                    entry.superseded_by,
                 ),
             )
             conn.commit()

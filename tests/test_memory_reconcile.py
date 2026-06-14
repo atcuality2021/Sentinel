@@ -19,7 +19,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from sentinel.memory import DataBoundary, MemoryEntry
+import sqlite3
+
+from sentinel.memory import DataBoundary, MemoryEntry, MemoryStore
 from sentinel.memory.schema import utcnow
 from sentinel.memory.store import _pick_winner
 
@@ -108,3 +110,60 @@ def test_pick_winner_is_order_independent():
     assert w1.id == w2.id
     assert l1.id == l2.id
     assert w1.id == "id-b"  # newer created_at wins despite lower strength
+
+
+# --------------------------------------------------------------------------- #
+# Step 2 — superseded_by column: round-trip + pre-migration DB load (AC3/AC6)
+# --------------------------------------------------------------------------- #
+def test_superseded_by_round_trips(tmp_path):
+    mem = MemoryStore(tmp_path / "s.db")
+    e = _entry(content="demoted fact", id="loser-1")
+    e.quarantined = True
+    e.superseded_by = "winner-1"
+    mem.write(e)
+    rows = mem.list_for_entity("acme", include_quarantined=True)
+    back = next(r for r in rows if r.id == "loser-1")
+    assert back.superseded_by == "winner-1"
+    assert back.quarantined is True
+
+
+def test_superseded_by_defaults_none_for_live_entry(tmp_path):
+    mem = MemoryStore(tmp_path / "s.db")
+    mem.write(_entry(content="live fact", id="live-1"))
+    rows = mem.list_for_entity("acme", include_quarantined=True)
+    assert next(r for r in rows if r.id == "live-1").superseded_by is None
+
+
+# A pre-021 memory_entries table: has project_id (pre-021 reality) but NO superseded_by column.
+_PRE_021_MEM_SCHEMA = """
+CREATE TABLE memory_entries (
+    id TEXT PRIMARY KEY, entity TEXT NOT NULL, boundary TEXT NOT NULL, memory_type TEXT NOT NULL,
+    content TEXT NOT NULL, source_label TEXT NOT NULL, source_url TEXT, created_at TEXT NOT NULL,
+    content_hash TEXT NOT NULL, strength REAL NOT NULL, interval_days REAL NOT NULL,
+    ease REAL NOT NULL, last_reinforced_at TEXT NOT NULL, access_count INTEGER NOT NULL,
+    quarantined INTEGER NOT NULL, project_id TEXT
+);
+"""
+
+
+def test_pre_021_db_migrates_and_reads_unchanged(tmp_path):
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(_PRE_021_MEM_SCHEMA)
+    conn.execute(
+        "INSERT INTO memory_entries (id, entity, boundary, memory_type, content, source_label, "
+        "source_url, created_at, content_hash, strength, interval_days, ease, last_reinforced_at, "
+        "access_count, quarantined, project_id) VALUES "
+        "('m1','datadog','public','finding','legacy fact','src',NULL,'2026-01-01T00:00:00Z',"
+        "'h',1.0,1.0,2.5,'2026-01-01T00:00:00Z',0,0,NULL)"
+    )
+    conn.commit()
+    conn.close()
+
+    # Opening the store runs _ensure_schema → ALTERs in superseded_by (idempotent migration).
+    mem = MemoryStore(db)
+    rows = mem.list_for_entity("datadog", include_quarantined=True)
+    assert len(rows) == 1
+    assert rows[0].superseded_by is None  # legacy row reads back, column defaulted
+    cols = {r[1] for r in sqlite3.connect(str(db)).execute("PRAGMA table_info(memory_entries)")}
+    assert "superseded_by" in cols
