@@ -167,3 +167,66 @@ def test_pre_021_db_migrates_and_reads_unchanged(tmp_path):
     assert rows[0].superseded_by is None  # legacy row reads back, column defaulted
     cols = {r[1] for r in sqlite3.connect(str(db)).execute("PRAGMA table_info(memory_entries)")}
     assert "superseded_by" in cols
+
+
+# --------------------------------------------------------------------------- #
+# Step 3 — auto-resolve at write (AC1/AC3/AC4 + fail-soft)
+# --------------------------------------------------------------------------- #
+# Two findings whose first 40 chars are identical (so G-10 flags a topic conflict) but whose full
+# content differs (so they are not an exact-hash dup).
+_COMMON40 = "Headquarters is located in the capital region"  # 45 chars; first 40 shared
+_FACT_OLD = _COMMON40 + " of France."
+_FACT_NEW = _COMMON40 + " of Germany."
+
+
+def test_two_contradictions_recall_returns_exactly_one(tmp_path):
+    mem = MemoryStore(tmp_path / "s.db")
+    now = utcnow()
+    mem.write(_entry(content=_FACT_OLD, id="old", created_at=now - timedelta(hours=1)))
+    mem.write(_entry(content=_FACT_NEW, id="new", created_at=now))
+
+    live = mem.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)
+    assert [e.id for e in live] == ["new"]  # only the newer head survives recall (AC1)
+
+
+def test_loser_quarantined_and_linked_and_conflict_resolved(tmp_path):
+    mem = MemoryStore(tmp_path / "s.db")
+    now = utcnow()
+    mem.write(_entry(content=_FACT_OLD, id="old", created_at=now - timedelta(hours=1)))
+    mem.write(_entry(content=_FACT_NEW, id="new", created_at=now))
+
+    rows = {r.id: r for r in mem.list_for_entity("acme", include_quarantined=True)}
+    assert rows["old"].quarantined is True
+    assert rows["old"].superseded_by == "new"   # loser links to winner (AC3)
+    assert rows["new"].quarantined is False
+    assert rows["new"].superseded_by is None
+    # The conflict is logged already-resolved, never left 'open' (AC3).
+    assert mem.list_conflicts(status="open") == []
+    assert len(mem.list_conflicts(status="resolved_b")) == 1
+
+
+def test_exact_dup_reinforces_without_conflict(tmp_path):
+    mem = MemoryStore(tmp_path / "s.db")
+    id1 = mem.write(_entry(content="identical fact", id="dup-1"))
+    id2 = mem.write(_entry(content="identical fact", id="dup-2"))
+    assert id1 == id2 == "dup-1"  # second write deduped onto the first (no new row)
+    assert mem.list_conflicts(status="open") == []
+    live = mem.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)
+    assert [e.id for e in live] == ["dup-1"]
+    assert live[0].quarantined is False  # no regression — dup path never quarantines (AC4)
+
+
+def test_resolver_failure_does_not_break_write(tmp_path, monkeypatch):
+    import sentinel.memory.store as store_mod
+
+    def _boom(a, b):
+        raise RuntimeError("resolver exploded")
+
+    monkeypatch.setattr(store_mod, "_pick_winner", _boom)
+    mem = MemoryStore(tmp_path / "s.db")
+    mem.write(_entry(content=_FACT_OLD, id="old"))
+    returned = mem.write(_entry(content=_FACT_NEW, id="new"))  # must not raise
+
+    assert returned == "new"  # the write itself succeeded despite the resolver failing
+    ids = {r.id for r in mem.list_for_entity("acme", include_quarantined=True)}
+    assert ids == {"old", "new"}  # both persisted (fail-soft: logged-but-unresolved at worst)

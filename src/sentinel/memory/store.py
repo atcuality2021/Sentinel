@@ -577,28 +577,42 @@ class MemoryStore:
             return existing.id
 
         self._insert(entry, boundary_value=bval)
-        # G-10: conflict detection — same topic prefix, different content in same entity+boundary.
+        # G-10 + SENTINEL-021: detect a same-topic contradiction and resolve it in the same pass, so
+        # recall() (which filters quarantined=0) never serves both. Find a live rival sharing the
+        # 40-char topic prefix, pick the winner deterministically, quarantine the loser with a
+        # superseded_by link, and log the conflict already-resolved. Fail-soft: any error leaves the
+        # write intact (worst case: logged-but-unresolved, the pre-021 behavior) — never raises.
         try:
             import uuid as _uuid
             topic_prefix = entry.content[:40].lower()
             if topic_prefix:
                 with _connect(self.path) as conn:
-                    rival = conn.execute(
-                        "SELECT id FROM memory_entries "
+                    rival_row = conn.execute(
+                        "SELECT * FROM memory_entries "
                         "WHERE entity=? AND boundary=? AND quarantined=0 "
                         "AND id != ? AND LOWER(SUBSTR(content,1,40))=? LIMIT 1",
                         (entry.entity, bval, entry.id, topic_prefix),
                     ).fetchone()
-                if rival is not None:
+                if rival_row is not None:
+                    rival = _row_to_entry(rival_row)
+                    winner, loser = _pick_winner(entry, rival)
+                    # entry_id_a=rival, entry_id_b=entry → keep="a"/resolved_a means rival wins.
+                    status = "resolved_a" if winner.id == rival.id else "resolved_b"
                     with _connect(self.path) as conn:
                         conn.execute(
                             "INSERT OR IGNORE INTO memory_conflicts "
-                            "(id, entity, entry_id_a, entry_id_b, topic_prefix) VALUES (?,?,?,?,?)",
-                            (_uuid.uuid4().hex, entry.entity, rival["id"], entry.id, topic_prefix),
+                            "(id, entity, entry_id_a, entry_id_b, topic_prefix, status) "
+                            "VALUES (?,?,?,?,?,?)",
+                            (_uuid.uuid4().hex, entry.entity, rival.id, entry.id,
+                             topic_prefix, status),
+                        )
+                        conn.execute(
+                            "UPDATE memory_entries SET quarantined=1, superseded_by=? WHERE id=?",
+                            (winner.id, loser.id),
                         )
                         conn.commit()
         except Exception:
-            pass  # conflict detection is advisory — never break a write
+            pass  # conflict detection/resolution is advisory — never break a write
         return entry.id
 
     def process_run(self, entity: str, artifact) -> int:

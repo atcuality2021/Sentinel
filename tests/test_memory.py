@@ -508,18 +508,22 @@ def test_due_tasks_injected_into_run_dag_context(tmp_path, monkeypatch):
 # G-10: shared memory conflict resolution
 # --------------------------------------------------------------------------- #
 
-def test_conflict_logged_for_same_topic_different_content(tmp_path):
-    """Writing two entries with the same entity+boundary+topic_prefix but different content
-    must create an 'open' conflict row."""
+def test_conflict_same_topic_is_auto_resolved(tmp_path):
+    """SENTINEL-021: two entries with the same entity+boundary+topic_prefix but different content
+    are reconciled at write time — the conflict is logged already-resolved (never left 'open') and
+    recall returns exactly one live head. (Supersedes the pre-021 'must stay open' contract.)"""
     from sentinel.memory.store import MemoryStore
     store = MemoryStore(tmp_path / "sentinel.db")
     # First 40 chars identical ("acme annual revenue report shows growth "); amount differs after.
     store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $50M net"))
     store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $60M net"))
-    conflicts = store.list_conflicts("acme")
-    assert len(conflicts) == 1
-    assert conflicts[0]["status"] == "open"
-    assert conflicts[0]["entity"] == "acme"
+    assert store.list_conflicts("acme", status="open") == []  # no longer left open
+    resolved = (store.list_conflicts("acme", status="resolved_a")
+                + store.list_conflicts("acme", status="resolved_b"))
+    assert len(resolved) == 1
+    assert resolved[0]["entity"] == "acme"
+    live = store.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)
+    assert len(live) == 1  # exactly one head survives
 
 
 def test_no_conflict_for_distinct_topics(tmp_path):
@@ -531,39 +535,48 @@ def test_no_conflict_for_distinct_topics(tmp_path):
     assert store.list_conflicts("acme") == []
 
 
+# Since SENTINEL-021 auto-resolves at write, the manual resolve_conflict() path (still used by the
+# human-override UI) no longer receives 'open' rows from write(). These tests seed an open conflict
+# directly to exercise the resolver mechanics in isolation.
+def _seed_open_conflict(db_path, store) -> tuple[str, str, str]:
+    """Write two distinct-topic entries (no auto-conflict) and link them with an open conflict row.
+    Returns (conflict_id, entry_a_id, entry_b_id)."""
+    import sqlite3
+    aid = store.write(_entry("acme", DataBoundary.PUBLIC, "revenue is $50M"))
+    bid = store.write(_entry("acme", DataBoundary.PUBLIC, "headcount is 1200 staff"))
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "INSERT INTO memory_conflicts (id, entity, entry_id_a, entry_id_b, topic_prefix, status) "
+        "VALUES ('c1','acme',?,?,'seed','open')",
+        (aid, bid),
+    )
+    conn.commit()
+    conn.close()
+    return "c1", aid, bid
+
+
 def test_resolve_conflict_keep_a_quarantines_b(tmp_path):
     """resolve_conflict(keep='a') must quarantine entry_id_b and mark status resolved_a."""
     from sentinel.memory.store import MemoryStore
-    store = MemoryStore(tmp_path / "sentinel.db")
-    store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $50M net"))
-    store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $60M net"))
-    conflicts = store.list_conflicts("acme")
-    assert conflicts
-    cid = conflicts[0]["id"]
-    loser_id = conflicts[0]["entry_id_b"]
+    db = tmp_path / "sentinel.db"
+    store = MemoryStore(db)
+    cid, _aid, bid = _seed_open_conflict(db, store)
     store.resolve_conflict(cid, keep="a")
-    # Conflict row now resolved_a
-    resolved = store.list_conflicts("acme", status="resolved_a")
-    assert len(resolved) == 1
-    # Losing entry is quarantined and no longer appears in PUBLIC recall
+    assert len(store.list_conflicts("acme", status="resolved_a")) == 1
     recalled = store.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)
-    assert not any(e.id == loser_id for e in recalled)
+    assert not any(e.id == bid for e in recalled)  # entry_id_b quarantined
 
 
 def test_resolve_conflict_keep_b_quarantines_a(tmp_path):
     """resolve_conflict(keep='b') must quarantine entry_id_a and mark status resolved_b."""
     from sentinel.memory.store import MemoryStore
-    store = MemoryStore(tmp_path / "sentinel.db")
-    store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $50M net"))
-    store.write(_entry("acme", DataBoundary.PUBLIC, "acme annual revenue report shows growth of $60M net"))
-    conflicts = store.list_conflicts("acme")
-    cid = conflicts[0]["id"]
-    loser_id = conflicts[0]["entry_id_a"]
+    db = tmp_path / "sentinel.db"
+    store = MemoryStore(db)
+    cid, aid, _bid = _seed_open_conflict(db, store)
     store.resolve_conflict(cid, keep="b")
-    resolved = store.list_conflicts("acme", status="resolved_b")
-    assert len(resolved) == 1
+    assert len(store.list_conflicts("acme", status="resolved_b")) == 1
     recalled = store.recall("acme", {DataBoundary.PUBLIC}, reinforce_on_read=False)
-    assert not any(e.id == loser_id for e in recalled)
+    assert not any(e.id == aid for e in recalled)  # entry_id_a quarantined
 
 
 # --------------------------------------------------------------------------- #
