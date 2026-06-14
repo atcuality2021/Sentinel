@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design: Product research reaches e-commerce prices via google_shopping_search</title>
+  <!-- Design tokens: see /DESIGN.md for canonical BiltIQ design system -->
+  <style>
+    :root {
+      --color-border:    #e5e7eb;
+      --color-bg:        #ffffff;
+      --color-bg-subtle: #f9fafb;
+      --color-text:      #111827;
+      --color-muted:     #6b7280;
+      --color-new:       #16a34a;
+      --color-modified:  #d97706;
+      --color-risk-high: #dc2626;
+      --color-risk-med:  #d97706;
+      --color-risk-low:  #16a34a;
+      --radius:          6px;
+      --max-width:       860px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--color-text);
+      background: var(--color-bg);
+      padding: 2rem 1rem;
+    }
+    main { max-width: var(--max-width); margin: 0 auto; }
+    header {
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 1.25rem;
+      margin-bottom: 2rem;
+    }
+    header h1 { font-size: 1.5rem; margin-bottom: 0.75rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+    .meta dt { font-weight: 600; color: var(--color-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta dd { font-size: 0.9rem; }
+    section { margin-bottom: 2rem; }
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      border-left: 4px solid var(--color-border);
+      padding-left: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    h3 { font-size: 0.95rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+    p, li { margin-bottom: 0.4rem; }
+    ul { padding-left: 1.4rem; }
+    pre {
+      background: var(--color-bg-subtle);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      margin: 0.5rem 0;
+    }
+    code { font-family: ui-monospace, monospace; font-size: 0.85em; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin: 0.5rem 0;
+    }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); vertical-align: top; }
+    th { background: var(--color-bg-subtle); font-weight: 600; }
+    .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.1rem 0.4rem;
+      border-radius: 9999px;
+      white-space: nowrap;
+    }
+    .tag-new      { background: #dcfce7; color: var(--color-new);      border: 1px solid #86efac; }
+    .tag-modified { background: #fef3c7; color: var(--color-modified); border: 1px solid #fcd34d; }
+    .tag-risk-h   { background: #fee2e2; color: var(--color-risk-high);border: 1px solid #fca5a5; }
+    .tag-risk-m   { background: #fef3c7; color: var(--color-risk-med); border: 1px solid #fcd34d; }
+    .placeholder { color: var(--color-muted); font-style: italic; }
+    @media (max-width: 600px) { .meta { flex-direction: column; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Design: Product research reaches e-commerce prices via <code>google_shopping_search</code></h1>
+    <dl class="meta">
+      <div><dt>Task ID</dt><dd>SENTINEL-022</dd></div>
+      <div><dt>Author</dt><dd>@atcuality2021</dd></div>
+      <div><dt>Created</dt><dd>2026-06-14</dd></div>
+      <div><dt>Spec</dt><dd>docs/specs/SENTINEL-022/spec.html</dd></div>
+    </dl>
+  </header>
+
+  <section id="ground-truth">
+    <h2>Ground Truth (code as it is today)</h2>
+    <p>The relevant machinery already exists; SENTINEL-022 re-wires three small parts of it. Anchors,
+       read live 2026-06-14:</p>
+    <ul>
+      <li><code>src/sentinel/agent/modes/spec.py:377-409</code> — the <code>step.tool == "search"</code>
+          branch of <code>build_agents</code>. It (a) resolves an effective provider, (b) builds the
+          search tool, (c) appends the KB tool, (d) <code>tools.extend(build_mcp_toolsets(cfg,
+          spec.domain, cloud_allowed=...))</code>. <strong>Crucially, lines 383-390 already contain a
+          <code>gemini&nbsp;&rarr;&nbsp;duckduckgo</code> swap</strong> — but its guard is
+          <code>_resolved == "vllm"</code>, so it only fires on the sovereign/vLLM path. On the cloud
+          path (<code>cloud_allowed=True</code>, backend resolves to gemini), <code>_eff_provider</code>
+          stays <code>"gemini"</code> and <code>get_search_tool("gemini")</code> returns the
+          <strong>built-in</strong> <code>google_search</code> — which then collides with the MCP
+          function-toolsets attached 12 lines later.</li>
+      <li><code>src/sentinel/tools/public/web_search.py:348-351</code> — <code>get_search_tool</code>:
+          <code>provider == "gemini"</code> returns the ADK built-in <code>google_search</code>; every
+          other provider returns a <code>_make_function_tool</code> closure. Built-in grounding tools
+          cannot be combined with function-calling in one Gemini agent → <code>400
+          INVALID_ARGUMENT</code>.</li>
+      <li><code>src/sentinel/tools/mcp_registry.py:29-48</code> — <code>build_mcp_toolsets</code>:
+          returns <code>[]</code> when <code>cloud_allowed=False</code> (the sovereign gate); otherwise
+          one <code>McpToolset</code> per enabled + secret-configured server whose <code>domains</code>
+          match (empty&nbsp;=&nbsp;all). <code>searchapi</code> + <code>firecrawl</code> both have
+          <code>domains=[]</code>, so both attach to <code>product_research</code>.</li>
+      <li><code>src/sentinel/config/defaults.py:697-717</code> — <code>_P_PRODUCT_RESEARCH_PUBLIC</code>:
+          the &ldquo;ATTACK SEQUENCE&rdquo; prompt. It directs only generic
+          <code>site:flipkart.com</code> / <code>site:amazon.in</code> web searches; it never names
+          <code>google_shopping_search</code> or <code>google_product</code>.</li>
+      <li><code>src/sentinel/config/defaults.py:1010-1018</code> — the <code>searchapi</code>
+          <code>MCPServerConfig</code>: <code>transport="http"</code>, <code>url_env="SEARCHAPI_MCP_URL"</code>,
+          <code>tool_filter=[]</code> (dashboard-curated), <code>domains=[]</code>, and a vague
+          <code>description</code> (&ldquo;SearchAPI.io engines — toolset curated in the dashboard&rdquo;)
+          that gives the model no reason to prefer the shopping tool.</li>
+      <li><code>src/sentinel/config/schema.py:268-270</code> — <code>SearchConfig.provider</code> (default
+          <code>gemini</code>) and <code>SearchConfig.onprem_fallback</code> (default
+          <code>duckduckgo</code>): an <em>already-validated</em> field whose documented meaning is
+          &ldquo;the non-cloud provider to use when policy forbids Gemini but the configured provider is
+          still gemini.&rdquo; This design reuses it as the swap target.</li>
+      <li><code>src/sentinel/memory/store.py</code> — a family of single-responsibility SQLite stores
+          (<code>MemoryStore</code>, <code>RunStore</code>, <code>TelemetryStore</code>, …) sharing one DB
+          file. <strong>All tables are created centrally</strong> in one <code>_SCHEMA</code> string
+          (lines 39-265) applied by <code>_ensure_schema()</code> via <code>executescript</code> (line
+          311); every store's <code>__init__</code> just calls <code>_ensure_schema(self.path)</code>.
+          Column <em>additions</em> to existing tables go through a separate
+          <code>_apply_column_migrations</code> / <code>ALTER TABLE ADD COLUMN</code> path (line 300-313,
+          e.g. SENTINEL-021's <code>superseded_by</code>). AC4 adds a <em>new table</em>, so it belongs in
+          <code>_SCHEMA</code>, not the column-migration path.</li>
+    </ul>
+    <p><strong>Two levers, both isolated by live experiment</strong> (recorded in spec Evidence): the
+       built-in/MCP collision alone moves the query 0&rarr;0; removing it (provider→duckduckgo) moves it
+       0&rarr;3 <em>sources</em> but products stay 0 because the agent never calls the shopping tool. The
+       fix needs both AC1 (drop the built-in when MCP attaches) and AC2 (name the shopping tool).</p>
+  </section>
+
+  <section id="approach">
+    <h2>Approach</h2>
+    <h3>Name</h3>
+    <p>Widen the existing provider-swap guard, a shopping-first prompt, and a deterministic
+       code-owned price-discovery cascade tool (dev decision 2026-06-14: build up front for guaranteed
+       determinism, not measurement-gated).</p>
+    <h3>Description</h3>
+    <p>The model already proved it skips <code>google_shopping_search</code> even when the tool is on
+       its menu (spec Evidence: 0&rarr;3 sources but 0 products). So the price path is taken out of the
+       model's hands: a single <code>find_deals</code> function-tool owns a deterministic
+       shopping&rarr;SERP&rarr;Firecrawl cascade, and the prompt directs the agent to use it for all
+       pricing. The collision fix (AC1) and shopping-first prompt (AC2) still land — they make the
+       agent's <em>review/comparison</em> searches work and remove the 400 — but the priced-deal
+       guarantee now lives in tested code, not in prompt compliance.</p>
+    <p><strong>Layer 1 — collision fix (AC1, AC6).</strong> In the <code>step.tool == "search"</code>
+       branch, build the MCP toolsets <em>first</em>, then choose the provider with knowledge of
+       whether function-toolsets are present:</p>
+    <pre>mcp_tools = []
+try:
+    from sentinel.tools.mcp_registry import build_mcp_toolsets
+    mcp_tools = build_mcp_toolsets(cfg, spec.domain, cloud_allowed=cloud_allowed)
+except Exception:
+    mcp_tools = []          # fail-soft, unchanged
+
+# widen the existing vLLM-only swap: ANY step that also carries MCP function-tools
+# cannot use the gemini built-in google_search (built-in vs function-calling = 400).
+_eff_provider = _search_provider_for_step(
+    requested=search_provider, resolved=_resolved,
+    has_mcp_funcs=bool(mcp_tools), onprem_fallback=cfg.search.onprem_fallback,
+)
+tools = [get_search_tool(_eff_provider, results=cfg.search.results, ...)]
+if kb_tool is not None: tools.append(kb_tool)
+tools.extend(mcp_tools)</pre>
+    <p><code>_search_provider_for_step(...)</code> is a new <strong>pure</strong> helper (no I/O) so the
+       rule is unit-tested directly: <code>gemini + has_mcp_funcs → onprem_fallback</code>;
+       <code>gemini + vLLM-resolved → onprem_fallback</code> (existing behavior preserved);
+       <code>gemini + cloud + no MCP → gemini</code> (built-in still used where it's safe);
+       any explicit non-gemini provider → unchanged.</p>
+    <p><strong>Layer 2 — shopping-first prompt (AC2).</strong> Rewrite
+       <code>_P_PRODUCT_RESEARCH_PUBLIC</code> so steps 1-2 of the attack sequence are
+       <code>google_shopping_search</code> (criteria → priced listings, capture each
+       <code>product_token</code>) then <code>google_product</code> (token → multi-seller offers +
+       price history), and the generic <code>site:</code> web searches become the <em>fallback</em>
+       steps 3+. Enrich the <code>searchapi</code> server <code>description</code> so the tool-caller
+       can see it exposes shopping engines. Prompt-content unit test asserts both tool names appear.</p>
+    <p><strong>Layer 3 — deterministic cascade tool (AC3) + learning signal (AC4).</strong> The core of
+       the dev's chosen approach. Three pieces:</p>
+    <ul>
+      <li><strong>Programmatic MCP shopping client</strong> — new
+          <code>src/sentinel/tools/shopping_client.py</code>. Calls SearchAPI's
+          <code>google_shopping_search</code> and <code>google_product</code> over the MCP transport
+          (<code>SEARCHAPI_MCP_URL</code>) using the <code>mcp</code> SDK's
+          <code>streamablehttp_client</code> + <code>ClientSession</code> — <em>not</em> a hand-rolled
+          HTTP client, and distinct from ADK's <code>McpToolset</code> (which only exposes tools to the
+          agent). The token authenticates only over MCP, so this is the one correct programmatic path
+          (the REST <code>api_key</code> 401s). Async; returns normalized priced rows
+          <code>{title, price, source_url, seller, product_token}</code>.</li>
+      <li><strong>Cascade orchestrator + pure policy</strong> — new
+          <code>src/sentinel/tools/shopping.py</code>. <code>build_deal_search_tool(...)</code> returns
+          an ADK function-tool (<code>find_deals(query)</code>) whose body deterministically runs:
+          shopping → if <code>shopping_results_thin(rows, min_priced=3)</code> → SERP fallback
+          (<code>get_search_tool(onprem_fallback)</code>) → if still thin → Firecrawl deep-read of the
+          top candidate. The three legs are <strong>injected callables</strong>, so the cascade logic is
+          unit-tested with fakes — both paths (shopping-hits → SERP/Firecrawl not called;
+          shopping-thin → fallback fires) — with zero network. <code>shopping_results_thin</code> and
+          <code>classify_query_class</code> are the pure helpers (OQ-3: &ldquo;thin&rdquo; = &lt;3 rows
+          with a non-empty price).</li>
+      <li><strong><code>ToolPreferenceStore</code> (AC4)</strong> — a dedicated
+          <code>tool_preference</code> table (<code>query_class</code> PK → <code>winning_tool</code>,
+          <code>updated_at</code>). The cascade records which leg produced priced rows per coarse
+          query-class; on the next run the tool reads it to try the historically-winning leg first.
+          Degradation-safe: any read error → no preference → default cascade order. Decoupled from
+          <code>MemoryStore</code> so it never entangles with SENTINEL-021 reconciliation.</li>
+    </ul>
+    <p><strong>Wiring (AC1, AC6).</strong> In <code>product_research</code>'s search step, the
+       <code>find_deals</code> cascade tool is attached <em>only when <code>cloud_allowed=True</code></em>
+       (it calls SearchAPI — same sovereign gate as <code>build_mcp_toolsets</code>). The generic search
+       tool (for review/comparison searches) and the Firecrawl <code>McpToolset</code> stay; the gemini
+       built-in is dropped whenever any function-tool is present (AC1). On the sovereign path no cascade
+       tool, no SearchAPI — the on-prem function-tool search is unchanged (AC6).</p>
+    <p><strong>Layer 4 — live proof (AC5).</strong> Run the API-only e2e on the isolated server for a
+       real buying query and assert <code>products_found ≥ 5</code> with non-empty
+       <code>price</code>+<code>source_url</code>, populated <code>value_ranking</code>, and a
+       <code>winner</code> with a sourced rationale. The SERP-dependent assertion is skipped/marked when
+       the MCP is unreachable (no flaky CI).</p>
+  </section>
+
+  <section id="alternatives">
+    <h2>Alternatives Considered</h2>
+    <table>
+      <thead><tr><th>Alternative</th><th>Why not (now)</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Default <code>product_research</code> to a function-tool provider in config</strong>
+              (narrow, config-only AC1 fix)</td>
+          <td>Fixes only one domain. Any other MCP-using domain (e.g. a future commerce or research mode)
+              hits the identical built-in/MCP collision. The general guard-widen is the same code size and
+              protects all domains. <em>Resolves OQ-1 → general fix.</em></td>
+        </tr>
+        <tr>
+          <td><strong>Prompt + policy only</strong> (name the shopping tool, no code cascade); measure
+              with AC5 and add a cascade tool only if the model still skips shopping</td>
+          <td><strong>Rejected by dev 2026-06-14.</strong> Lighter, but it leaves the priced-deal
+              guarantee dependent on model tool-compliance — and the spec Evidence already shows the
+              model skipping <code>google_shopping_search</code> when it's merely available. The dev
+              chose certainty over the lighter staged path.</td>
+        </tr>
+        <tr>
+          <td><strong>Code-level cascade tool</strong> (CHOSEN): a single <code>find_deals(query)</code>
+              function-tool owning a deterministic shopping → SERP → Firecrawl cascade</td>
+          <td><strong>Dev decision 2026-06-14.</strong> Strongest guarantee — removes model tool-choice
+              from the price path entirely. The duplication concern (AP#1/#2) is avoided by reusing the
+              <code>mcp</code> SDK's streamable-http client for the programmatic call rather than
+              hand-rolling JSON-RPC; the cascade orchestration is genuinely new behavior (ordered
+              fallback + learning), not a re-implementation of <code>McpToolset</code>'s agent-exposure
+              role.</td>
+        </tr>
+        <tr>
+          <td><strong>Store the learning signal in <code>MemoryStore</code></strong> (reuse product memory)</td>
+          <td>Entangles tool-preference rows with SENTINEL-021's entity/topic reconciliation
+              (<code>superseded_by</code>, quarantine, live-head). A bad tool-preference write could trip
+              reconciliation; recall could surface a preference as a &ldquo;finding.&rdquo; A dedicated table
+              keeps the two concerns isolated. <em>Resolves OQ-2 → dedicated lightweight store.</em></td>
+        </tr>
+        <tr>
+          <td><strong>Playwright/Chromium on the server</strong> as primary discovery</td>
+          <td>Rejected in spec Out-of-Scope: datacenter-IP bot-walls, per-page latency × tool-call budget,
+              brittle selectors, still egresses. Firecrawl covers single-page deep-read; Playwright reserved
+              for true interaction in a future task.</td>
+        </tr>
+        <tr>
+          <td><strong>Enable Google Custom Search JSON API / stand up SearXNG</strong></td>
+          <td>Alternative providers, unnecessary once the shopping tool is wired. CSE is currently
+              <code>403</code> (API disabled on the GCP project); not on the critical path.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="files">
+    <h2>Files to Touch</h2>
+    <h3>New <span class="tag tag-new">CREATE</span></h3>
+    <table>
+      <thead><tr><th>File</th><th>Purpose</th><th>AC</th></tr></thead>
+      <tbody>
+        <tr><td><code>src/sentinel/tools/shopping_client.py</code></td>
+            <td>Programmatic SearchAPI MCP client (<code>call_shopping_search</code>,
+                <code>call_google_product</code>) via the <code>mcp</code> SDK streamable-http
+                transport. Normalizes results to <code>{title, price, source_url, seller,
+                product_token}</code>. Async; fail-soft on transport error.</td>
+            <td>AC3, AC5</td></tr>
+        <tr><td><code>src/sentinel/tools/shopping.py</code></td>
+            <td>Cascade orchestrator <code>build_deal_search_tool()</code> (the ADK
+                <code>find_deals</code> function-tool, legs injected for testability) + pure
+                <code>shopping_results_thin()</code> policy + <code>classify_query_class()</code>
+                learning-key helper.</td>
+            <td>AC3, AC4</td></tr>
+        <tr><td><code>tests/test_search_provider_collision.py</code></td>
+            <td>Unit tests for <code>_search_provider_for_step</code> — every swap/no-swap branch,
+                incl. the AC6 sovereign case (<code>cloud_allowed=False</code> → no MCP → provider
+                unchanged).</td>
+            <td>AC1, AC6</td></tr>
+        <tr><td><code>tests/test_product_research_prompt.py</code></td>
+            <td>Asserts <code>_P_PRODUCT_RESEARCH_PUBLIC</code> names <code>google_shopping_search</code>
+                and <code>google_product</code> before the generic <code>site:</code> searches.</td>
+            <td>AC2</td></tr>
+        <tr><td><code>tests/test_shopping_cascade.py</code></td>
+            <td>Cascade orchestrator both paths with injected fake legs (shopping-hits → SERP/Firecrawl
+                not called; shopping-thin → fallback fires), plus <code>shopping_results_thin</code> and
+                <code>classify_query_class</code> unit coverage. Zero network.</td>
+            <td>AC3</td></tr>
+        <tr><td><code>tests/test_shopping_client.py</code></td>
+            <td><code>call_shopping_search</code>/<code>call_google_product</code> normalization +
+                fail-soft, driven via <code>asyncio.run</code> with a monkeypatched
+                <code>ClientSession</code> (no live transport).</td>
+            <td>AC3, AC5</td></tr>
+        <tr><td><code>tests/test_tool_preference_store.py</code></td>
+            <td><code>ToolPreferenceStore</code> round-trip, upsert, and degradation-safety (missing
+                table / bad row → empty preference, never raises).</td>
+            <td>AC4</td></tr>
+      </tbody>
+    </table>
+    <h3>Modified <span class="tag tag-modified">EDIT</span></h3>
+    <table>
+      <thead><tr><th>File</th><th>Change</th><th>AC</th></tr></thead>
+      <tbody>
+        <tr><td><code>src/sentinel/agent/modes/spec.py</code></td>
+            <td>Reorder the <code>step.tool == "search"</code> branch to build MCP toolsets first; add
+                + call pure <code>_search_provider_for_step()</code> (widen the vLLM-only swap to
+                &ldquo;MCP function-tools present&rdquo;); attach the <code>find_deals</code> cascade
+                tool for <code>product_research</code> when <code>cloud_allowed=True</code>.</td>
+            <td>AC1, AC3, AC6</td></tr>
+        <tr><td><code>src/sentinel/config/defaults.py</code></td>
+            <td>Rewrite <code>_P_PRODUCT_RESEARCH_PUBLIC</code> (shopping-first attack sequence); enrich
+                the <code>searchapi</code> server <code>description</code>.</td>
+            <td>AC2</td></tr>
+        <tr><td><code>src/sentinel/memory/store.py</code></td>
+            <td>Append the <code>tool_preference</code> <code>CREATE TABLE</code> to the centralized
+                <code>_SCHEMA</code> string (~line 259); add <code>ToolPreferenceStore</code> whose
+                <code>__init__</code> calls the shared <code>_ensure_schema(self.path)</code>, like every
+                other store. No <code>ALTER</code>/column-migration entry (new table, not a column add).</td>
+            <td>AC4</td></tr>
+      </tbody>
+    </table>
+    <p class="placeholder">The cascade is async (the <code>mcp</code> SDK client is async); confirm at
+       Build that the suite's async-test harness (<code>pytest-asyncio</code> / <code>anyio</code>) is
+       available, else the orchestrator exposes a sync wrapper.</p>
+  </section>
+
+  <section id="data-model">
+    <h2>Data Model Changes</h2>
+    <p>One new table (AC4), additive, in the existing memory SQLite DB:</p>
+    <pre>CREATE TABLE IF NOT EXISTS tool_preference (
+    query_class  TEXT PRIMARY KEY,   -- coarse bucket, e.g. "product_research:shopping"
+    winning_tool TEXT NOT NULL,      -- e.g. "google_shopping_search"
+    updated_at   TEXT NOT NULL       -- ISO-8601, UTC
+);</pre>
+    <p><code>query_class</code> is a coarse, bounded key (domain + intent), <strong>not</strong> the raw
+       query — this caps row growth and makes the &ldquo;learn&rdquo; signal generalize across similar
+       buying queries. <strong>Creation path:</strong> the <code>CREATE TABLE IF NOT EXISTS</code> block
+       is appended to the centralized <code>_SCHEMA</code> string (after the <code>personas</code> block,
+       ~store.py:259) so <code>_ensure_schema</code>'s <code>executescript</code> creates it on first DB
+       open — the same path as every existing table. It is <em>not</em> added to
+       <code>_MEMORY_MIGRATIONS</code> (that mechanism is <code>ALTER TABLE ADD COLUMN</code> for existing
+       tables). No backfill (absence ⇒ no preference ⇒ default order); no change to any existing table,
+       so all current fixtures pass unchanged.</p>
+  </section>
+
+  <section id="api-contract">
+    <h2>API Contract Changes</h2>
+    <p><strong>None external.</strong> No new HTTP route, request, or response shape. The
+       <code>ProductResearch</code> / <code>ProductOption</code> output schema is unchanged — the whole
+       point is that the <em>existing</em> <code>price</code> / <code>source_url</code> /
+       <code>winner</code> / <code>value_ranking</code> fields finally get populated. Internal-only new
+       symbols: <code>_search_provider_for_step()</code>, <code>shopping_results_thin()</code>,
+       <code>classify_query_class()</code>, <code>ToolPreferenceStore</code>.</p>
+  </section>
+
+  <section id="security">
+    <h2>Security &amp; Compliance</h2>
+    <ul>
+      <li><strong>Sovereign posture (AC6) preserved by construction.</strong>
+          <code>build_mcp_toolsets</code> returns <code>[]</code> when <code>cloud_allowed=False</code>,
+          so <code>has_mcp_funcs</code> is <code>False</code> on the sovereign path → the provider swap
+          never triggers → no built-in/MCP mix and no new cloud dependency on the on-prem path. A unit
+          test pins this.</li>
+      <li><strong>No new secrets, no secret values in config.</strong> Reuses
+          <code>SEARCHAPI_MCP_URL</code> (already in <code>.env</code>, named-not-valued in config) and
+          the existing <code>searchapi</code> server entry. No <code>.env</code> value is read into,
+          logged by, or committed from any new code.</li>
+      <li><strong>Compliance mode.</strong> No <em>new</em> external AI/cloud-LLM dependency is added —
+          SearchAPI + Firecrawl already attach to <code>product_research</code> today; this task only
+          changes which of the already-present tools the agent prefers. (Confirm the repo mode in
+          <code>AGENT_RULES.md</code> § Compliance at Review; if an ADR is required for the existing
+          cloud-search posture it already exists from SENTINEL-013/015.)</li>
+      <li><strong>No new injection surface.</strong> Prompt rewrite keeps the existing
+          <code>_INJECTION_STANCE</code> suffix; shopping results are treated as untrusted public
+          findings exactly like SERP rows today.</li>
+    </ul>
+  </section>
+
+  <section id="performance">
+    <h2>Performance Considerations</h2>
+    <ul>
+      <li>Shopping-first should <em>reduce</em> tool turns vs the current generic 4-5 search attack
+          sequence (one structured call returns ~40 priced rows vs several thin SERP calls). The
+          existing <code>cfg.search.max_calls</code> budget (default 8) still caps the loop.</li>
+      <li><code>ToolPreferenceStore</code> reads/writes are single-row, indexed by PK, off the hot path
+          (one read at step-build, one write post-research). Negligible.</li>
+      <li>The deferred Layer-4 cascade tool, if ever built, would add at most one fallback SERP +
+          one Firecrawl call <em>only when</em> shopping is thin — bounded by the same
+          <code>max_calls</code> budget.</li>
+    </ul>
+  </section>
+
+  <section id="rollout">
+    <h2>Rollout Plan</h2>
+    <ul>
+      <li>Pure code + config + one additive table; no migration risk to existing data, no API change.
+          Ships on the <code>feature/SENTINEL-022-shopping-search</code> branch through the normal
+          Attack Loop (Build → Review → Test → Ship).</li>
+      <li>Build order is bottom-up: the pure policy + MCP client + cascade orchestrator land and are
+          unit-tested before the <code>spec.py</code> wiring, then AC2 prompt, then the AC5 live proof.
+          The cascade tool is default scope (dev decision), not conditional.</li>
+      <li>Feature is effectively always-on for <code>product_research</code> on the cloud path; the
+          sovereign path is unaffected (AC6).</li>
+    </ul>
+    <h3>Rollback</h3>
+    <p>Revert the branch. The <code>tool_preference</code> table is additive and orphan-safe (nothing
+       else references it); it can be left in place or dropped. No data migration to unwind.</p>
+  </section>
+
+  <section id="open-questions">
+    <h2>Open Questions — resolved in this design</h2>
+    <table>
+      <thead><tr><th>OQ</th><th>Resolution</th></tr></thead>
+      <tbody>
+        <tr><td><strong>OQ-1</strong> AC1 mechanism</td>
+            <td><strong>General fix.</strong> Widen the existing provider swap to &ldquo;any step with
+                MCP function-tools attached,&rdquo; not a per-domain config default — same code size,
+                protects every MCP-using domain.</td></tr>
+        <tr><td><strong>OQ-2</strong> learn store</td>
+            <td><strong>Dedicated <code>tool_preference</code> table.</strong> Decoupled from
+                <code>MemoryStore</code> so it never entangles with SENTINEL-021 reconciliation;
+                degradation-safe.</td></tr>
+        <tr><td><strong>OQ-3</strong> &ldquo;thin&rdquo; threshold</td>
+            <td><strong>Fewer than 3 rows with a non-empty price</strong> (<code>min_priced=3</code>,
+                a named constant). Encoded in the pure <code>shopping_results_thin()</code> policy so it
+                is one-line tunable and unit-tested.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="history">
+    <h2>Change History</h2>
+    <table>
+      <thead><tr><th>Date</th><th>Section</th><th>What changed</th><th>Trigger</th></tr></thead>
+      <tbody>
+        <tr><td>2026-06-14</td><td>all</td>
+            <td>Initial design from approved spec. Resolves OQ-1 (general guard-widen), OQ-2 (dedicated
+                store), OQ-3 (min_priced=3). First draft proposed a measurement-gated cascade.</td>
+            <td>Dev approved spec.html → design step</td></tr>
+        <tr><td>2026-06-14</td><td>Approach, Alternatives, Files, Rollout</td>
+            <td>Cascade tool promoted from deferred/measurement-gated to <strong>default scope</strong>:
+                deterministic <code>find_deals</code> cascade (programmatic <code>mcp</code>-SDK shopping
+                client → SERP → Firecrawl) owns the price path; prompt+policy demoted to a rejected
+                alternative. Added <code>shopping_client.py</code>.</td>
+            <td>Dev chose &ldquo;build cascade tool up front&rdquo; for guaranteed determinism</td></tr>
+        <tr><td>2026-06-14</td><td>Ground Truth, Data Model, Files</td>
+            <td>Corrected the <code>tool_preference</code> creation path: it goes in the centralized
+                <code>_SCHEMA</code> <code>executescript</code> (new table), not the
+                <code>_MEMORY_MIGRATIONS</code>/<code>ALTER</code> column path. Added
+                <code>tests/test_shopping_client.py</code> to the file inventory.</td>
+            <td>plan-reviewer BLOCKER (schema-pattern) + traceability fixes</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

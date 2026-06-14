@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plan: Product research reaches e-commerce prices via google_shopping_search</title>
+  <!-- Design tokens: see /DESIGN.md for canonical BiltIQ design system -->
+  <style>
+    :root {
+      --color-border:    #e5e7eb;
+      --color-bg:        #ffffff;
+      --color-bg-subtle: #f9fafb;
+      --color-text:      #111827;
+      --color-muted:     #6b7280;
+      --color-step-bg:   #f0fdf4;
+      --color-step-bdr:  #bbf7d0;
+      --color-risk-high: #dc2626;
+      --color-risk-med:  #d97706;
+      --color-risk-low:  #16a34a;
+      --radius:          6px;
+      --max-width:       860px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--color-text);
+      background: var(--color-bg);
+      padding: 2rem 1rem;
+    }
+    main { max-width: var(--max-width); margin: 0 auto; }
+    header {
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 1.25rem;
+      margin-bottom: 2rem;
+    }
+    header h1 { font-size: 1.5rem; margin-bottom: 0.75rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+    .meta dt { font-weight: 600; color: var(--color-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta dd { font-size: 0.9rem; }
+    section { margin-bottom: 2rem; }
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      border-left: 4px solid var(--color-border);
+      padding-left: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    h3 { font-size: 0.95rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+    p, li { margin-bottom: 0.4rem; }
+    ul, ol { padding-left: 1.4rem; }
+    code { font-family: ui-monospace, monospace; font-size: 0.85em; background: var(--color-bg-subtle); padding: 0.1em 0.3em; border-radius: 3px; }
+    .step {
+      border: 1px solid var(--color-step-bdr);
+      background: var(--color-step-bg);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .step-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem; gap: 0.75rem; }
+    .step-title { font-weight: 700; font-size: 0.95rem; }
+    .band {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: 9999px;
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #7dd3fc;
+      white-space: nowrap;
+    }
+    .step-meta { font-size: 0.8rem; color: var(--color-muted); margin-bottom: 0.5rem; }
+    .step-tests { font-size: 0.82rem; margin-top: 0.5rem; }
+    .step-tests strong { color: var(--color-muted); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 0.5rem 0; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); vertical-align: top; }
+    th { background: var(--color-bg-subtle); font-weight: 600; }
+    .risk-h { color: var(--color-risk-high); font-weight: 700; }
+    .risk-m { color: var(--color-risk-med);  font-weight: 700; }
+    .risk-l { color: var(--color-risk-low);  font-weight: 700; }
+    .placeholder { color: var(--color-muted); font-style: italic; }
+    @media (max-width: 600px) { .meta { flex-direction: column; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Plan: Product research reaches e-commerce prices via <code>google_shopping_search</code></h1>
+    <dl class="meta">
+      <div><dt>Task ID</dt><dd>SENTINEL-022</dd></div>
+      <div><dt>Branch</dt><dd>feature/SENTINEL-022-shopping-search</dd></div>
+      <div><dt>Base</dt><dd>main</dd></div>
+      <div><dt>Created</dt><dd>2026-06-14</dd></div>
+    </dl>
+  </header>
+
+  <section id="steps">
+    <h2>Build Sequence</h2>
+    <p style="margin-bottom:1rem; font-size:0.85rem; color:var(--color-muted);">
+      Each step = one logical commit. TDD: RED → GREEN in the same step. Run <code>pytest</code> before
+      proceeding. Bottom-up: leaf modules (store, policy, client, orchestrator) land + unit-test before
+      the shared <code>spec.py</code> wiring, so the highest-risk edit goes in last against green
+      foundations. Anchors verified live 2026-06-14: <code>spec.py:377-409</code>,
+      <code>web_search.py:348</code>, <code>mcp_registry.py:29-48</code>,
+      <code>defaults.py:697-717/1010-1018</code>, <code>schema.py:268-270</code>.
+      <strong>Async-without-harness:</strong> no <code>pytest-asyncio</code> in the suite; async paths
+      are driven from ordinary sync tests via <code>asyncio.run(...)</code>. No new test dependency.
+    </p>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 1 — <code>ToolPreferenceStore</code> + <code>tool_preference</code> table</span>
+        <span class="band">AC4</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> The learning signal is a leaf with no deps — build
+         it first so the cascade (Step 4) can write to a real store. Dedicated table keeps it decoupled
+         from <code>MemoryStore</code> / SENTINEL-021 reconciliation.</p>
+      <p class="step-meta"><strong>Files:</strong> <code>src/sentinel/memory/store.py</code> —
+         (a) append the <code>CREATE TABLE IF NOT EXISTS tool_preference (...)</code> block to the
+         <strong>centralized <code>_SCHEMA</code> string</strong> (after the <code>personas</code> block,
+         ~line 259), so the shared <code>_ensure_schema</code> <code>executescript</code> creates it —
+         <em>not</em> a per-store <code>CREATE</code> and <em>not</em> the
+         <code>_MEMORY_MIGRATIONS</code>/<code>ALTER</code> path (that is for adding columns to existing
+         tables); (b) new <code>ToolPreferenceStore</code> whose <code>__init__</code> calls
+         <code>_ensure_schema(self.path)</code> like every other store, with
+         <code>get(query_class) -&gt; str | None</code> and <code>record(query_class, winning_tool)</code>
+         (upsert), both degradation-safe (missing table / bad row → <code>None</code>, never raises).</p>
+      <div class="step-tests"><strong>Tests</strong> — <code>tests/test_tool_preference_store.py</code>:
+         <strong>fresh-DB round-trip through <code>_ensure_schema</code></strong> — construct a real
+         <code>ToolPreferenceStore</code> against a temp <code>db_path()</code>, assert the
+         <code>tool_preference</code> table exists and <code>record</code>→<code>get</code> round-trips
+         (this is the only test that catches a wrong creation path); upsert overwrites; unknown class →
+         <code>None</code>; corrupted/absent table → <code>None</code> (no exception).
+         <strong>Gate:</strong> <code>pytest tests/test_tool_preference_store.py</code> — GREEN.</div>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 2 — Pure policy <code>shopping_results_thin()</code> + <code>classify_query_class()</code></span>
+        <span class="band">AC3</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> The deterministic pivot the cascade turns on, with
+         zero I/O — pinned independently of any network so the cascade's branch logic is provably
+         correct.</p>
+      <p class="step-meta"><strong>Files:</strong> new <code>src/sentinel/tools/shopping.py</code> —
+         <code>shopping_results_thin(results, *, min_priced=3) -&gt; bool</code> (OQ-3: &ldquo;thin&rdquo;
+         = &lt;3 rows with a non-empty <code>price</code>); <code>classify_query_class(domain, target)
+         -&gt; str</code> (coarse, bounded key, e.g. <code>"product_research:shopping"</code>).</p>
+      <div class="step-tests"><strong>Tests</strong> — <code>tests/test_shopping_cascade.py</code>
+         (policy half): 3 priced rows → not thin; 2 priced + 5 priceless → thin; empty → thin; class key
+         is stable + bounded for varied queries. <strong>Gate:</strong>
+         <code>pytest tests/test_shopping_cascade.py -k thin or class</code> — GREEN.</div>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 3 — Programmatic SearchAPI MCP shopping client</span>
+        <span class="band">AC3 · AC5</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> The cascade's real shopping leg. Isolated here so
+         its transport quirks (MCP-only auth) are contained and unit-tested with a mocked session.</p>
+      <p class="step-meta"><strong>Files:</strong> new <code>src/sentinel/tools/shopping_client.py</code> —
+         <code>async call_shopping_search(query, *, gl="in")</code> and
+         <code>async call_google_product(product_token)</code> via the <code>mcp</code> SDK
+         <code>streamablehttp_client(SEARCHAPI_MCP_URL)</code> + <code>ClientSession</code>
+         (<code>initialize</code> → <code>call_tool</code>). Normalize to
+         <code>{title, price, source_url, seller, product_token}</code>. Fail-soft: transport/parse error
+         → <code>[]</code> (logged, never raises into the agent loop). Reads the URL via
+         <code>os.getenv</code>; the secret value is never logged.</p>
+      <div class="step-tests"><strong>Tests</strong> — driven by <code>asyncio.run(...)</code> with a
+         fake <code>ClientSession</code> (monkeypatched): a canned <code>tools/call</code> payload
+         normalizes to priced rows; a raising session → <code>[]</code>; missing
+         <code>SEARCHAPI_MCP_URL</code> → <code>[]</code>. No live call here (that's AC5).
+         <strong>Gate:</strong> <code>pytest tests/test_shopping_client.py</code> — GREEN.</div>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 4 — Cascade orchestrator <code>build_deal_search_tool()</code> / <code>find_deals</code></span>
+        <span class="band">AC3 · AC4</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> Assembles Steps 1-3 into the deterministic
+         <code>find_deals</code> function-tool the agent calls. Legs injected so the cascade is tested
+         with fakes (no network), then bound to the real client/SERP/Firecrawl at construction.</p>
+      <p class="step-meta"><strong>Files:</strong> <code>src/sentinel/tools/shopping.py</code> —
+         <code>build_deal_search_tool(cfg, *, shopping_leg, serp_leg, firecrawl_leg, prefs) -&gt;
+         Callable</code> returning an async <code>find_deals(query)</code>. Logic: shopping_leg → if
+         <code>shopping_results_thin</code> → serp_leg → if still thin → firecrawl_leg; record the
+         winning leg in <code>prefs</code> (<code>ToolPreferenceStore</code>) keyed by
+         <code>classify_query_class</code>; on next call, try the recorded winner first.</p>
+      <div class="step-tests"><strong>Tests</strong> — <code>tests/test_shopping_cascade.py</code>
+         (orchestrator half), via <code>asyncio.run</code> with fake legs: (path A) shopping returns 5
+         priced → serp/firecrawl <em>not</em> called, store records <code>google_shopping_search</code>;
+         (path B) shopping thin → serp called → returns rows, firecrawl not called; (path C) both thin →
+         firecrawl called <em>with a concrete top-candidate URL/query</em> (assert the input it
+         receives, not merely that it was called — avoids a vacuous spy pass, AP#10); (learn) second call
+         with a recorded winner tries it first. Assert leg-call counts via spies. <strong>Gate:</strong> <code>pytest tests/test_shopping_cascade.py</code> —
+         GREEN.</div>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 5 — Wire into <code>product_research</code>: provider guard + cascade attach</span>
+        <span class="band">AC1 · AC3 · AC6</span>
+      </div>
+      <p class="step-meta"><span class="risk-h">HIGHEST-RISK STEP.</span> Touches the shared
+         <code>step.tool == "search"</code> branch used by <em>every</em> domain. Land it last, against
+         green foundations, with a sovereign regression test pinned.</p>
+      <p class="step-meta"><strong>Files:</strong> <code>src/sentinel/agent/modes/spec.py</code> —
+         (a) new pure <code>_search_provider_for_step(requested, resolved, has_mcp_funcs,
+         onprem_fallback)</code> widening the existing vLLM-only swap (lines 387-390) to &ldquo;any step
+         with MCP function-tools&rdquo;; (b) reorder the branch to build <code>mcp_tools</code> first;
+         (c) when <code>spec.domain == "product_research"</code> and <code>cloud_allowed</code>, append
+         the <code>find_deals</code> cascade tool (bound to the real legs).</p>
+      <div class="step-tests"><strong>Tests</strong> — <code>tests/test_search_provider_collision.py</code>:
+         <code>gemini + has_mcp_funcs → onprem_fallback</code>; <code>gemini + vLLM → onprem_fallback</code>
+         (unchanged); <code>gemini + cloud + no MCP → gemini</code> (built-in kept where safe); explicit
+         non-gemini → unchanged. <strong>AC6 regression:</strong> build the product_research pipeline with
+         <code>cloud_allowed=False</code> → no <code>find_deals</code>, no SearchAPI/Firecrawl, provider
+         unchanged, no built-in+function-tool mix. <strong>Gate:</strong>
+         <code>pytest tests/test_search_provider_collision.py</code> + full suite — GREEN.</div>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 6 — Shopping-first prompt + searchapi description</span>
+        <span class="band">AC2</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> Directs the agent to call <code>find_deals</code>
+         for all pricing and reserve generic web search for reviews/comparisons — the soft layer atop the
+         hard cascade.</p>
+      <p class="step-meta"><strong>Files:</strong> <code>src/sentinel/config/defaults.py</code> —
+         rewrite <code>_P_PRODUCT_RESEARCH_PUBLIC</code> (line 697): step 1 &ldquo;call
+         <code>find_deals</code> / <code>google_shopping_search</code> for live prices&rdquo;, step 2
+         &ldquo;<code>google_product</code> on each token for multi-seller offers&rdquo;, steps 3+ generic
+         <code>site:</code> / review searches as fallback; keep <code>_INJECTION_STANCE</code> suffix.
+         Enrich the <code>searchapi</code> <code>description</code> (line 1017).</p>
+      <div class="step-tests"><strong>Tests</strong> — <code>tests/test_product_research_prompt.py</code>:
+         the rendered prompt names <code>google_shopping_search</code> and <code>google_product</code>
+         before the first <code>site:</code> token; <code>{target}</code>/<code>{research_plan}</code>
+         placeholders still present (no render break). <strong>Gate:</strong>
+         <code>pytest tests/test_product_research_prompt.py</code> — GREEN.</div>
+    </div>
+
+    <div class="step">
+      <div class="step-header">
+        <span class="step-title">Step 7 — Live e2e proof</span>
+        <span class="band">AC5</span>
+      </div>
+      <p class="step-meta"><strong>Rationale:</strong> The acceptance proof — a real buying query yields
+         priced products end-to-end on the isolated server.</p>
+      <p class="step-meta"><strong>Files:</strong> <code>tests/test_e2e_product_research.py</code> (marked
+         <code>e2e</code>/<code>live</code>). Drives the API-only run on <code>:8093</code> for
+         &ldquo;best laptop under 80000 INR …&rdquo; and asserts <code>products_found ≥ 5</code> with
+         non-empty <code>price</code>+<code>source_url</code>, a populated <code>value_ranking</code>, and
+         a <code>winner</code> with a sourced <code>winner_rationale</code>. <strong>Skip-marked</strong>
+         when <code>SEARCHAPI_MCP_URL</code> is unset or the MCP <code>initialize</code> fails — no flaky
+         CI.</p>
+      <div class="step-tests"><strong>Gate:</strong> live run GREEN with <code>products_found ≥ 5</code>;
+         capture the run id + a sample priced winner in the reflect note.</div>
+    </div>
+  </section>
+
+  <section id="risks">
+    <h2>Risk Register</h2>
+    <table>
+      <thead><tr><th>Risk</th><th>Sev</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td>Step 5 edits the search branch shared by <em>all</em> domains — a regression here breaks
+            every research mode.</td>
+            <td class="risk-h">HIGH</td>
+            <td>Decision logic extracted to a <em>pure</em> helper unit-tested across all branches; AC6
+                sovereign regression pinned; full suite must stay green; cascade attach is gated to
+                <code>domain == "product_research"</code> so other domains' toolsets are byte-unchanged.</td></tr>
+        <tr><td>SearchAPI MCP transport/auth is brittle (MCP-only token; cold connects).</td>
+            <td class="risk-m">MED</td>
+            <td>Client fail-soft → <code>[]</code> feeds the cascade's thin-path → SERP/Firecrawl
+                fallback still returns results; unit-tested with a mocked session; live only in AC5
+                (skip-marked when unreachable).</td></tr>
+        <tr><td>Async cascade with no <code>pytest-asyncio</code> in the suite.</td>
+            <td class="risk-l">LOW</td>
+            <td>Sync tests drive async paths via <code>asyncio.run(...)</code>; pure decision stays sync.
+                No new dependency, no ADR.</td></tr>
+        <tr><td>Cloud-search posture (SearchAPI/Firecrawl) vs compliance mode.</td>
+            <td class="risk-l">LOW</td>
+            <td>No <em>new</em> cloud dependency — both already attach to product_research today; AC6 gate
+                unchanged. Confirm the existing ADR covers it at Review.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="dod">
+    <h2>Definition of Done</h2>
+    <ul>
+      <li>AC1-AC6 each covered by a named test (AC5 = live, skip-marked).</li>
+      <li>Full suite green (current 853 + new ~16); no residue files; no banned vocabulary.</li>
+      <li>AC6 sovereign regression pinned: <code>cloud_allowed=False</code> path byte-unchanged.</li>
+      <li>Live AC5: <code>products_found ≥ 5</code> with real prices + sourced winner on <code>:8093</code>.</li>
+      <li>Human peer review for the <code>spec.py</code> shared-branch change (Step 5) before Ship.</li>
+    </ul>
+  </section>
+
+  <section id="history">
+    <h2>Change History</h2>
+    <table>
+      <thead><tr><th>Date</th><th>What changed</th><th>Trigger</th></tr></thead>
+      <tbody>
+        <tr><td>2026-06-14</td>
+            <td>Initial plan from approved design (cascade-up-front variant). 7 steps, bottom-up; shared
+                <code>spec.py</code> branch edit isolated to Step 5 with a pure helper + AC6 regression.</td>
+            <td>Design signed off (dev chose &ldquo;build cascade tool up front&rdquo;)</td></tr>
+        <tr><td>2026-06-14</td>
+            <td>Revision after plan review: Step 1 now appends <code>tool_preference</code> to the
+                centralized <code>_SCHEMA</code> (not the <code>ALTER</code> migration path) + a fresh-DB
+                <code>_ensure_schema</code> round-trip test; Step 4 path C asserts the firecrawl leg's
+                input (anti-vacuous-spy).</td>
+            <td>plan-reviewer: 1 blocker + 2 fixes</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

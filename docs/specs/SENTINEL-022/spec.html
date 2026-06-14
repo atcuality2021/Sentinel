@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spec: Product research reaches e-commerce prices via google_shopping_search</title>
+  <!-- Design tokens: see /DESIGN.md for canonical BiltIQ design system -->
+  <style>
+    :root {
+      --color-shipped:   #16a34a;
+      --color-wip:       #d97706;
+      --color-blocker:   #dc2626;
+      --color-ac-open:   #d97706;
+      --color-ac-done:   #16a34a;
+      --color-border:    #e5e7eb;
+      --color-bg:        #ffffff;
+      --color-bg-subtle: #f9fafb;
+      --color-text:      #111827;
+      --color-muted:     #6b7280;
+      --radius:          6px;
+      --max-width:       860px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; font-size: 15px; line-height: 1.6;
+      color: var(--color-text); background: var(--color-bg); padding: 2rem 1rem; }
+    main { max-width: var(--max-width); margin: 0 auto; }
+    header { border-bottom: 2px solid var(--color-border); padding-bottom: 1.25rem; margin-bottom: 2rem; }
+    header h1 { font-size: 1.5rem; margin-bottom: 0.75rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+    .meta dt { font-weight: 600; color: var(--color-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta dd { font-size: 0.9rem; }
+    section { margin-bottom: 2rem; }
+    h2 { font-size: 1.1rem; font-weight: 700; border-left: 4px solid var(--color-border); padding-left: 0.75rem; margin-bottom: 0.75rem; }
+    p, li { color: var(--color-text); margin-bottom: 0.4rem; }
+    ul { padding-left: 1.4rem; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--color-bg-subtle); padding: 0.05rem 0.3rem; border-radius: 4px; }
+    .ac-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+    .ac-item { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.5rem 0.75rem; border-radius: var(--radius); background: var(--color-bg-subtle); border: 1px solid var(--color-border); }
+    .ac-badge { font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 9999px; white-space: nowrap; flex-shrink: 0; }
+    .ac-open  { background: #fef3c7; color: var(--color-ac-open); border: 1px solid #fcd34d; }
+    .ac-done  { background: #dcfce7; color: var(--color-ac-done); border: 1px solid #86efac; }
+    .ac-label { font-size: 0.85rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); }
+    th { background: var(--color-bg-subtle); font-weight: 600; }
+    .evidence { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 0.75rem 1rem; font-size: 0.85rem; }
+    @media (max-width: 600px) { .meta { flex-direction: column; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Spec: Product research reaches e-commerce prices via <code>google_shopping_search</code></h1>
+    <dl class="meta">
+      <div><dt>Task ID</dt><dd>SENTINEL-022</dd></div>
+      <div><dt>Owner</dt><dd>@atcuality2021</dd></div>
+      <div><dt>Created</dt><dd>2026-06-14</dd></div>
+      <div><dt>Wall-clock</dt><dd>M</dd></div>
+      <div><dt>Tokens</dt><dd>M</dd></div>
+      <div><dt>Iteration cycles</dt><dd>2</dd></div>
+      <div><dt>Human review (min)</dt><dd>15</dd></div>
+      <div><dt>Harness</dt><dd>Claude Code Opus 4.8</dd></div>
+    </dl>
+  </header>
+
+  <section id="problem">
+    <h2>Problem</h2>
+    <p>A real <code>product_research</code> run (<em>"best laptop under 80000 INR with 16GB RAM and RTX
+    graphics for video editing"</em>) returns <strong>zero products</strong> —
+    <code>products_found=0</code>, <code>sources=0</code>, <code>winner="No qualifying product found"</code>,
+    78 empty gaps. The mode is correctly designed (the <code>product_research.public_research</code> prompt
+    carries a Flipkart/Amazon <code>site:</code> "attack sequence"; <code>ProductOption.price</code>/
+    <code>source_url</code> and <code>ProductResearch.winner</code>/<code>value_ranking</code> already model
+    the "best deal"), but the search layer underneath it never returns priced e-commerce listings. Two
+    root causes, both confirmed live:</p>
+    <ul>
+      <li><strong>Built-in/function-tool collision.</strong> The active search provider is
+      <code>gemini</code>, so <code>get_search_tool("gemini")</code> returns the ADK <strong>built-in</strong>
+      <code>google_search</code> (<code>tools/public/web_search.py</code>). Built-in grounding tools cannot
+      be combined with function-calling in one Gemini agent → <code>400 INVALID_ARGUMENT</code>. The
+      <code>product_research</code> research step <em>already</em> attaches the <code>firecrawl</code> +
+      <code>searchapi</code> MCP function-toolsets (<code>build_mcp_toolsets</code>), so the collision
+      compromises the whole step (fail-soft → empty findings → 0 products).</li>
+      <li><strong>The agent is never told to use the shopping tool.</strong> Even with the collision
+      removed, the prompt's "attack sequence" is written for generic web search, and the SearchAPI server
+      description is vague. The tool-calling model falls back to weak web search and <strong>never invokes
+      <code>google_shopping_search</code></strong>, which is the only path that returns structured prices.</li>
+    </ul>
+  </section>
+
+  <section id="evidence">
+    <h2>Evidence (proven live, isolated server)</h2>
+    <div class="evidence">
+      <p><strong>The data is one MCP call away.</strong> <code>google_shopping_search</code> (via the
+      already-configured SearchAPI MCP, <code>SEARCHAPI_MCP_URL</code>) returned <strong>40 live priced
+      listings</strong> in 1.6s for <em>"laptop 16GB RAM RTX 4050", gl=in</em> — e.g. Lenovo LOQ ₹63,990
+      (Flipkart), Acer Nitro ₹75,999 (Reliance Digital), HP Victus ₹88,000 (amazon.in) — each with seller
+      + <code>product_token</code> (which feeds <code>google_product</code> → multi-seller offers + pricing
+      history).</p>
+      <p><strong>The two-lever diagnosis is experimentally isolated.</strong> Switching the provider
+      <code>gemini → duckduckgo</code> (function-tool, no built-in collision) moved the same query from
+      <code>0 → 3 sources</code> and lengthened runtime (35s → 49s = search actually ran) — but
+      <code>products_found</code> stayed <strong>0</strong> because the agent used weak DuckDuckGo web
+      search and never called <code>google_shopping_search</code>. Both levers are required.</p>
+    </div>
+  </section>
+
+  <section id="acceptance-criteria">
+    <h2>Acceptance Criteria</h2>
+    <ul class="ac-list">
+      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+        <span class="ac-label"><strong>AC1</strong> — When MCP function-toolsets are attached to a research
+        step, the agent is <strong>not</strong> given the built-in <code>gemini</code>
+        <code>google_search</code> tool in the same agent (no <code>400</code> built-in/function-calling
+        collision). Covered by a unit test asserting the tool list for a product-research step contains no
+        built-in search alongside function-tools.</span></li>
+      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+        <span class="ac-label"><strong>AC2</strong> — The <code>product_research.public_research</code>
+        prompt <strong>explicitly directs</strong> the agent to call <code>google_shopping_search</code>
+        (criteria → priced listings) and then <code>google_product</code> (<code>product_token</code> →
+        multi-seller offers) before any generic web search. Prompt-content test asserts both tool names are
+        named.</span></li>
+      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+        <span class="ac-label"><strong>AC3</strong> — A search tool cascade exists: the step prefers the
+        structured shopping tool, and falls back to web SERP / Firecrawl <strong>only when shopping results
+        are thin/empty</strong>. The cascade is pure/deterministic and unit-tested in both the
+        "shopping-returns-results" and "shopping-empty → fallback" paths.</span></li>
+      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+        <span class="ac-label"><strong>AC4</strong> — "Agent learns": the step records which tool yielded
+        usable priced results per query class and prefers it on the next run (lightweight persisted
+        signal). Degradation-safe — a bad signal never blocks a run. Unit-tested.</span></li>
+      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+        <span class="ac-label"><strong>AC5</strong> — With the SearchAPI MCP reachable, a
+        <code>product_research</code> run for a real buying query yields <code>products_found ≥ 5</code>
+        with non-empty <code>price</code> + <code>source_url</code>, a populated <code>value_ranking</code>,
+        and a <code>winner</code> with a sourced <code>winner_rationale</code>. Verified by a live e2e
+        (API-only) on the isolated server; the SERP-dependent assertion is skipped/marked when the MCP is
+        unreachable (no flaky CI).</span></li>
+      <li class="ac-item"><span class="ac-badge ac-open">OPEN</span>
+        <span class="ac-label"><strong>AC6</strong> — Sovereign posture preserved: when
+        <code>cloud_allowed=False</code>, no external SearchAPI/Firecrawl toolset is offered (existing
+        <code>build_mcp_toolsets</code> gate). No regression to the on-prem path; no new always-on cloud
+        dependency added without an ADR.</span></li>
+    </ul>
+  </section>
+
+  <section id="out-of-scope">
+    <h2>Out of Scope</h2>
+    <ul>
+      <li><strong>Flipkart Affiliate + Amazon PA-API direct MCPs — Phase 2 (dev decision 2026-06-14).</strong>
+      Official per-retailer product/price feeds + affiliate-link monetization land as their own MCP servers
+      later; this task ships working price discovery via the existing <code>google_shopping_search</code>
+      engine first.</li>
+      <li><strong>Playwright/Chromium-on-server as a primary search path.</strong> Rejected as primary
+      (datacenter-IP bot-walls on Amazon/Flipkart, per-page latency × tool-call budget, brittle selectors,
+      still egresses). Single-page deep-read stays with Firecrawl (already live); Playwright reserved for
+      true interaction (login/click-through) in a future task if needed.</li>
+      <li>Enabling Google Custom Search JSON API / standing up SearXNG — alternative providers, not required
+      once the shopping tool is wired. (CSE is currently <code>403</code>: API disabled on the GCP project.)</li>
+      <li>Extending the shopping/deal flow to non-product domains.</li>
+    </ul>
+  </section>
+
+  <section id="open-questions">
+    <h2>Open Questions</h2>
+    <ul>
+      <li><strong>OQ-1 — AC1 mechanism.</strong> Suppress the built-in <code>google_search</code> whenever
+      MCP function-tools are present (general fix, all domains), <em>or</em> default
+      <code>product_research</code> to a function-tool provider (narrow, config-only)? Lean to the general
+      fix so other MCP-using domains don't hit the same collision — confirm in design.</li>
+      <li><strong>OQ-2 — "learn" store.</strong> Reuse the existing product-memory store (a tool-preference
+      entry per query class) or a small dedicated table? Lean to the lightest persisted signal that does not
+      entangle with SENTINEL-021 reconciliation — confirm in design.</li>
+      <li><strong>OQ-3 — fallback trigger.</strong> What counts as "thin" shopping results (e.g.
+      <code>&lt; N</code> results, or zero priced rows) before falling back to web SERP/Firecrawl?</li>
+    </ul>
+  </section>
+
+  <section id="change-history">
+    <h2>Change History</h2>
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Section</th><th>What Changed</th><th>Trigger</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>2026-06-14</td><td>all</td><td>Initial draft — derived from live diagnosis of product_research returning 0 products; root cause = gemini built-in/MCP collision + prompt never names google_shopping_search; both isolated by live experiment</td><td>dev report "research can't find e-commerce sites / best deals"</td></tr>
+        <!-- Agent appends a new row here on every edit. Never delete rows. -->
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>
