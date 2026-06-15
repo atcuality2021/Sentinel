@@ -57,3 +57,21 @@ def test_migration_is_idempotent(tmp_path):
     path = tmp_path / "sentinel.db"
     MemoryStore(path)
     MemoryStore(path)  # second open must not raise
+
+
+def test_crawl_dedup_index_blocks_same_hour_duplicate(db):
+    import datetime
+    import uuid
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "INSERT INTO crawl_jobs (id, entity, source_type, status, priority, scheduled_at) "
+            "VALUES (?, 'acme', 'website', 'pending', 5, ?)", (uuid.uuid4().hex, now)
+        )
+        conn.commit()
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO crawl_jobs (id, entity, source_type, status, priority, scheduled_at) "
+                "VALUES (?, 'acme', 'website', 'pending', 5, ?)", (uuid.uuid4().hex, now)
+            )
+            conn.commit()
