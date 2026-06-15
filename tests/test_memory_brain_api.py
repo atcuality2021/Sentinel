@@ -57,6 +57,44 @@ def test_post_rejects_invalid_email_filter(client):
     assert resp.status_code == 400
 
 
+def test_post_rejects_http_scheme_other_than_http_https(client):
+    for bad_url in ("ftp://acme.com", "file:///etc/passwd", "javascript:alert(1)"):
+        resp = client.post(
+            "/api/memory/source-config/acme-corp",
+            content=json.dumps({"website_url": bad_url}),
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 400, f"expected 400 for {bad_url!r}"
+
+
+def test_post_rejects_loopback_url(client):
+    resp = client.post(
+        "/api/memory/source-config/acme-corp",
+        content=json.dumps({"website_url": "http://127.0.0.1/admin"}),
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 400
+
+
+def test_post_rejects_private_range_url(client):
+    resp = client.post(
+        "/api/memory/source-config/acme-corp",
+        content=json.dumps({"website_url": "http://192.168.1.1/secret"}),
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 400
+
+
+def test_post_rejects_link_local_url(client):
+    # AWS metadata endpoint SSRF classic
+    resp = client.post(
+        "/api/memory/source-config/acme-corp",
+        content=json.dumps({"website_url": "http://169.254.169.254/latest/meta-data/"}),
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 400
+
+
 def test_post_crawl_now_enqueues_job(client):
     # First configure
     client.post(

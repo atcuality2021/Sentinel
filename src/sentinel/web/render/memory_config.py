@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import html
+import ipaddress
 import json
 import re
+import socket
 import sqlite3
 from pathlib import Path
+from urllib.parse import urlparse
 
 from sentinel.memory.schema import normalize_entity, utcnow
 
@@ -23,6 +26,26 @@ def _validate_email_filter(value: str) -> str:
     stripped = value.strip()
     if not _SAFE_EMAIL_FILTER.match(stripped):
         raise ValueError("Invalid email_filter characters")
+    return stripped
+
+
+def _validate_website_url(value: str) -> str:
+    """Reject URLs that could cause SSRF against internal services."""
+    stripped = value.strip()
+    if not stripped:
+        return stripped
+    parsed = urlparse(stripped)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("website_url must use http or https")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("website_url must have a hostname")
+    try:
+        addr = ipaddress.ip_address(socket.gethostbyname(hostname))
+        if addr.is_loopback or addr.is_private or addr.is_link_local:
+            raise ValueError("website_url must not point to an internal address")
+    except socket.gaierror:
+        pass  # non-resolvable hostname — allow, will fail at crawl time
     return stripped
 
 
@@ -67,7 +90,7 @@ def save_source_config(db_path: Path, entity_slug: str, payload: dict[str, objec
             (
                 entity,
                 priority,
-                html.escape(str(payload.get("website_url", ""))),
+                _validate_website_url(str(payload.get("website_url", ""))),
                 html.escape(str(payload.get("youtube_channel", ""))),
                 str(payload.get("social_handles", "{}")),
                 email_filter,
