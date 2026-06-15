@@ -270,6 +270,36 @@ CREATE TABLE IF NOT EXISTS tool_preference (
     winning_tool TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
+
+-- Self-Driving Memory Brain: crawl job queue (Task 1)
+-- Tracks per-entity, per-source crawl jobs for the autonomous refresh loop.
+CREATE TABLE IF NOT EXISTS crawl_jobs (
+    id           TEXT PRIMARY KEY,
+    entity       TEXT NOT NULL,
+    project_id   TEXT,
+    source_type  TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'pending',
+    priority     INT  NOT NULL DEFAULT 5,
+    scheduled_at TEXT NOT NULL,
+    claimed_at   TEXT,
+    done_at      TEXT,
+    error        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_crawl_entity ON crawl_jobs(entity, source_type, status);
+CREATE INDEX IF NOT EXISTS idx_crawl_status ON crawl_jobs(status, priority);
+
+-- Self-Driving Memory Brain: per-entity source configuration (Task 1)
+-- Stores which sources are enabled and their metadata for each tracked entity.
+CREATE TABLE IF NOT EXISTS entity_source_config (
+    entity          TEXT PRIMARY KEY,
+    priority        TEXT NOT NULL DEFAULT 'medium',
+    website_url     TEXT,
+    youtube_channel TEXT,
+    social_handles  TEXT,
+    email_filter    TEXT,
+    sources_enabled TEXT NOT NULL DEFAULT '["website"]',
+    updated_at      TEXT NOT NULL
+);
 """
 
 
@@ -301,6 +331,8 @@ _RUN_MIGRATIONS = (
 )
 _MEMORY_MIGRATIONS = (
     ("project_id", "TEXT"),
+    ("source_type", "TEXT NOT NULL DEFAULT 'research'"),
+    ("persona_id",  "TEXT"),
 )
 
 
@@ -321,6 +353,10 @@ def _ensure_schema(path: Path) -> None:
         # Index on the migrated column — created here (not in _SCHEMA) so it works on a pre-012 DB
         # where project_id only exists after the ALTER above.
         conn.execute("CREATE INDEX IF NOT EXISTS idx_run_project ON run_records(project_id)")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_crawl_dedup "
+            "ON crawl_jobs(entity, source_type, strftime('%Y-%m-%dT%H', scheduled_at))"
+        )
         conn.commit()
 
 
