@@ -14,7 +14,9 @@ _PATHS = ["/", "/about", "/pricing", "/blog"]
 
 
 class WebsiteConnector(SourceConnector):
-    source_type = "website"
+    @property
+    def source_type(self) -> str:
+        return "website"
 
     async def fetch(self, entity: str, config: dict[str, object]) -> list[SourceFinding]:
         url = config.get("website_url", "")

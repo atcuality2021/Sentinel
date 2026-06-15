@@ -11,7 +11,9 @@ log = logging.getLogger(__name__)
 
 
 class EmailConnector(SourceConnector):
-    source_type = "email"
+    @property
+    def source_type(self) -> str:
+        return "email"
 
     async def fetch(self, entity: str, config: dict[str, object]) -> list[SourceFinding]:
         email_filter = config.get("email_filter", "")

@@ -12,7 +12,9 @@ log = logging.getLogger(__name__)
 
 
 class SocialConnector(SourceConnector):
-    source_type = "social"
+    @property
+    def source_type(self) -> str:
+        return "social"
 
     async def fetch(self, entity: str, config: dict[str, object]) -> list[SourceFinding]:
         handles_raw = config.get("social_handles", "{}")

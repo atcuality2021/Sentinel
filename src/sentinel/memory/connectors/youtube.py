@@ -11,7 +11,9 @@ log = logging.getLogger(__name__)
 
 
 class YouTubeConnector(SourceConnector):
-    source_type = "youtube"
+    @property
+    def source_type(self) -> str:
+        return "youtube"
 
     async def fetch(self, entity: str, config: dict[str, object]) -> list[SourceFinding]:
         channel = config.get("youtube_channel", "")
@@ -28,6 +30,7 @@ class YouTubeConnector(SourceConnector):
                 return []
             raw = "\n\n".join(
                 f"Title: {v.get('title', '')}\nDescription: {v.get('description', '')}"
+                f"\nSnippet: {v.get('snippet', '')}\nCaptions: {v.get('captions', '')}"
                 for v in videos
             )
             urls = [v.get("link", "") for v in videos]
