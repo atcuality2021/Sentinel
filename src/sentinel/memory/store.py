@@ -398,6 +398,8 @@ def _row_to_entry(r: sqlite3.Row) -> MemoryEntry:
         access_count=r["access_count"],
         quarantined=bool(r["quarantined"]),
         project_id=_opt_col(r, "project_id"),
+        source_type=_opt_col(r, "source_type") or "research",
+        persona_id=_opt_col(r, "persona_id"),
     )
 
 
@@ -463,6 +465,8 @@ class MemoryStore:
         tier: str = "all",
         page: int = 0,
         page_size: int | None = None,
+        persona_id: str | None = None,
+        include_sources: bool = False,
     ) -> list[MemoryEntry]:
         """Return non-quarantined entries for ``entity`` whose boundary ∈ ``allowed`` only.
 
@@ -475,23 +479,49 @@ class MemoryStore:
         ``tier="cold"`` — entries below HOT_THRESHOLD but above STRENGTH_FLOOR.
         ``tier="all"``  — all above-floor entries (default, backward-compatible).
         ``page`` / ``page_size`` slice within the tier after strength-sorting (0-indexed).
+
+        ``persona_id`` — when set, merges in persona-scoped entries (persona_id=persona_id) on top
+        of shared facts (persona_id IS NULL). Persona entries win on content_hash collision.
+        ``include_sources`` — reserved for Task 9; accepted and ignored here.
         """
-        entity = normalize_entity(entity)
+        normalized_entity = normalize_entity(entity)
         allowed_set = {DataBoundary(b) for b in allowed}
         if not allowed_set:
             return []
         placeholders = ",".join("?" for _ in allowed_set)
         values = [b.value for b in allowed_set]
         with _connect(self.path) as conn:
+            # Shared facts only: exclude persona-scoped entries from this leg so the persona
+            # merge below has clean non-overlapping sets.
             rows = conn.execute(
                 f"SELECT * FROM memory_entries "
-                f"WHERE entity=? AND quarantined=0 AND boundary IN ({placeholders})",
-                (entity, *values),
+                f"WHERE entity=? AND quarantined=0 AND boundary IN ({placeholders})"
+                f" AND (persona_id IS NULL OR persona_id = '')",
+                (normalized_entity, *values),
             ).fetchall()
 
         entries = [_row_to_entry(r) for r in rows]
         # Defense in depth: re-assert the boundary on the deserialized objects.
         entries = [e for e in entries if e.boundary in allowed_set]
+
+        # Persona merge: fetch persona-scoped entries, apply boundary filter, dedup by
+        # content_hash (persona entry wins on collision).
+        if persona_id is not None:
+            with _connect(self.path) as conn:
+                persona_rows = conn.execute(
+                    "SELECT * FROM memory_entries "
+                    "WHERE entity=? AND quarantined=0 AND persona_id=?",
+                    (normalized_entity, persona_id),
+                ).fetchall()
+            persona_entries = [_row_to_entry(r) for r in persona_rows]
+            # Boundary filter is independent of persona — PUBLIC-only callers never get PRIVATE.
+            persona_entries = [e for e in persona_entries if e.boundary in allowed_set]
+            shared_hashes: dict[str, int] = {e.content_hash: i for i, e in enumerate(entries)}
+            for pe in persona_entries:
+                if pe.content_hash in shared_hashes:
+                    entries[shared_hashes[pe.content_hash]] = pe  # persona wins
+                else:
+                    entries.append(pe)
 
         now = now or utcnow()
         scored = [(e, decayed_strength(e, now)) for e in entries]
@@ -815,8 +845,8 @@ class MemoryStore:
                 "INSERT OR REPLACE INTO memory_entries "
                 "(id, entity, boundary, memory_type, content, source_label, source_url, "
                 " created_at, content_hash, strength, interval_days, ease, last_reinforced_at, "
-                " access_count, quarantined, project_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " access_count, quarantined, project_id, source_type, persona_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     entry.id,
                     entry.entity,
@@ -836,6 +866,8 @@ class MemoryStore:
                     entry.access_count,
                     int(entry.quarantined),
                     entry.project_id,
+                    entry.source_type,
+                    entry.persona_id,
                 ),
             )
             conn.commit()

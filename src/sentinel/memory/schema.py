@@ -111,6 +111,8 @@ class MemoryEntry(BaseModel):
     # entity-keyed and deliberately cross-project, so `recall` never filters by it. Records the
     # first writer of a deduped fact; None for legacy/unscoped entries.
     project_id: str | None = None
+    source_type: str = "research"
+    persona_id:  str | None = None
 
     @model_validator(mode="after")
     def _derive(self) -> "MemoryEntry":
