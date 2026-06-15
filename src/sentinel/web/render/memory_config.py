@@ -30,22 +30,38 @@ def _validate_email_filter(value: str) -> str:
 
 
 def _validate_website_url(value: str) -> str:
-    """Reject URLs that could cause SSRF against internal services."""
+    """Reject URLs that could cause SSRF against internal services.
+
+    Checks ALL resolved A/AAAA records via getaddrinfo (not just the first),
+    so DNS rebinding and round-robin tricks can't sneak an internal address
+    past validation. gaierror is treated as rejection, not allow-through,
+    to prevent TOCTOU races where DNS is unavailable at check time but
+    resolves to an internal address at crawl time.
+    """
     stripped = value.strip()
     if not stripped:
         return stripped
     parsed = urlparse(stripped)
     if parsed.scheme not in ("http", "https"):
         raise ValueError("website_url must use http or https")
-    hostname = parsed.hostname
+    hostname = (parsed.hostname or "").rstrip(".").lower()
     if not hostname:
         raise ValueError("website_url must have a hostname")
     try:
-        addr = ipaddress.ip_address(socket.gethostbyname(hostname))
-        if addr.is_loopback or addr.is_private or addr.is_link_local:
+        records = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        raise ValueError(f"website_url hostname could not be resolved: {exc}") from exc
+    for _family, _type, _proto, _canonname, sockaddr in records:
+        addr = ipaddress.ip_address(sockaddr[0])
+        if (
+            addr.is_loopback
+            or addr.is_private
+            or addr.is_link_local
+            or addr.is_reserved
+            or addr.is_multicast
+            or addr.is_unspecified
+        ):
             raise ValueError("website_url must not point to an internal address")
-    except socket.gaierror:
-        pass  # non-resolvable hostname — allow, will fail at crawl time
     return stripped
 
 

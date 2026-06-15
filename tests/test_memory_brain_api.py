@@ -95,6 +95,35 @@ def test_post_rejects_link_local_url(client):
     assert resp.status_code == 400
 
 
+def test_post_rejects_unresolvable_hostname(client):
+    resp = client.post(
+        "/api/memory/source-config/acme-corp",
+        content=json.dumps({"website_url": "https://this.hostname.does.not.exist.invalid/"}),
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 400
+
+
+def test_post_rejects_if_any_record_is_internal(client):
+    # Mock getaddrinfo to return both an external and an internal record
+    # (DNS rebinding simulation — one round-robin entry is internal)
+    import socket as _socket
+    import unittest.mock as _mock
+    from sentinel.web.render import memory_config as mc
+
+    fake_records = [
+        (2, 1, 6, "", ("93.184.216.34", 0)),   # external (example.com)
+        (2, 1, 6, "", ("192.168.1.100", 0)),    # internal — must be rejected
+    ]
+    with _mock.patch.object(mc.socket, "getaddrinfo", return_value=fake_records):
+        resp = client.post(
+            "/api/memory/source-config/acme-corp",
+            content=json.dumps({"website_url": "https://sneaky-rebind.example.com/"}),
+            headers={"Content-Type": "application/json"},
+        )
+    assert resp.status_code == 400
+
+
 def test_post_crawl_now_enqueues_job(client):
     # First configure
     client.post(
