@@ -43,6 +43,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 filterwarnings = [
     # ADK 2.2 deprecated SequentialAgent → google.adk.Workflow (migration: SENTINEL-017).
     # The shim in sentinel/agent/_compat.py already suppresses this at instantiation;
