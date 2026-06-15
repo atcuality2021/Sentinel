@@ -2918,6 +2918,43 @@ async def settings_password(
     return resp
 
 
+# ---- Memory-Brain: entity source-config API (Task 8) ----
+
+@app.get("/api/memory/source-config/{entity_slug}")
+async def get_memory_source_config(entity_slug: str):
+    """Return the source-config for an entity (defaults if not yet saved)."""
+    from fastapi.responses import JSONResponse
+    from sentinel.memory.store import db_path as _db_path
+    from sentinel.web.render.memory_config import get_source_config
+    return JSONResponse(get_source_config(_db_path(), entity_slug))
+
+
+@app.post("/api/memory/source-config/{entity_slug}")
+async def post_memory_source_config(entity_slug: str, request: Request):
+    """Save the source-config for an entity."""
+    from fastapi.responses import JSONResponse
+    from sentinel.memory.store import db_path as _db_path
+    from sentinel.web.render.memory_config import save_source_config
+    payload = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    try:
+        save_source_config(_db_path(), entity_slug, payload)
+        return JSONResponse({"ok": True})
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.post("/api/memory/crawl-now/{entity_slug}")
+async def post_crawl_now(entity_slug: str):
+    """Immediately enqueue all enabled crawl sources for an entity."""
+    from fastapi.responses import JSONResponse
+    from sentinel.memory.schema import normalize_entity as _norm
+    from sentinel.memory.scheduler import CrawlScheduler
+    from sentinel.memory.store import db_path as _db_path
+    entity = _norm(entity_slug.replace("-", " "))
+    n = CrawlScheduler(_db_path()).force_enqueue(entity, priority=10)
+    return JSONResponse({"enqueued": n, "entity": entity})
+
+
 def main() -> None:  # pragma: no cover - convenience entrypoint
     import uvicorn
 
