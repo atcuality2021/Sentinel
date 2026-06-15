@@ -433,6 +433,42 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
             "<span class='mono'>sentinel.config.yaml</span>.</p></div>"
         )
 
+    memory_sources = (
+        "<div class='card' id='memory-sources'>"
+        "<div class='card-head'><h2>Memory Sources</h2></div>"
+        "<p class='note' style='margin:0 0 12px'>Configure which external sources feed each "
+        "company's knowledge graph. Per-company source configuration is available on the "
+        "<a href='/accounts'>Accounts</a> page — select a company and open the Sources tab.</p>"
+        "<div class='stack'>"
+        "<div class='inline'>"
+        "<span class='badge badge-website'>🌐 Website</span>"
+        "<span style='font-size:13px'>Public web crawl of the company's primary domain.</span>"
+        "</div>"
+        "<div class='divider'></div>"
+        "<div class='inline'>"
+        "<span class='badge badge-youtube'>▶ YouTube</span>"
+        "<span style='font-size:13px'>Earnings calls, keynotes, and product demos.</span>"
+        "</div>"
+        "<div class='divider'></div>"
+        "<div class='inline'>"
+        "<span class='badge badge-email'>✉ Email</span>"
+        "<span class='badge badge-private'>PRIVATE</span>"
+        "<span style='font-size:13px'>Scoped to authorized mailboxes only — never crosses "
+        "to public recall.</span>"
+        "</div>"
+        "<div class='divider'></div>"
+        "<div class='inline'>"
+        "<span class='badge badge-social'>📢 Social</span>"
+        "<span style='font-size:13px'>LinkedIn posts and public social media signals.</span>"
+        "</div>"
+        "<div class='divider'></div>"
+        "<div class='inline'>"
+        "<span class='badge badge-research'>🔬 Research</span>"
+        "<span style='font-size:13px'>Synthesized findings from Sentinel research runs.</span>"
+        "</div>"
+        "</div></div>"
+    )
+
     page_head = (
         "<div class='page-head'><div class='grow'><h1>Settings</h1>"
         "<p>Backends, governance, search, and memory for this instance.</p></div></div>"
@@ -447,6 +483,7 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         + "</div>"
         + "<div class='stack' style='gap:var(--sp-5)'>"
         + governance + search + mcp_section + strategy + memory + harness + security
+        + memory_sources
         + "</div>"
         + "</div>"
     )

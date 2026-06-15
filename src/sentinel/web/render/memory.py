@@ -1,9 +1,39 @@
 """render.memory — split from render.py (presentation only)."""
 
 from __future__ import annotations
+import html as _html
 from html import escape
 
 from .base import _icon, _project_subnav, shell
+
+# ── Source badge helpers (SENTINEL-023 Task 9) ────────────────────────────────
+# Maps source_type string to (display label, extra tag).  The extra tag is only
+# emitted when boundary is NOT already private — email always forces PRIVATE.
+_SOURCE_BADGES: dict[str, tuple[str, str]] = {
+    "website":  ("🌐 Website",  ""),
+    "youtube":  ("▶ YouTube",   ""),
+    "email":    ("✉ Email",     "PRIVATE"),
+    "social":   ("📢 Social",   ""),
+    "research": ("🔬 Research", ""),
+}
+
+
+def _source_badge(entry: object) -> str:
+    """Return HTML badge(s) for a MemoryEntry's source_type and boundary."""
+    source_type = (getattr(entry, "source_type", None) or "research")
+    if source_type not in _SOURCE_BADGES:
+        source_type = "research"
+    label, extra = _SOURCE_BADGES[source_type]
+    badge = (
+        f"<span class='badge badge-{_html.escape(source_type)}'>"
+        f"{_html.escape(label)}</span>"
+    )
+    boundary_val = getattr(getattr(entry, "boundary", None), "value", "")
+    if boundary_val == "private" or source_type == "email":
+        badge += " <span class='badge badge-private'>PRIVATE</span>"
+    elif extra:
+        badge += f" <span class='badge badge-private'>{_html.escape(extra)}</span>"
+    return badge
 
 def project_memory_page(*, project, records: list, backend: str,
                         ok: str = "", err: str = "",
@@ -70,6 +100,7 @@ def project_memory_page(*, project, records: list, backend: str,
             return (
                 "<div class='inline'>"
                 "<span class='badge ok'>live</span>"
+                + _source_badge(f) +
                 "<span style='font-size:13px'>"
                 f"<b>{escape(f.entity)}</b> — {escape(f.content)}{src}</span>"
                 "</div>"
