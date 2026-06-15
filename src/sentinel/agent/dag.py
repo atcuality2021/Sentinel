@@ -1153,6 +1153,23 @@ async def run_plan(
     return result
 
 
+def _maybe_trigger_memory_crawl(entity: str, *, db_path=None) -> None:
+    """Fire-and-forget: enqueue a high-priority crawl for *entity* if it has a source config.
+
+    Completely fail-soft — any exception is swallowed so a live research run is never disrupted.
+    Called at the start of :func:`run_dag` once the target entity string is known.
+    """
+    try:
+        from sentinel.memory.scheduler import CrawlScheduler
+        from pathlib import Path as _Path
+        if db_path is None:
+            from sentinel.config import load_config
+            db_path = _Path(load_config().memory.db_path)
+        CrawlScheduler(db_path).force_enqueue(entity, priority=10)
+    except Exception:
+        pass  # never break a live run
+
+
 async def run_dag(plan: Plan, **kwargs) -> Result:
     """Execute **any** hand-built/planner-emitted ``Plan`` and return a task-shape-agnostic Result
     (SENTINEL-012 Step 13). Identical engine to :func:`run_plan` — only the projection is generic:
@@ -1182,6 +1199,7 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
             )
             target = str(raw_target).strip()
             if target:
+                _maybe_trigger_memory_crawl(target)
                 ctx_parts: list[str] = []
                 from sentinel.memory.context_budget import ContextBudget
                 _ctx_budget = ContextBudget(
