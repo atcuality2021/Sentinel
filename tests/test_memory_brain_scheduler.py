@@ -112,3 +112,22 @@ def test_medium_priority_config_yields_medium_priority_job(db):
     sched.tick()
     jobs = _pending_jobs(db, "acme corp")
     assert jobs[0]["priority"] == 5
+
+
+def test_force_enqueue_does_not_delete_running_job(db):
+    """force_enqueue must not orphan an in-flight worker."""
+    _insert_config(db, "acme corp", priority="high", sources=["website"])
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "INSERT INTO crawl_jobs (id, entity, source_type, status, priority, scheduled_at, claimed_at) "
+            "VALUES (?, 'acme corp', 'website', 'running', 10, ?, ?)",
+            (uuid4().hex, utcnow().isoformat(), utcnow().isoformat()),
+        )
+        conn.commit()
+    sched = CrawlScheduler(db)
+    sched.force_enqueue("acme corp")
+    with sqlite3.connect(db) as conn:
+        running = conn.execute(
+            "SELECT * FROM crawl_jobs WHERE entity='acme corp' AND status='running'"
+        ).fetchall()
+    assert len(running) == 1  # running job must still exist

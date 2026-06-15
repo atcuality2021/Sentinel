@@ -89,18 +89,23 @@ class CrawlScheduler:
                 return 0
             sources: list[str] = json.loads(cfg_row["sources_enabled"] or '["website"]')
             for source in sources:
-                # DELETE any existing row in the same hour window so force always lands
+                # DELETE only terminal rows in the same hour window so force always lands
+                # but never orphans an in-flight worker (status='running').
                 conn.execute(
                     "DELETE FROM crawl_jobs WHERE entity=? AND source_type=? "
+                    "AND status IN ('done', 'failed') "
                     "AND strftime('%Y-%m-%dT%H', scheduled_at) = strftime('%Y-%m-%dT%H', ?)",
                     (entity, source, now.isoformat()),
                 )
-                conn.execute(
-                    "INSERT INTO crawl_jobs "
-                    "(id, entity, source_type, status, priority, scheduled_at) "
-                    "VALUES (?, ?, ?, 'pending', ?, ?)",
-                    (uuid4().hex, entity, source, priority, now.isoformat()),
-                )
-                inserted += 1
+                try:
+                    conn.execute(
+                        "INSERT INTO crawl_jobs "
+                        "(id, entity, source_type, status, priority, scheduled_at) "
+                        "VALUES (?, ?, ?, 'pending', ?, ?)",
+                        (uuid4().hex, entity, source, priority, now.isoformat()),
+                    )
+                    inserted += 1
+                except sqlite3.IntegrityError:
+                    pass  # running job already occupies this hour window — leave it alone
             conn.commit()
         return inserted
