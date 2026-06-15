@@ -88,3 +88,16 @@ def projects_page(*, projects: list, backend: str, ok: str = "") -> str:
     )
     return shell(active="projects", title="Projects", content=banner + head + header + grid + create,
                  backend=backend)
+
+
+def not_found_page(*, what: str, backend: str) -> str:
+    """Generic 404 card — returns a clean 200 page, never a 500 (AC-9)."""
+    from html import escape
+    content = (
+        "<div class='card'><div class='empty'>"
+        f"<div class='ico'>{_icon('search')}</div>"
+        f"Not found: <b>{escape(what)}</b>.<br>"
+        "<a href='/projects'>Back to Projects</a>."
+        "</div></div>"
+    )
+    return shell(active="projects", title="Not found", content=content, backend=backend)

@@ -506,42 +506,10 @@ async def backends() -> RedirectResponse:
 
 
 # --------------------------------------------------------------------------- #
-# Accounts (SENTINEL-004) — entity-centric read views + the purge control.
-# All reads fail-soft to an empty/not-found state (NFR-6); no read mutates memory
-# (AC-5 — the detail page uses list_for_entity, never recall); deletion is POST-only
-# behind a confirm step (AC-8).
+# Accounts — purge only. GET /accounts and GET /accounts/{entity} removed 2026-06-15;
+# memory source config moved to the project Memory tab. The POST purge is kept for
+# data-subject right-to-deletion; it redirects to /projects (AC-8: POST-only, no GET delete).
 # --------------------------------------------------------------------------- #
-@app.get("/accounts", response_class=HTMLResponse)
-async def accounts(ok: str = "", project: str = "") -> str:
-    pid, pill = _resolve_project(project)  # optional project scope (SENTINEL-012 AC-10)
-    try:
-        summaries = RunStore().entities(project_id=pid)
-    except Exception:  # a store error degrades to the empty state, never a 500 (NFR-6)
-        summaries = []
-    return render.accounts_page(accounts=summaries, backend=_active(), ok=ok, project=pill)
-
-
-@app.get("/accounts/{entity}", response_class=HTMLResponse)
-async def account_detail(entity: str, confirm: str = "") -> str:
-    key = normalize_entity(entity)
-    try:
-        runs = RunStore().runs_for(key)
-        mem = MemoryStore()
-        public_mem = mem.list_for_entity(key, allowed={DataBoundary.PUBLIC})
-        private_mem = mem.list_for_entity(key, allowed={DataBoundary.PRIVATE})
-    except Exception:  # fail-soft (NFR-6)
-        runs, public_mem, private_mem = [], [], []
-
-    if not runs and not public_mem and not private_mem:  # unknown entity (AC-9)
-        return render.not_found_page(what=entity, backend=_active())
-
-    summary = _summary_for(key, runs)
-    return render.account_detail_page(
-        summary=summary, runs=runs, public_mem=public_mem, private_mem=private_mem,
-        backend=_active(), confirm=(confirm == "purge"),
-    )
-
-
 @app.post("/accounts/{entity}/purge")
 async def account_purge(entity: str) -> RedirectResponse:
     key = normalize_entity(entity)
@@ -549,8 +517,8 @@ async def account_purge(entity: str) -> RedirectResponse:
         MemoryStore().purge_entity(key)
     except Exception:  # nothing to surface on the redirect target if it failed; stay fail-soft
         pass
-    # 303 → the browser re-GETs /accounts, so a refresh can't re-trigger the POST (AC-8).
-    return RedirectResponse(url="/accounts?ok=Account+purged.", status_code=303)
+    # 303 → the browser re-GETs /projects, so a refresh can't re-trigger the POST (AC-8).
+    return RedirectResponse(url="/projects?ok=Entity+memory+purged.", status_code=303)
 
 
 # --------------------------------------------------------------------------- #

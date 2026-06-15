@@ -104,7 +104,7 @@ def test_unknown_project_is_not_found(client):
 
 def test_existing_screens_ok_with_and_without_project_filter(client):
     pid = _create_project(client, name="Scoped")
-    for path in ("/artifacts", "/accounts", "/focus"):
+    for path in ("/artifacts", "/focus"):
         assert client.get(path).status_code == 200                      # unscoped (legacy behaviour)
         assert client.get(f"{path}?project={pid}").status_code == 200   # scoped
     # a scoped page surfaces the project in the pill

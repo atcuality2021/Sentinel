@@ -13,7 +13,6 @@ def dashboard_page(*, stats: dict, charts: dict, recent: list[dict], backend: st
     kpis = (
         "<div class='page-head'><div class='grow'><h1>Dashboard</h1>"
         "<p>Research activity across every project on this sovereign instance.</p></div>"
-        "<a class='btn ghost' href='/accounts'>View accounts</a>"
         "<a class='btn' href='/projects'>＋ New project</a></div>"
         "<div class='grid cols-4' style='margin-bottom:24px'>"
         + _kpi("run", "Runs (session)", stats["runs"], "spark")

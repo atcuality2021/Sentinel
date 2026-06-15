@@ -62,14 +62,13 @@ from .agents import (
     agents_page,
 )
 from .accounts import (
-    _account_href,
     _fmt_when,
     _run_href,
-    accounts_page,
 )
 from .projects import (
     _project_form,
     _project_form_fields,
+    not_found_page,
     projects_page,
 )
 from .personas import (
@@ -126,14 +125,6 @@ from .plan import (
     _verdict_badge,
     plan_review_page,
     task_running_page,
-)
-from .account_detail import (
-    _account_donut,
-    _danger_zone,
-    _mem_row,
-    _mem_section,
-    account_detail_page,
-    not_found_page,
 )
 from .focus import (
     _TIER_STYLE,
@@ -208,8 +199,6 @@ __all__ = [
     '_THEME_INIT_JS',
     '_THEME_JS',
     '_TIER_STYLE',
-    '_account_donut',
-    '_account_href',
     '_agent_card',
     '_agent_row',
     '_art_wrap',
@@ -224,7 +213,6 @@ __all__ = [
     '_created_spec_card',
     '_dag_graph',
     '_dag_node',
-    '_danger_zone',
     '_delta_block',
     '_entity_href',
     '_execution_log',
@@ -241,8 +229,6 @@ __all__ = [
     '_icon',
     '_kb_error_friendly',
     '_kpi',
-    '_mem_row',
-    '_mem_section',
     '_num',
     '_pending_task_row',
     '_persona_label',
@@ -283,8 +269,6 @@ __all__ = [
     '_tier_badge',
     '_trace',
     '_verdict_badge',
-    'account_detail_page',
-    'accounts_page',
     'agents_page',
     'artifacts_page',
     'dashboard_page',
@@ -294,7 +278,6 @@ __all__ = [
     'focus_page',
     'form_page',
     'login_page',
-    'not_found_page',
     'personas_page',
     'plan_review_page',
     'project_detail_page',

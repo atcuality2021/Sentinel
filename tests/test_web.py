@@ -80,7 +80,7 @@ def test_dashboard_has_sidebar_nav(client):
     # collapsible sidebar — two intents: Workspace (Dashboard/Projects/Accounts/Focus) and
     # Configure (Agents/Personas/Prompts/Settings).
     assert "navToggle" in r.text
-    for href in ("/projects", "/settings", "/agents", "/accounts", "/focus", "/personas"):
+    for href in ("/projects", "/settings", "/agents", "/focus", "/personas"):
         assert f"href='{href}'" in r.text
     for group in ("Workspace", "Configure"):
         assert group in r.text
@@ -99,9 +99,8 @@ def test_shell_is_dual_theme_light_default(client):
 
 
 def test_dashboard_run_rows_link_to_project_not_account():
-    """A run row's link must land on the run's PROJECT — the account page is a thin CRM memory
-    view and a confusing target from the dashboard (user feedback 2026-06-12). Account href
-    survives only as the fallback for legacy runs with no project_id."""
+    """A run row's link must land on the run's PROJECT. Legacy runs with no project_id
+    fall back to /projects (the list page) since the account page no longer exists."""
     run = {"target": "BiltIQ AI", "entity": "biltiq ai", "mode": "orchestrated",
            "backend": "vllm", "public": 3, "private": 1, "when": "10:00:00",
            "project_id": "770bc417"}
@@ -113,19 +112,19 @@ def test_dashboard_run_rows_link_to_project_not_account():
     legacy = dict(run, project_id=None)
     html = render.dashboard_page(stats={"runs": 1, "artifacts": 1, "public": 3, "private": 1},
                                  charts={}, recent=[legacy], backend="vllm")
-    assert "href='/accounts/biltiq%20ai'" in html
+    assert "/accounts/" not in html  # accounts page removed — legacy falls back to /projects
+    assert "href='/projects'" in html
 
 
 def test_focus_links_prefer_project_when_entity_has_one():
-    """Focus rows are entity-keyed (PriorityScore has no project_id) — the {entity: project_id}
-    map resolved from run records redirects them to the project; unmapped entities keep the
-    account fallback."""
+    """Focus rows are entity-keyed — the {entity: project_id} map redirects them to the project;
+    unmapped entities fall back to /projects (accounts page removed)."""
     from sentinel.priority.engine import PriorityScore
 
     s = PriorityScore(entity="biltiq ai", display_name="BiltIQ AI", score=80.0, tier="hot")
     card = render.focus_card([s], {"biltiq ai": "770bc417"})
     assert "href='/projects/770bc417'" in card and "/accounts/" not in card
-    assert "href='/accounts/biltiq%20ai'" in render.focus_card([s], {})
+    assert "/accounts/" not in render.focus_card([s], {})  # fallback is /projects now
 
     page = render.focus_page(scores=[s], backend="vllm", enabled=True,
                              project_by_entity={"biltiq ai": "770bc417"})
@@ -154,7 +153,7 @@ def test_artifacts_rows_link_to_project_not_account():
 
     art["project_id"] = None
     html = render.artifacts_page(artifacts=[art], backend="gemini")
-    assert "href='/accounts/biltiq%20ai'" in html
+    assert "/accounts/" not in html  # accounts page removed — legacy falls back to /projects
 
 
 def test_agents_page_renders_roster_and_flow(client):

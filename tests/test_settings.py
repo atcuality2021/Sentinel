@@ -421,7 +421,7 @@ def test_active_default_comes_from_config_not_env(client, monkeypatch):
     assert "Backend: <b>vllm</b>" in s            # topbar pill = config default
     assert "Backend: <b>gemini</b>" not in s
     # and the same value drives every other page's shell
-    assert "Backend: <b>vllm</b>" in client.get("/accounts").text
+    assert "Backend: <b>vllm</b>" in client.get("/projects").text
 
 
 def test_vllm_key_pill_is_honest_about_placeholder(client, monkeypatch):

@@ -5,7 +5,6 @@ from html import escape
 from urllib.parse import quote
 from sentinel.artifacts.schemas import Boundary
 
-from .accounts import _account_href
 from .base import _badge, _icon, shell
 
 # --------------------------------------------------------------------------- #
@@ -68,7 +67,7 @@ def _entity_href(entity: str, project_by_entity: dict | None) -> str:
     pid = (project_by_entity or {}).get(entity)
     if pid:
         return f"/projects/{quote(str(pid), safe='')}"
-    return _account_href(entity)
+    return "/projects"
 
 
 def _focus_row(rank: int, s, project_by_entity: dict | None = None) -> str:

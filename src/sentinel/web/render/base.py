@@ -662,7 +662,6 @@ _NAV_GROUPS = [
     ("Workspace", [
         ("dashboard", "Dashboard", "grid", "/"),
         ("projects", "Projects", "plan", "/projects"),
-        ("accounts", "Accounts", "users", "/accounts"),
         ("focus", "Focus", "target", "/focus"),
     ]),
     ("Configure", [

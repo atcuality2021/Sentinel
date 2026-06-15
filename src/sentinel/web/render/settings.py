@@ -438,7 +438,7 @@ def settings_page(cfg, *, backend: str, gemini_key_set: bool, ok: str = "", err:
         "<div class='card-head'><h2>Memory Sources</h2></div>"
         "<p class='note' style='margin:0 0 12px'>Configure which external sources feed each "
         "company's knowledge graph. Per-company source configuration is available on the "
-        "<a href='/accounts'>Accounts</a> page — select a company and open the Sources tab.</p>"
+        "project Memory tab — open a project and select the Memory tab.</p>"
         "<div class='stack'>"
         "<div class='inline'>"
         "<span class='badge badge-website'>🌐 Website</span>"
@@ -516,7 +516,7 @@ def episodes_page(records: list, *, backend: str, ok: str = "", err: str = "") -
         run_id = escape(str(r.id))
         return (
             f"<tr>"
-            f"<td><a href='/accounts/{escape(r.entity)}'>{escape(r.entity)}</a></td>"
+            f"<td>{escape(r.entity)}</td>"
             f"<td><span class='badge neutral'>{escape(r.mode)}</span></td>"
             f"<td class='mono'>{escape(r.backend)}</td>"
             f"<td class='num'>{n_findings}</td>"
@@ -556,7 +556,7 @@ def episodes_page(records: list, *, backend: str, ok: str = "", err: str = "") -
         banner
         + "<div class='page-head'><div class='grow'><h1>Episodic Memory — Run Records</h1>"
         + f"<p>{len(records)} run record(s). Deleting a record removes it from episodic recall "
-        + "— the entity's <a href='/accounts'>accumulated memory</a> is unaffected.</p></div>"
+        + "— the entity's accumulated memory is unaffected.</p></div>"
         + "<a class='btn ghost' href='/settings#memory'>← Settings</a></div>"
         + "<div class='card'><div class='card-head'><h2>All episodes</h2>"
         + f"<span class='pill'>{len(records)} records</span></div>" + table + "</div>"
