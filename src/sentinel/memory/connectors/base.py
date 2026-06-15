@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Literal
+from typing import Literal, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from sentinel.memory.schema import DataBoundary
 
@@ -18,8 +18,12 @@ TRUST_SCORES: dict[str, float] = {
     "social":  0.50,
 }
 
+assert set(TRUST_SCORES) == set(get_args(SOURCE_TYPES)), "TRUST_SCORES keys must match SOURCE_TYPES"
+
 
 class SourceFinding(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     text:         str
     boundary:     DataBoundary
     source_type:  SOURCE_TYPES
@@ -31,8 +35,11 @@ class SourceFinding(BaseModel):
 class SourceConnector(ABC):
     """Base class for all memory source connectors."""
 
-    source_type: str  # must be set by subclass
+    @property
+    @abstractmethod
+    def source_type(self) -> SOURCE_TYPES:
+        ...
 
     @abstractmethod
-    async def fetch(self, entity: str, config: dict) -> list[SourceFinding]:
+    async def fetch(self, entity: str, config: dict[str, object]) -> list[SourceFinding]:
         """Fetch raw content for entity and return extracted SourceFindings."""
