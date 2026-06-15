@@ -36,6 +36,7 @@ dev = ["pytest>=8.0"]
 [project.scripts]
 sentinel = "sentinel.__main__:main"
 sentinel-web = "sentinel.web.app:main"
+sentinel-memory-worker = "sentinel.worker:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
