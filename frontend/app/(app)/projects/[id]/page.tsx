@@ -222,8 +222,83 @@ function TaskCard({ task, projectId, onRun, onDelete }: {
   )
 }
 
+// ── Domain metadata — descriptions, example questions, and output types ──────────
+const DOMAIN_META: Record<string, { description: string; produces: string[]; examples: string[] }> = {
+  market: {
+    description: "Competitive landscape, market sizing (TAM/SAM), key player positioning",
+    produces: ["Competitive analysis report", "Market size & share breakdown", "Key player profiles", "Strategic recommendations"],
+    examples: [
+      "Analyse the competitive landscape for AI-powered legal document review tools in the US",
+      "What is the TAM for B2B SaaS HR software in India in 2024?",
+      "Compare Salesforce vs HubSpot CRM for a 50-person sales team",
+    ],
+  },
+  software: {
+    description: "Technical capabilities, API surface, architecture review, vendor comparison",
+    produces: ["Technical capability report", "Integration & API assessment", "Security & compliance review", "Vendor scorecard"],
+    examples: [
+      "Evaluate Stripe vs Razorpay for a SaaS payment integration targeting India",
+      "Technical architecture deep-dive on Figma's real-time collaboration engine",
+      "API capability comparison: Notion vs Coda for a developer-first workflow",
+    ],
+  },
+  finance: {
+    description: "Financial performance, funding history, valuation signals, investor landscape",
+    produces: ["Financial health summary", "Funding & valuation trajectory", "Key metrics & ratios", "Investor landscape map"],
+    examples: [
+      "Analyse Zepto's funding history and implied valuation trajectory in 2024",
+      "Financial health assessment of D2C brands in India post-pandemic",
+      "Key SaaS metrics benchmarks for edtech companies in India",
+    ],
+  },
+  academic: {
+    description: "Literature synthesis, key papers, research gaps, methodology comparison",
+    produces: ["Literature synthesis", "Key findings & authors", "Open research questions", "Citation landscape"],
+    examples: [
+      "Summarise research on retrieval-augmented generation (RAG) published 2023-2024",
+      "Key papers on transformer attention mechanisms and their limitations",
+      "What are the open questions in quantum error correction as of 2024?",
+    ],
+  },
+  product_research: {
+    description: "Product discovery, pricing, feature comparison, user review synthesis",
+    produces: ["Product comparison table", "Pricing breakdown", "Feature matrix", "Review synthesis & verdict"],
+    examples: [
+      "Find the best noise-cancelling headphones under ₹15,000 available in India",
+      "Compare electric scooters in India under ₹1.5 lakh — range, features, service",
+      "Best project management tools for a remote 10-person engineering team",
+    ],
+  },
+  travel: {
+    description: "Destination research, itinerary planning, accommodation & logistics",
+    produces: ["Destination overview", "Day-by-day itinerary", "Budget breakdown", "Logistics & local tips"],
+    examples: [
+      "Plan a 7-day trip to Japan in April for a couple visiting for the first time",
+      "Weekend trip from Bangalore to Coorg — stays, routes, things to do",
+      "Best beach destinations in Southeast Asia for December travel",
+    ],
+  },
+  nutrition: {
+    description: "Diet analysis, nutritional research, evidence-based health protocols",
+    produces: ["Evidence summary", "Nutritional profile", "Protocol recommendation", "Risks & contraindications"],
+    examples: [
+      "Evidence-based review of intermittent fasting protocols for insulin resistance",
+      "Best protein sources for a vegetarian endurance athlete",
+      "Nutrition protocol for marathon training — research synthesis",
+    ],
+  },
+  govt_proposal: {
+    description: "Policy landscape, stakeholder mapping, procurement context, proposal framework",
+    produces: ["Policy & landscape analysis", "Stakeholder map", "Opportunity brief", "Proposal framework outline"],
+    examples: [
+      "Propose a sovereign AI intelligence platform to the Assam State Government for digital governance",
+      "Digital health infrastructure opportunity assessment in Tamil Nadu government",
+      "Smart city technology procurement landscape in Uttar Pradesh municipalities",
+    ],
+  },
+}
+
 // ── New Task form ──────────────────────────────────────────────────────────────
-// Designed to feel like commissioning intelligence work, not filling a to-do item
 function NewTaskForm({ projectId, onCreated, onCancel }: {
   projectId: string; onCreated: () => void; onCancel: () => void
 }) {
@@ -255,6 +330,8 @@ function NewTaskForm({ projectId, onCreated, onCancel }: {
     { value: "doctor",     label: "Doctor" },
     { value: "nurse",      label: "Nurse" },
   ]
+
+  const meta = DOMAIN_META[domain] ?? DOMAIN_META.market
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -301,8 +378,9 @@ function NewTaskForm({ projectId, onCreated, onCancel }: {
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-5">
-        {/* Research question */}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5 p-5">
+
+        {/* Research question + example chips */}
         <div>
           <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-2 uppercase tracking-wide">
             Research Question *
@@ -311,16 +389,58 @@ function NewTaskForm({ projectId, onCreated, onCancel }: {
             value={objective}
             onChange={(e) => setObjective(e.target.value)}
             required
-            rows={3}
-            placeholder="What do you want to know? e.g. &quot;Analyse the competitive landscape for AI-powered legal document review tools in the US market&quot;"
+            rows={4}
+            placeholder="What do you want to know? Be specific — Sentinel uses this to plan the full research pipeline."
             className={`${fieldCls} resize-none`}
           />
+          {/* Domain-contextual example chips */}
+          <p className="text-[10px] text-[var(--muted-foreground)] mt-2 mb-1.5 uppercase tracking-wide font-semibold">
+            Quick start — click to fill:
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {meta.examples.map((ex) => (
+              <button
+                key={ex}
+                type="button"
+                onClick={() => setObjective(ex)}
+                className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border)]
+                           bg-[var(--muted)] text-[var(--muted-foreground)] hover:border-white/25
+                           hover:text-[var(--foreground)] hover:bg-white/[0.04] transition-all text-left">
+                {ex}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Research type + persona side-by-side */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">
+              Research Type
+            </label>
+            <select value={domain} onChange={(e) => setDomain(e.target.value)} className={fieldCls}>
+              {domains.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+            <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">{meta.description}</p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="block text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">
+              Analyst Persona
+            </label>
+            <select value={persona} onChange={(e) => setPersona(e.target.value)} className={fieldCls}>
+              {personaOptions.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+            <p className="text-[11px] text-[var(--muted-foreground)] leading-relaxed">
+              Shapes tone, depth, and framing of the findings.
+            </p>
+          </div>
         </div>
 
         {/* Target entity */}
         <div>
           <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-2 uppercase tracking-wide">
-            Target Entity <span className="normal-case font-normal text-[var(--muted-foreground)]/70">(company, person, topic)</span>
+            Target Entity{" "}
+            <span className="normal-case font-normal text-[var(--muted-foreground)]/60">(company, person, topic — optional)</span>
           </label>
           <input
             value={target}
@@ -330,39 +450,36 @@ function NewTaskForm({ projectId, onCreated, onCancel }: {
           />
         </div>
 
-        {/* Domain + Persona row */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-2 uppercase tracking-wide">
-              Research Type
-            </label>
-            <select value={domain} onChange={(e) => setDomain(e.target.value)} className={fieldCls}>
-              {domains.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-2 uppercase tracking-wide">
-              Analyst Persona
-            </label>
-            <select value={persona} onChange={(e) => setPersona(e.target.value)} className={fieldCls}>
-              {personaOptions.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
+        {/* What Sentinel will produce */}
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-3">
+            What Sentinel will produce
+          </p>
+          <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+            {meta.produces.map((item, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-[var(--foreground)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" />
+                {item}
+              </div>
+            ))}
           </div>
         </div>
 
         {error && <p className="text-xs text-red-400 bg-red-900/20 px-3 py-2 rounded-lg">{error}</p>}
 
-        {/* Submit */}
-        <div className="flex items-center justify-between pt-1">
-          <p className="text-xs text-[var(--muted-foreground)]">
-            Sentinel will plan, research, and synthesize findings automatically.
-          </p>
+        {/* Submit row */}
+        <div className="flex items-center justify-end gap-3 pt-1">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg border border-[var(--border)] text-sm font-semibold hover:bg-[var(--muted)] transition-colors">
+            Cancel
+          </button>
           <button
             type="submit"
             disabled={loading || !objective.trim()}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-black text-sm font-semibold
-                       hover:opacity-90 disabled:opacity-40 transition-opacity shrink-0"
-          >
+                       hover:opacity-90 disabled:opacity-40 transition-opacity">
             {loading
               ? <><Loader2 className="w-4 h-4 animate-spin" /> Planning…</>
               : <><Zap className="w-4 h-4" /> Start Research</>
