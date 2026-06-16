@@ -183,6 +183,79 @@ async def api_get_task(project_id: str, task_id: str) -> JSONResponse:
     return JSONResponse(_task_dict(task))
 
 
+@router.get("/projects/{project_id}/tasks/{task_id}/plan")
+async def api_get_task_plan(project_id: str, task_id: str) -> JSONResponse:
+    """Return the plan DAG for a task: steps with depends_on, agent assignment, call kind, sub-steps.
+
+    Used by the frontend PipelinePanel to render the Flow graph + Step table + timeline."""
+    try:
+        store = ProjectStore()
+        task = store.get_task(task_id)
+    except Exception:
+        task = None
+    if task is None or task.project_id != project_id:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    plan = store.plan_for_task(task_id)
+    if plan is None:
+        return JSONResponse({"steps": []})
+
+    try:
+        from sentinel.agent.modes.spec import SKILL_SPECS
+    except Exception:
+        SKILL_SPECS = {}
+
+    _SUBSTEP_LABELS: dict[str, str] = {
+        "planner":         "Planned search strategy — broke goal into targeted questions",
+        "public_research": "Searched web — gathered public findings",
+        "ecom_prices":     "Searched ecommerce — compared live prices across Flipkart & Amazon",
+        "research":        "Searched web — gathered public findings",
+        "synthesizer":     "Synthesised — assembled final structured output from all findings",
+        "extractor":       "Extracted facts — structured raw search results into typed data",
+        "dept_research":   "Researched department/sector — mapped capabilities to requirements",
+        "synthesis":       "Synthesised proposal — compiled department findings into final plan",
+        "competitor":      "Researched competitor — web search for profile, products, pricing",
+        "compare":         "Compared entities — side-by-side analysis of gathered profiles",
+        "self_profile":    "Profiled organisation — gathered public identity and product data",
+        "client":          "Profiled client/account — gathered contact, deal, and context data",
+    }
+
+    steps_out = []
+    for s in plan.steps:
+        spec = SKILL_SPECS.get(s.capability)
+        if spec is None:
+            calls = "reasoner"
+        else:
+            tools = {st.tool for st in spec.steps}
+            if "private" in tools:
+                calls = "MCP · private"
+            elif "search" in tools:
+                calls = "web search · public"
+            else:
+                calls = "reasoner"
+
+        sub_steps = []
+        if spec:
+            for ss in spec.steps:
+                sub_key = ss.agent_key.split(".")[-1] if "." in ss.agent_key else ss.agent_key
+                sub_steps.append({
+                    "key": sub_key,
+                    "label": _SUBSTEP_LABELS.get(sub_key, f"{sub_key} step"),
+                })
+
+        steps_out.append({
+            "id": s.id,
+            "capability": s.capability,
+            "depends_on": s.depends_on,
+            "agent_spec_id": s.agent_spec_id or "—",
+            "is_new": not (s.agent_spec_id or "").startswith("seed-"),
+            "calls": calls,
+            "status": s.status,
+            "sub_steps": sub_steps,
+        })
+
+    return JSONResponse({"steps": steps_out})
+
+
 @router.post("/projects/{project_id}/tasks")
 async def api_create_task(
     project_id: str, request: Request, background_tasks: BackgroundTasks

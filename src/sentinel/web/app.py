@@ -1967,6 +1967,7 @@ async def _execute_run(task, plan, proj, override_backend: str) -> None:
             task.result = outcome.result      # persist on the task so it lives at the task's own URL
             store.save_task(task)
             _persist_run(task, outcome.result, policy["backend"])
+            store.save_plan(plan)            # flush in-memory step statuses (done/failed) to DB
             entry["state"] = task.status
         else:
             task.status = "failed"

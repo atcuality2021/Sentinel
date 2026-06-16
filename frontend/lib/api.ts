@@ -54,6 +54,8 @@ export const tasks = {
     request(`/api/projects/${projectId}/tasks/${taskId}/feedback`, { method: "POST", body: JSON.stringify({ signal, note }) }),
   delete: (projectId: string, taskId: string) =>
     request(`/api/projects/${projectId}/tasks/${taskId}/delete`, { method: "POST" }),
+  plan: (projectId: string, taskId: string) =>
+    request<PlanData>(`/api/projects/${projectId}/tasks/${taskId}/plan`),
 }
 
 // ── Knowledge Base ────────────────────────────────────────────────────────────
@@ -178,8 +180,11 @@ export interface Task {
 }
 
 export interface TaskStatus {
-  status: "running" | "done" | "failed"
+  // Backend returns "state" (not "status") — matches the status.json response shape
+  state: "running" | "done" | "failed" | "unknown"
   steps: StepStatus[]
+  backend?: string
+  error?: string | null
   current_step?: string
   findings_so_far?: number
   sources_checked?: number
@@ -190,7 +195,23 @@ export interface StepStatus {
   id: string
   capability: string
   status: "pending" | "running" | "done" | "failed"
-  tool_calls?: string[]
+  agent?: string
+  model?: string
+}
+
+export interface PlanStep {
+  id: string
+  capability: string
+  depends_on: string[]
+  agent_spec_id: string
+  is_new: boolean
+  calls: string
+  status: string
+  sub_steps: { key: string; label: string }[]
+}
+
+export interface PlanData {
+  steps: PlanStep[]
 }
 
 export interface LogEntry {

@@ -8,7 +8,7 @@ import { TerminalAnimation } from "@/components/ui/terminal-animation"
 import { AnimatedNumber } from "@/components/ui/animated-number"
 import { DirectionAwareTabs } from "@/components/ui/direction-aware-tabs"
 import {
-  type Task, type TaskStatus, type Project, type ArtifactData,
+  type Task, type TaskStatus, type Project, type ArtifactData, type PlanData, type PlanStep,
   tasks as tasksApi,
 } from "@/lib/api"
 import {
@@ -291,7 +291,7 @@ function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string
   const { data: status } = useSWR<TaskStatus>(
     `/projects/${projectId}/tasks/${taskId}/status.json`,
     fetcher,
-    { refreshInterval: (d) => (d?.status === "done" || d?.status === "failed" ? 0 : 2000) }
+    { refreshInterval: (d) => (d?.state === "done" || d?.state === "failed" ? 0 : 2000) }
   )
 
   const steps = status?.steps ?? []
@@ -344,6 +344,226 @@ function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string
       {logLines.length > 0 && (
         <TerminalAnimation scenarios={[{ id: "live", label: "Live Log", steps: logLines }]} autoPlay />
       )}
+    </div>
+  )
+}
+
+// ── PipelinePanel ─────────────────────────────────────────────────────────────
+
+function computeDepths(steps: PlanStep[]): Map<string, number> {
+  const byId = new Map(steps.map((s) => [s.id, s]))
+  const depth = new Map<string, number>()
+  function d(sid: string, seen: Set<string> = new Set()): number {
+    if (depth.has(sid)) return depth.get(sid)!
+    const step = byId.get(sid)
+    const deps = (step?.depends_on ?? []).filter((p) => byId.has(p) && !seen.has(p))
+    const val = deps.length > 0
+      ? 1 + Math.max(...deps.map((p) => d(p, new Set([...seen, sid]))))
+      : 0
+    depth.set(sid, val)
+    return val
+  }
+  steps.forEach((s) => d(s.id))
+  return depth
+}
+
+const _SUBSTEP_ICONS: Record<string, string> = {
+  planner: "🗺",
+  public_research: "🔍",
+  ecom_prices: "🛒",
+  research: "🔍",
+  synthesizer: "🧠",
+  extractor: "🔬",
+  dept_research: "🏛",
+  synthesis: "🧠",
+  competitor: "🔍",
+  compare: "⚖",
+  self_profile: "🏢",
+  client: "👤",
+}
+
+function callsBadge(calls: string) {
+  const cls =
+    calls.includes("web")
+      ? "bg-blue-900/40 text-blue-300 border border-blue-700/40"
+      : calls.includes("MCP")
+      ? "bg-amber-900/40 text-amber-300 border border-amber-700/40"
+      : "bg-neutral-800 text-neutral-400 border border-neutral-700"
+  return (
+    <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${cls}`}>{calls}</span>
+  )
+}
+
+function PipelinePanel({ projectId, taskId }: { projectId: string; taskId: string }) {
+  const { data: plan } = useSWR<PlanData>(
+    `/api/projects/${projectId}/tasks/${taskId}/plan`,
+    fetcher
+  )
+
+  const steps = plan?.steps ?? []
+
+  if (steps.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-[var(--border)] p-10 text-center">
+        <p className="text-sm text-[var(--muted-foreground)]">No pipeline data available.</p>
+      </div>
+    )
+  }
+
+  // ── DAG depth for Flow layout ────────────────────────────────────────────
+  const depths = computeDepths(steps)
+  const maxDepth = Math.max(...Array.from(depths.values()))
+  const columns: PlanStep[][] = Array.from({ length: maxDepth + 1 }, () => [])
+  steps.forEach((s) => columns[depths.get(s.id) ?? 0].push(s))
+
+  // ── How the agent worked — timeline ─────────────────────────────────────
+  const timeline = (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-4">
+        How the agent worked
+      </p>
+      <div className="flex flex-col gap-1">
+        {steps.map((step) => {
+          const isDone = step.status === "done"
+          const dotColor = isDone ? "bg-green-500" : step.status === "failed" ? "bg-red-500" : "bg-neutral-600"
+          if (step.sub_steps.length > 0) {
+            return (
+              <div key={step.id}>
+                <div className="flex items-center gap-3 py-2">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+                  <span className="text-sm font-semibold capitalize">{step.capability.replace(/_/g, " ")}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-900/30 text-green-400 border border-green-700/30 font-mono">
+                    full pipeline
+                  </span>
+                </div>
+                <div className="ml-5 pl-3 border-l border-[var(--border)] flex flex-col gap-1 mb-1">
+                  {step.sub_steps.map((ss) => (
+                    <div key={ss.key} className="flex items-start gap-2 py-1.5">
+                      <span className="text-sm shrink-0">{_SUBSTEP_ICONS[ss.key] ?? "⚙"}</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{ss.key}</p>
+                        <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">{ss.label}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          }
+          const icon = _SUBSTEP_ICONS[step.capability] ?? "⚙"
+          return (
+            <div key={step.id} className="flex items-start gap-3 py-2">
+              <div className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${dotColor}`} />
+              <span className="text-sm shrink-0">{icon}</span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium capitalize">{step.capability.replace(/_/g, " ")}</p>
+                <p className="text-xs text-[var(--muted-foreground)]">{callsBadge(step.calls)}</p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+
+  // ── Flow DAG ────────────────────────────────────────────────────────────
+  const flowDag = (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 overflow-x-auto">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-4">
+        Flow
+      </p>
+      <div className="flex items-center gap-3 min-w-max">
+        {columns.map((col, ci) => (
+          <div key={ci} className="flex items-center gap-3">
+            <div className="flex flex-col gap-3 justify-center">
+              {col.map((step) => (
+                <div
+                  key={step.id}
+                  className={`rounded-xl border p-3 min-w-[140px] max-w-[180px] ${
+                    step.is_new
+                      ? "border-dashed border-violet-500/50 bg-violet-900/10"
+                      : "border-[var(--border)] bg-[var(--muted)]"
+                  }`}
+                >
+                  <p className="text-[10px] font-mono text-[var(--muted-foreground)] truncate">{step.id}</p>
+                  <p className="text-sm font-semibold capitalize mt-0.5">{step.capability.replace(/_/g, " ")}</p>
+                  <div className="mt-1.5">{callsBadge(step.calls)}</div>
+                  <p className="text-[10px] font-mono text-[var(--muted-foreground)] mt-1.5 truncate">
+                    {step.agent_spec_id}
+                  </p>
+                </div>
+              ))}
+            </div>
+            {ci < columns.length - 1 && (
+              <span className="text-[var(--muted-foreground)] text-xl shrink-0">→</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
+  // ── Step DAG table ───────────────────────────────────────────────────────
+  const stepTable = (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+      <div className="px-5 py-4 border-b border-[var(--border)]">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)]">
+          Step DAG — task → assigned agents
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-widest text-[var(--muted-foreground)]">
+              <th className="px-4 py-3 text-left font-semibold">Step</th>
+              <th className="px-4 py-3 text-left font-semibold">Capability</th>
+              <th className="px-4 py-3 text-left font-semibold">Calls</th>
+              <th className="px-4 py-3 text-left font-semibold">Depends On</th>
+              <th className="px-4 py-3 text-left font-semibold">Assigned Agent</th>
+              <th className="px-4 py-3 text-left font-semibold"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {steps.map((step, i) => (
+              <tr
+                key={step.id}
+                className={`border-b border-[var(--border)] last:border-0 ${
+                  i % 2 === 0 ? "bg-transparent" : "bg-[var(--muted)]/30"
+                }`}
+              >
+                <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)]">{step.id}</td>
+                <td className="px-4 py-3 font-semibold capitalize">{step.capability.replace(/_/g, " ")}</td>
+                <td className="px-4 py-3">{callsBadge(step.calls)}</td>
+                <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)]">
+                  {step.depends_on.length > 0 ? step.depends_on.join(", ") : "—"}
+                </td>
+                <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)] max-w-[200px] truncate">
+                  {step.agent_spec_id}
+                </td>
+                <td className="px-4 py-3">
+                  {step.is_new ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-900/30 text-violet-300 border border-violet-700/40 font-semibold">
+                      NEW
+                    </span>
+                  ) : (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-900/30 text-green-300 border border-green-700/40 font-semibold">
+                      REUSE
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="flex flex-col gap-5">
+      {timeline}
+      {flowDag}
+      {stepTable}
     </div>
   )
 }
@@ -620,12 +840,15 @@ function ResultPanel({ task }: { task: Task }) {
       </div>
     ) : null
 
+  const pipelineContent = <PipelinePanel projectId={task.project_id} taskId={task.id} />
+
   const tabs = [
     { id: 0, label: "Overview", content: overviewContent },
     ...(result.artifacts.length > 0
       ? [{ id: 1, label: `Reports (${result.artifacts.length})`, content: reportsContent }]
       : []),
     ...(sourcesContent ? [{ id: 2, label: "Sources", content: sourcesContent }] : []),
+    { id: 3, label: "Pipeline", content: pipelineContent },
   ]
 
   return <DirectionAwareTabs tabs={tabs} />
