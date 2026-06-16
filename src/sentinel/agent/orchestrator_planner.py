@@ -121,6 +121,39 @@ def _mint_created_spec(capability: str, domain: str, schema_ref: str) -> AgentSp
     )
 
 
+def validate_plan(plan: Plan) -> list[str]:
+    """Return a list of structural errors in *plan* — empty means valid.
+
+    Currently checks the invariant that every ``compare`` step depends on exactly one
+    ``self_profile`` step and at most one ``competitor`` step. A compare step that depends
+    on two competitor steps crashes at runtime with a KeyError in ADK template injection.
+    """
+    by_id = {s.id: s for s in plan.steps}
+    errors: list[str] = []
+    for step in plan.steps:
+        if step.capability != "compare":
+            continue
+        dep_caps = [by_id[d].capability for d in step.depends_on if d in by_id]
+        n_self = dep_caps.count("self_profile")
+        n_comp = dep_caps.count("competitor")
+        if n_self == 0:
+            errors.append(
+                f"compare step '{step.id}' has no self_profile dependency "
+                f"(depends_on={step.depends_on!r}). compare requires self_profile + competitor."
+            )
+        if n_comp == 0:
+            errors.append(
+                f"compare step '{step.id}' has no competitor dependency "
+                f"(depends_on={step.depends_on!r})."
+            )
+        if n_comp > 1:
+            errors.append(
+                f"compare step '{step.id}' depends on {n_comp} competitor steps "
+                f"— only one is allowed per compare. Split into one compare per rival."
+            )
+    return errors
+
+
 def staff_plan(
     plan: Plan,
     task: Task,
@@ -312,5 +345,10 @@ async def plan_task(
     # the store's INSERT-OR-REPLACE-by-id and silently overwrites other tasks' plans. Force a unique
     # deterministic id per task so every task keeps its own plan (and re-planning is idempotent).
     plan.id = f"plan-{task.id}"
+    # Structural validation — catches LLM hallucinations (e.g. compare depending on two competitors)
+    # before they reach the DAG executor and crash with an ADK KeyError.
+    plan_errors = validate_plan(plan)
+    for err in plan_errors:
+        trace.append(f"planner-validation WARNING: {err}")
     created = staff_plan(plan, task, registry, created_schema_ref=created_schema_ref)
     return PlanProposal(plan=plan, created_specs=created)

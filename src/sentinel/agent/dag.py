@@ -554,6 +554,31 @@ async def _run_skill(
         except Exception:
             pass
     if pass2:
+        # Guard: compare_synthesizer uses {self_profile} and {battlecard} as ADK template vars.
+        # If the planner omitted self_profile (e.g. generated two competitor steps instead of
+        # self_profile+competitor), ADK throws KeyError and kills the step. Inject placeholders
+        # so the run degrades to a best-effort comparison rather than crashing outright.
+        if spec.capability == "compare":
+            if "self_profile" not in state:
+                # Find any battlecard already in state to use as the "us" side as a fallback.
+                _sp_fallback = next(
+                    (v for k, v in state.items()
+                     if isinstance(v, dict) and k not in ("battlecard",)
+                     and any(fk in v for fk in ("strengths", "weaknesses", "org", "target"))),
+                    "No self-profile available — treat this as a general comparison.",
+                )
+                state["self_profile"] = _sp_fallback
+                trace.append("compare: self_profile missing from seed — injected fallback")
+            if "battlecard" not in state:
+                _bc_fallback = next(
+                    (v for k, v in state.items()
+                     if isinstance(v, dict)
+                     and any(fk in v for fk in ("strengths", "weaknesses", "target"))),
+                    "No competitor battlecard available.",
+                )
+                state["battlecard"] = _bc_fallback
+                trace.append("compare: battlecard missing from seed — injected fallback")
+
         if spec.capability == "competitor":
             # Chunked synthesis: 5 × 1024-token calls instead of one 8192-token call.
             # Prevents JSON truncation at the token ceiling (SENTINEL-017 fix).
