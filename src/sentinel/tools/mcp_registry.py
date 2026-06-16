@@ -48,6 +48,41 @@ def build_mcp_toolsets(cfg, domain: str = "", *, cloud_allowed: bool = True) -> 
     return toolsets
 
 
+def _make_safe_toolset(inner, name: str):
+    """Wrap an McpToolset in a fail-soft subclass of BaseToolset.
+
+    ADK calls get_tools() inside an async TaskGroup during session startup. Without this
+    wrapper, a 429 / connection error from any MCP server propagates as an unhandled TaskGroup
+    exception and kills the entire research run. With this wrapper the agent silently loses
+    the MCP tools but keeps its regular search tool (duckduckgo / gemini builtin) and completes.
+
+    Deferred import: BaseToolset is only available when google-adk is installed.
+    """
+    from google.adk.tools.base_toolset import BaseToolset
+
+    class _SafeMcpToolset(BaseToolset):
+        async def get_tools(self, readonly_context=None):  # type: ignore[override]
+            try:
+                return await inner.get_tools(readonly_context)
+            except Exception as exc:
+                log.warning(
+                    "MCP server %r unavailable (%.200s) — falling back to native search",
+                    name, exc,
+                )
+                return []
+
+        async def close(self) -> None:
+            try:
+                await inner.close()
+            except Exception:
+                pass
+
+    return _SafeMcpToolset(
+        tool_filter=getattr(inner, "tool_filter", None),
+        tool_name_prefix=getattr(inner, "tool_name_prefix", None),
+    )
+
+
 def _build_one(name: str, server):
     from google.adk.tools import McpToolset
     from google.adk.tools.mcp_tool import (
@@ -60,7 +95,7 @@ def _build_one(name: str, server):
         from mcp import StdioServerParameters
 
         env = {**os.environ}  # npx needs PATH etc.; the API key rides along from .env
-        return McpToolset(
+        inner = McpToolset(
             connection_params=StdioConnectionParams(
                 server_params=StdioServerParameters(
                     command=server.command, args=shlex.split(server.args), env=env,
@@ -71,14 +106,16 @@ def _build_one(name: str, server):
             ),
             tool_filter=tool_filter,
         )
+        return _make_safe_toolset(inner, name)
     if server.transport == "http":
-        return McpToolset(
+        inner = McpToolset(
             connection_params=StreamableHTTPConnectionParams(
                 url=os.environ[server.url_env],
                 timeout=15.0,  # remote handshake; default 5s is tight over WAN
             ),
             tool_filter=tool_filter,
         )
+        return _make_safe_toolset(inner, name)
     raise ValueError(f"unknown transport {server.transport!r} for mcp server {name!r}")
 
 

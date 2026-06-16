@@ -82,7 +82,7 @@ def test_external_mcp_rides_public_search_when_configured(monkeypatch):
     monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
     agent = build_competitor_agent(config=SentinelConfig.default())
     public = next(s for s in agent.sub_agents if "public_research" in s.name)
-    assert "McpToolset" in _tool_names(public)
+    assert "_SafeMcpToolset" in _tool_names(public)
 
 
 def test_external_mcp_absent_on_sovereign_run(monkeypatch):
