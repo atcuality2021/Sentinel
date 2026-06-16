@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useState } from "react"
+import { use, useState, useRef, useEffect } from "react"
 import useSWR from "swr"
 import Link from "next/link"
 import { Drawer } from "vaul"
@@ -8,13 +8,18 @@ import { GradientHeading } from "@/components/ui/gradient-heading"
 import { TerminalAnimation } from "@/components/ui/terminal-animation"
 import { AnimatedNumber } from "@/components/ui/animated-number"
 import { DirectionAwareTabs } from "@/components/ui/direction-aware-tabs"
+import { TextureCard } from "@/components/ui/texture-card"
 import { type Task, type TaskStatus, type Project, tasks as tasksApi } from "@/lib/api"
 import {
   Globe, Lock, AlertTriangle, ThumbsUp, ThumbsDown,
   Play, Download, MessageSquare, Loader2, CheckCircle2,
-  XCircle, Clock, ChevronDown, ChevronUp,
+  XCircle, Clock, ChevronDown, ChevronUp, Send, Sparkles,
 } from "lucide-react"
 import { fetcher } from "@/lib/fetcher"
+
+function fmtLabel(key: string) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
 
 // ── Live status poller ──────────────────────────────────────────────────────
 function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string }) {
@@ -223,25 +228,75 @@ function ResultPanel({ task }: { task: Task }) {
 
   // ── Tab content components ──────────────────────────────────────────────
 
+  // Detect the raw machine-generated summary and replace with a friendlier header
+  const isRawSummary = /^produced \d+ artifact/i.test(result.summary ?? "")
+  const artifactNames = isRawSummary
+    ? result.summary.replace(/^produced \d+ artifact\(s?\)\s*—?\s*/i, "").split(/,\s*/).filter(Boolean)
+    : []
+
   const overviewContent = (
     <div className="flex flex-col gap-4">
-      {/* Summary */}
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6">
+      {/* Summary card */}
+      <TextureCard className="p-6">
         <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-3">
           Summary
         </p>
-        <p className="text-sm leading-relaxed">{result.summary}</p>
-      </div>
+        {isRawSummary ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-[var(--muted-foreground)]">
+              Research complete — produced {result.artifacts.length} report{result.artifacts.length !== 1 ? "s" : ""}.
+            </p>
+            {artifactNames.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {artifactNames.map((n) => (
+                  <span key={n} className="text-[11px] px-2 py-0.5 rounded-full border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                    {fmtLabel(n)}
+                  </span>
+                ))}
+              </div>
+            )}
+            {result.artifacts.length > 0 && (
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Switch to the <span className="font-semibold text-[var(--foreground)]">Artifacts</span> tab to read the full reports.
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm leading-relaxed">{result.summary}</p>
+        )}
+      </TextureCard>
+
+      {/* Artifact count chips (when we have real content) */}
+      {result.artifacts.length > 0 && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-center">
+            <p className="text-xl font-bold">{result.artifacts.length}</p>
+            <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">reports</p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-center">
+            <p className="text-xl font-bold text-blue-400">
+              {result.artifacts.reduce((s, a) => s + (a.public_count ?? 0), 0)}
+            </p>
+            <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">public findings</p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-center">
+            <p className="text-xl font-bold text-amber-400">
+              {result.artifacts.reduce((s, a) => s + (a.gaps ?? 0), 0)}
+            </p>
+            <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">open gaps</p>
+          </div>
+        </div>
+      )}
 
       {/* Grade */}
       {result.grade && (
         <div className={`rounded-2xl border p-4 ${result.grade.passed
-          ? "border-green-200 bg-green-50 dark:bg-green-900/10"
-          : "border-red-200 bg-red-50 dark:bg-red-900/10"}`}>
+          ? "border-green-500/30 bg-green-900/10"
+          : "border-red-500/30 bg-red-900/10"}`}>
           <div className="flex items-center gap-2">
             {result.grade.passed
-              ? <CheckCircle2 className="w-4 h-4 text-green-600" />
-              : <XCircle className="w-4 h-4 text-red-600" />}
+              ? <CheckCircle2 className="w-4 h-4 text-green-400" />
+              : <XCircle className="w-4 h-4 text-red-400" />}
             <span className="text-sm font-semibold">
               Quality check {result.grade.passed ? "passed" : "failed"}
               {result.grade.score !== undefined && ` · ${result.grade.score}/5`}
@@ -250,7 +305,7 @@ function ResultPanel({ task }: { task: Task }) {
           {result.grade.hard_failures.length > 0 && (
             <ul className="mt-2 flex flex-col gap-1">
               {result.grade.hard_failures.map((f, i) => (
-                <li key={i} className="text-xs text-red-600">· {f}</li>
+                <li key={i} className="text-xs text-red-400">· {f}</li>
               ))}
             </ul>
           )}
@@ -262,48 +317,63 @@ function ResultPanel({ task }: { task: Task }) {
   const artifactsContent = (
     <div className="flex flex-col gap-4">
       {result.artifacts.map((art, i) => (
-        <div key={i} className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                {art.type}
+        <TextureCard key={i} className="p-6">
+          {/* Header */}
+          <div className="flex items-start justify-between mb-5 gap-3">
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)]">
+                {fmtLabel(art.type)}
               </span>
-              <h3 className="font-semibold text-base mt-0.5">{art.target}</h3>
+              <h3 className="font-semibold text-base mt-1 leading-snug">{art.target}</h3>
             </div>
-            <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-              <span className="flex items-center gap-1"><Globe className="w-3 h-3 text-blue-400" /> {art.public_count}</span>
-              <span className="flex items-center gap-1"><Lock className="w-3 h-3 text-amber-400" /> {art.private_count}</span>
-              {art.gaps > 0 && <span className="flex items-center gap-1 text-red-400"><AlertTriangle className="w-3 h-3" /> {art.gaps}</span>}
+            <div className="flex items-center gap-3 text-xs shrink-0">
+              {art.public_count > 0 && (
+                <span className="flex items-center gap-1 text-blue-400">
+                  <Globe className="w-3 h-3" /> {art.public_count}
+                </span>
+              )}
+              {art.private_count > 0 && (
+                <span className="flex items-center gap-1 text-amber-400">
+                  <Lock className="w-3 h-3" /> {art.private_count}
+                </span>
+              )}
+              {art.gaps > 0 && (
+                <span className="flex items-center gap-1 text-red-400">
+                  <AlertTriangle className="w-3 h-3" /> {art.gaps}
+                </span>
+              )}
             </div>
           </div>
 
-          {/* Render content fields */}
+          {/* Divider */}
+          <div className="h-px bg-[var(--border)] mb-5" />
+
+          {/* Content fields */}
           {Object.entries(art.content).map(([key, val]) => {
-            // Skip internal metadata keys
             if (key.startsWith("_")) return null
             if (val === null || val === undefined || val === "") return null
             if (Array.isArray(val) && val.length === 0) return null
 
             return (
-              <div key={key} className="mb-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-2">
-                  {key.replace(/_/g, " ")}
+              <div key={key} className="mb-5 last:mb-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-2">
+                  {fmtLabel(key)}
                 </p>
                 {Array.isArray(val) ? (
                   <CollapsibleList items={val as unknown[]} />
                 ) : typeof val === "object" ? (
-                  <pre className="text-xs text-[var(--muted-foreground)] whitespace-pre-wrap bg-[var(--muted)] rounded-lg p-3 overflow-auto">
+                  <pre className="text-xs text-[var(--muted-foreground)] whitespace-pre-wrap bg-[var(--muted)] rounded-xl p-3 overflow-auto border border-[var(--border)]">
                     {JSON.stringify(val, null, 2)}
                   </pre>
                 ) : typeof val === "string" && val.length > 200 ? (
                   <LongText text={val} />
                 ) : (
-                  <p className="text-sm leading-relaxed">{String(val)}</p>
+                  <p className="text-sm leading-relaxed text-[var(--foreground)]">{String(val)}</p>
                 )}
               </div>
             )
           })}
-        </div>
+        </TextureCard>
       ))}
     </div>
   )
@@ -370,36 +440,88 @@ function ResultPanel({ task }: { task: Task }) {
             </button>
           </Drawer.Trigger>
           <Drawer.Portal>
-            <Drawer.Overlay className="fixed inset-0 bg-black/40 z-40" />
+            <Drawer.Overlay className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm" />
             <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 flex flex-col
-                                       bg-[var(--card)] border-t border-[var(--border)]
-                                       rounded-t-2xl max-h-[80vh]">
-              <Drawer.Handle className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-[var(--muted-foreground)]/30" />
-              <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-3">
-                <h3 className="font-semibold text-sm">Refine Result</h3>
-                {chatHistory.map((m, i) => (
-                  <div key={i} className={`text-sm p-3 rounded-xl ${m.role === "user"
-                    ? "bg-black text-white dark:bg-white dark:text-black self-end max-w-xs ml-auto"
-                    : "bg-[var(--muted)] max-w-sm"}`}>
-                    {m.content}
-                  </div>
-                ))}
-                {chatHistory.length === 0 && (
-                  <p className="text-xs text-[var(--muted-foreground)] text-center py-4">
-                    Ask a follow-up question about this result.
-                  </p>
-                )}
+                                       bg-neutral-950 border-t border-neutral-800
+                                       rounded-t-3xl max-h-[82vh]">
+              <Drawer.Handle className="mx-auto mt-3 h-1 w-10 rounded-full bg-neutral-700" />
+
+              {/* Header */}
+              <div className="flex items-center gap-2 px-5 py-3 border-b border-neutral-800">
+                <Sparkles className="w-4 h-4 text-violet-400" />
+                <h3 className="text-sm font-semibold text-white">Refine Result</h3>
               </div>
-              <div className="p-4 border-t border-[var(--border)] bg-[var(--card)]">
-                <form onSubmit={sendChat} className="flex gap-2">
-                  <input value={chatMsg} onChange={(e) => setChatMsg(e.target.value)}
+
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3">
+                {chatHistory.length === 0 ? (
+                  <div className="flex flex-col items-center gap-4 py-6">
+                    <p className="text-xs text-neutral-500 text-center">
+                      Ask a follow-up question about this research result.
+                    </p>
+                    {/* Suggestion chips */}
+                    <div className="flex flex-wrap gap-2 justify-center">
+                      {[
+                        "What was the most important finding?",
+                        "Summarise the key risks",
+                        "What are the recommended next steps?",
+                        "List the main sources used",
+                      ].map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => setChatMsg(q)}
+                          className="text-[11px] px-3 py-1.5 rounded-full border border-neutral-700
+                                     text-neutral-300 hover:border-violet-500 hover:text-white
+                                     transition-colors bg-neutral-900">
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  chatHistory.map((m, i) => (
+                    <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <div className={`text-sm px-4 py-2.5 rounded-2xl max-w-[80%] leading-relaxed
+                        ${m.role === "user"
+                          ? "bg-violet-600 text-white rounded-br-sm"
+                          : "bg-neutral-800 text-neutral-100 rounded-bl-sm border border-neutral-700"}`}>
+                        {m.content}
+                      </div>
+                    </div>
+                  ))
+                )}
+                {chatLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-neutral-800 border border-neutral-700 rounded-2xl rounded-bl-sm px-4 py-3">
+                      <div className="flex gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-bounce [animation-delay:0ms]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-bounce [animation-delay:150ms]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-bounce [animation-delay:300ms]" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={(el) => el?.scrollIntoView({ behavior: "smooth" })} />
+              </div>
+
+              {/* Input */}
+              <div className="p-4 border-t border-neutral-800 bg-neutral-950">
+                <form onSubmit={sendChat} className="flex gap-2 items-end">
+                  <input
+                    value={chatMsg}
+                    onChange={(e) => setChatMsg(e.target.value)}
                     placeholder="Ask a follow-up question…"
-                    className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]
-                               px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white" />
-                  <button type="submit" disabled={chatLoading || !chatMsg.trim()}
-                    className="px-4 py-2 rounded-lg bg-black dark:bg-white text-white dark:text-black
-                               text-sm font-semibold hover:opacity-80 disabled:opacity-40 transition-opacity">
-                    {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send"}
+                    className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900
+                               px-4 py-2.5 text-sm text-white placeholder:text-neutral-500
+                               outline-none focus:border-violet-500 transition-colors" />
+                  <button
+                    type="submit"
+                    disabled={chatLoading || !chatMsg.trim()}
+                    className="w-10 h-10 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40
+                               flex items-center justify-center transition-colors shrink-0">
+                    {chatLoading
+                      ? <Loader2 className="w-4 h-4 text-white animate-spin" />
+                      : <Send className="w-4 h-4 text-white" />}
                   </button>
                 </form>
               </div>
