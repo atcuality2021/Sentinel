@@ -1,11 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import useSWR from "swr"
+import Link from "next/link"
 import { AnimatedNumber } from "@/components/ui/animated-number"
 import { GradientHeading } from "@/components/ui/gradient-heading"
 import { type DashboardData, type RunRecord } from "@/lib/api"
-import { Clock, Globe, Lock, AlertTriangle } from "lucide-react"
+import { Clock, Globe, Lock, AlertTriangle, RefreshCw } from "lucide-react"
 
 const fetcher = (url: string) =>
   fetch(url, { credentials: "include" }).then((r) => r.json())
@@ -13,7 +13,7 @@ const fetcher = (url: string) =>
 function RunCard({ run }: { run: RunRecord }) {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 flex flex-col gap-2
-                    hover:shadow-md transition-shadow">
+                    hover:shadow-md transition-shadow cursor-pointer">
       <div className="flex items-start justify-between gap-2">
         <span className="font-semibold text-sm truncate">{run.target || run.entity}</span>
         <span className={`shrink-0 text-xs px-2 py-0.5 rounded font-semibold uppercase
@@ -75,9 +75,10 @@ function KPICard({
 }
 
 export default function DashboardPage() {
-  const { data, isLoading } = useSWR<DashboardData>(
-    `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/dashboard`,
-    fetcher
+  const { data, isLoading, error, mutate } = useSWR<DashboardData>(
+    "/api/dashboard",
+    fetcher,
+    { refreshInterval: 30_000 }
   )
 
   const kpis = [
@@ -107,6 +108,21 @@ export default function DashboardPage() {
           New Project
         </a>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800
+                        px-4 py-3 flex items-center gap-2 text-sm text-red-700 dark:text-red-400">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          Failed to load dashboard data. Check that the backend is running.
+          <button
+            onClick={() => mutate()}
+            className="ml-auto text-xs font-semibold underline hover:no-underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -146,11 +162,27 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Recent Runs */}
+      {/* Recent Activity */}
       <div>
-        <h2 className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">
-          Recent Runs
-        </h2>
+        <div className="flex items-center gap-3 mb-3">
+          <h2 className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+            Recent Activity
+          </h2>
+          <span className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] bg-[var(--muted)]
+                           px-2 py-0.5 rounded-full">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block animate-pulse" />
+            Live · refreshes every 30s
+          </span>
+          <button
+            onClick={() => mutate()}
+            title="Refresh now"
+            className="ml-auto p-1.5 rounded-lg hover:bg-[var(--muted)] text-[var(--muted-foreground)]
+                       transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {[...Array(6)].map((_, i) => (
@@ -167,7 +199,13 @@ export default function DashboardPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {(data?.recent_runs ?? []).map((run) => (
-              <RunCard key={run.id} run={run} />
+              <Link
+                key={run.id}
+                href={run.project_id ? `/projects/${run.project_id}` : "#"}
+                className="block"
+              >
+                <RunCard run={run} />
+              </Link>
             ))}
           </div>
         )}

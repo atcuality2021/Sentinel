@@ -28,7 +28,7 @@ export const dashboard = {
 // ── Projects ─────────────────────────────────────────────────────────────────
 export const projects = {
   list: () => request<Project[]>("/api/projects"),
-  create: (data: { name: string; website?: string; description?: string }) =>
+  create: (data: { name: string; website?: string; description?: string; context?: string }) =>
     request<Project>("/api/projects", { method: "POST", body: JSON.stringify(data) }),
   get: (id: string) => request<Project>(`/api/projects/${id}`),
   update: (id: string, data: Partial<Project>) =>
@@ -242,6 +242,7 @@ export interface RunRecord {
   private: number
   gaps: number
   created_at: string
+  project_id?: string
 }
 
 export interface Artifact {
@@ -296,16 +297,21 @@ export interface MemoryEntry {
 export interface FocusEntity {
   id: string
   name: string
+  run_count: number
+  public_findings: number
+  private_signals: number
+  last_researched: string
+  // UI-computed / optional
   tier?: "tier1" | "tier2" | "tier3"
   type?: string
   description?: string
   priority_score?: number
-  public_findings?: number
-  private_signals?: number
   gaps?: number
-  last_researched?: string
-  run_count?: number
-  signals?: Record<string, number>
+  signals?: number
+}
+
+export function taskExportUrl(projectId: string, taskId: string): string {
+  return `/projects/${projectId}/tasks/${taskId}/export.html`
 }
 
 export interface AgentSpec {

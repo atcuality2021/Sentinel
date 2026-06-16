@@ -3,14 +3,12 @@
 import { useState } from "react"
 import useSWR, { mutate } from "swr"
 import { GradientHeading } from "@/components/ui/gradient-heading"
-import { PopoverForm } from "@/components/ui/popover-form"
 import { type Project, projects as projectsApi } from "@/lib/api"
 import { FolderOpen, Globe, Trash2, ChevronRight, Plus, Calendar } from "lucide-react"
 import Link from "next/link"
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
-const PROJECTS_KEY = `${API}/api/projects`
+const PROJECTS_KEY = "/api/projects"
 
 function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => void }) {
   const [deleting, setDeleting] = useState(false)
@@ -52,6 +50,11 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => 
             {project.description}
           </p>
         )}
+        {project.context && (
+          <p className="text-xs text-[var(--muted-foreground)] italic line-clamp-1 mt-0.5">
+            {project.context}
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
@@ -86,14 +89,20 @@ function CreateProjectForm({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState("")
   const [website, setWebsite] = useState("")
   const [description, setDescription] = useState("")
+  const [context, setContext] = useState("")
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
-    await projectsApi.create({ name, website: website || undefined, description: description || undefined })
+    await projectsApi.create({
+      name,
+      website: website || undefined,
+      description: description || undefined,
+      context: context || undefined,
+    })
     onCreated()
-    setName(""); setWebsite(""); setDescription("")
+    setName(""); setWebsite(""); setDescription(""); setContext("")
     setLoading(false)
   }
 
@@ -132,6 +141,17 @@ function CreateProjectForm({ onCreated }: { onCreated: () => void }) {
                      px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white resize-none"
         />
       </div>
+      <div>
+        <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">
+          Context (optional)
+        </label>
+        <textarea
+          value={context} onChange={(e) => setContext(e.target.value)}
+          rows={2} placeholder="e.g. Focus on BFSI sector competitors…"
+          className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)]
+                     px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white resize-none"
+        />
+      </div>
       <button
         type="submit" disabled={loading || !name}
         className="w-full rounded-lg bg-black dark:bg-white text-white dark:text-black
@@ -148,12 +168,21 @@ export default function ProjectsPage() {
   const [showForm, setShowForm] = useState(false)
 
   const refresh = () => mutate(PROJECTS_KEY)
+  const projectCount = (data ?? []).length
 
   return (
     <div className="flex flex-col gap-6 max-w-6xl mx-auto">
       <div className="flex items-end justify-between">
         <div>
-          <GradientHeading size="md" weight="bold">Projects</GradientHeading>
+          <div className="flex items-center gap-3">
+            <GradientHeading size="md" weight="bold">Projects</GradientHeading>
+            {!isLoading && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold
+                               bg-[var(--muted)] text-[var(--muted-foreground)] border border-[var(--border)]">
+                {projectCount} {projectCount === 1 ? "project" : "projects"}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-[var(--muted-foreground)] mt-1">
             Organise research into projects. Each project has tasks, a knowledge base, and memory.
           </p>

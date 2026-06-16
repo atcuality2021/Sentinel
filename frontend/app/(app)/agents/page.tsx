@@ -1,12 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import useSWR from "swr"
 import { GradientHeading } from "@/components/ui/gradient-heading"
 import { agents as agentsApi, type AgentSpec } from "@/lib/api"
 import { Zap, Globe, Lock, Database, Brain, Search, FileText, Bot, Trash2 } from "lucide-react"
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
 
 const CAPABILITY_ICONS: Record<string, React.ReactNode> = {
@@ -33,6 +32,23 @@ const BOUNDARY_BADGE: Record<string, string> = {
   orchestrator: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 px-2 py-0.5 rounded text-xs font-semibold",
 }
 
+const ROLE_BADGE: Record<string, string> = {
+  extractor:    "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  synthesiser:  "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  synthesizer:  "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  grader:       "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  orchestrator: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+}
+
+function EvalBadge({ score }: { score: number }) {
+  return (
+    <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-xs font-semibold
+                     bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300">
+      ★ {score.toFixed(1)}
+    </span>
+  )
+}
+
 function AgentCard({
   agent,
   onToggle,
@@ -47,6 +63,7 @@ function AgentCard({
 
   const borderCls = BOUNDARY_COLORS[agent.boundary ?? "both"] ?? BOUNDARY_COLORS.both
   const badgeCls  = BOUNDARY_BADGE[agent.boundary ?? "both"]  ?? BOUNDARY_BADGE.both
+  const roleCls   = ROLE_BADGE[agent.role ?? ""] ?? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
   const isCustom  = !agent.name.startsWith("sentinel_")
 
   async function handleToggle(e: React.MouseEvent) {
@@ -68,7 +85,7 @@ function AgentCard({
 
   return (
     <div className={`group relative rounded-2xl border p-5 flex flex-col gap-3 ${borderCls} ${!agent.enabled ? "opacity-60" : ""}`}>
-      {/* Top row: icon + name + toggle + (optional delete) */}
+      {/* Top row: icon + name + eval badge + toggle + (optional delete) */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-xl bg-black dark:bg-white flex items-center justify-center shrink-0">
@@ -83,6 +100,9 @@ function AgentCard({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* Eval score badge */}
+          {agent.eval_score != null && <EvalBadge score={agent.eval_score} />}
+
           <span className={badgeCls}>{agent.boundary ?? "both"}</span>
 
           {/* Enable / disable pill toggle */}
@@ -114,6 +134,21 @@ function AgentCard({
           )}
         </div>
       </div>
+
+      {/* Role badge */}
+      {agent.role && (
+        <div>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${roleCls}`}>
+            {agent.role}
+          </span>
+          {!agent.enabled && (
+            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold
+                             bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+              Disabled
+            </span>
+          )}
+        </div>
+      )}
 
       {agent.description && (
         <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">{agent.description}</p>
@@ -158,7 +193,22 @@ function AgentCard({
 }
 
 export default function AgentsPage() {
-  const { data: agentList, isLoading, mutate } = useSWR<AgentSpec[]>(`${API}/api/agents`, fetcher)
+  const { data: agentList, isLoading, mutate } = useSWR<AgentSpec[]>("/api/agents", fetcher)
+  const [boundaryFilter, setBoundaryFilter] = useState<string>("all")
+
+  // Derive unique boundary values from the agent list
+  const boundaryOptions = useMemo(() => {
+    const values = new Set<string>()
+    for (const a of agentList ?? []) {
+      if (a.boundary) values.add(a.boundary)
+    }
+    return ["all", ...Array.from(values).sort()]
+  }, [agentList])
+
+  const visibleAgents = useMemo(() => {
+    if (boundaryFilter === "all") return agentList ?? []
+    return (agentList ?? []).filter((a) => a.boundary === boundaryFilter)
+  }, [agentList, boundaryFilter])
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto">
@@ -189,6 +239,25 @@ export default function AgentsPage() {
         </span>
       </div>
 
+      {/* Boundary filter pills */}
+      {!isLoading && boundaryOptions.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          {boundaryOptions.map((b) => (
+            <button
+              key={b}
+              onClick={() => setBoundaryFilter(b)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all
+                          ${boundaryFilter === b
+                            ? "bg-black text-white border-black dark:bg-white dark:text-black dark:border-white"
+                            : "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)] hover:border-black/40 dark:hover:border-white/40"
+                          }`}
+            >
+              {b === "all" ? "All" : b.replace(/_/g, " ")}
+            </button>
+          ))}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[...Array(4)].map((_, i) => (
@@ -203,9 +272,13 @@ export default function AgentsPage() {
             Agents are defined in the Sentinel backend configuration.
           </p>
         </div>
+      ) : visibleAgents.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-[var(--border)] p-12 text-center">
+          <p className="text-sm text-[var(--muted-foreground)]">No agents match the selected filter.</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {(agentList ?? []).map((a) => (
+          {visibleAgents.map((a) => (
             <AgentCard
               key={a.name}
               agent={a}

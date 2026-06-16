@@ -6,22 +6,24 @@ import Link from "next/link"
 import { GradientHeading } from "@/components/ui/gradient-heading"
 import { TerminalAnimation } from "@/components/ui/terminal-animation"
 import { AnimatedNumber } from "@/components/ui/animated-number"
-import { type Task, type TaskStatus, tasks as tasksApi } from "@/lib/api"
+import { type Task, type TaskStatus, type Project, tasks as tasksApi } from "@/lib/api"
 import {
   Globe, Lock, AlertTriangle, ThumbsUp, ThumbsDown,
   Play, Download, MessageSquare, Loader2, CheckCircle2,
   XCircle, Clock, ChevronDown, ChevronUp,
 } from "lucide-react"
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
 
 // ── Live status poller ──────────────────────────────────────────────────────
 function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string }) {
   const { data: status } = useSWR<TaskStatus>(
-    `${API}/projects/${projectId}/tasks/${taskId}/status.json`,
+    `/projects/${projectId}/tasks/${taskId}/status.json`,
     fetcher,
-    { refreshInterval: 2000 }
+    {
+      refreshInterval: (statusData) =>
+        statusData?.status === "done" || statusData?.status === "failed" ? 0 : 2000,
+    }
   )
 
   const steps = status?.steps ?? []
@@ -111,11 +113,82 @@ function FindingBlock({
   )
 }
 
+// ── Artifact content item renderer ──────────────────────────────────────────
+function ArtifactItem({ item }: { item: unknown }) {
+  if (typeof item === "string") return <span>{item}</span>
+  if (typeof item === "object" && item !== null) {
+    const o = item as Record<string, unknown>
+    const url = typeof o.url === "string" ? o.url : undefined
+    const label = String(o.text ?? o.name ?? o.title ?? o.action ?? JSON.stringify(item))
+    if (url) {
+      return (
+        <a href={url} target="_blank" rel="noopener noreferrer"
+           className="text-blue-500 hover:underline break-all">
+          {label}
+        </a>
+      )
+    }
+    return <span>{label}</span>
+  }
+  return <span>{String(item)}</span>
+}
+
+// ── Collapsible list ────────────────────────────────────────────────────────
+function CollapsibleList({ items }: { items: unknown[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const LIMIT = 3
+  const visible = expanded ? items : items.slice(0, LIMIT)
+  const overflow = items.length - LIMIT
+
+  return (
+    <>
+      <ul className="flex flex-col gap-1">
+        {visible.map((item, j) => (
+          <li key={j} className="text-sm flex items-start gap-2">
+            <span className="text-[var(--muted-foreground)] mt-0.5 shrink-0">·</span>
+            <ArtifactItem item={item} />
+          </li>
+        ))}
+      </ul>
+      {overflow > 0 && (
+        <button onClick={() => setExpanded((v) => !v)}
+          className="mt-2 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] flex items-center gap-1 transition-colors">
+          {expanded
+            ? <><ChevronUp className="w-3 h-3" /> Show less</>
+            : <><ChevronDown className="w-3 h-3" /> Show {overflow} more</>}
+        </button>
+      )}
+    </>
+  )
+}
+
+// ── Long text with "Show more" ───────────────────────────────────────────────
+function LongText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const isLong = text.length > 200
+  return (
+    <div>
+      <p className={`text-sm leading-relaxed ${isLong && !expanded ? "line-clamp-3" : ""}`}>
+        {text}
+      </p>
+      {isLong && (
+        <button onClick={() => setExpanded((v) => !v)}
+          className="mt-1 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] flex items-center gap-1 transition-colors">
+          {expanded
+            ? <><ChevronUp className="w-3 h-3" /> Show less</>
+            : <><ChevronDown className="w-3 h-3" /> Show more</>}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── Result panel ────────────────────────────────────────────────────────────
 function ResultPanel({ task }: { task: Task }) {
-  const [chatOpen, setChatOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState((task.chat ?? []).length > 0)
   const [chatMsg, setChatMsg] = useState("")
   const [chatLoading, setChatLoading] = useState(false)
+  const [chatHistory, setChatHistory] = useState(task.chat ?? [])
   const [feedback, setFeedback] = useState<1 | -1 | null>(null)
   const result = task.result
   if (!result) return null
@@ -123,9 +196,23 @@ function ResultPanel({ task }: { task: Task }) {
   async function sendChat(e: React.FormEvent) {
     e.preventDefault()
     if (!chatMsg.trim()) return
+    const userMsg = chatMsg
+    setChatMsg("")
+    // Optimistically add user message
+    setChatHistory((prev) => [...prev, { role: "user" as const, content: userMsg, timestamp: new Date().toISOString() }])
     setChatLoading(true)
-    await tasksApi.chat(task.project_id, task.id, chatMsg).catch(() => {})
-    setChatMsg(""); setChatLoading(false)
+    try {
+      const res = await tasksApi.chat(task.project_id, task.id, userMsg) as { reply?: string; chat?: typeof task.chat }
+      if (res?.chat) {
+        setChatHistory(res.chat ?? [])
+      } else if (res?.reply) {
+        setChatHistory((prev) => [...prev, { role: "assistant" as const, content: res.reply!, timestamp: new Date().toISOString() }])
+      }
+    } catch {
+      setChatHistory((prev) => [...prev, { role: "assistant" as const, content: "Error: could not get reply.", timestamp: new Date().toISOString() }])
+    } finally {
+      setChatLoading(false)
+    }
   }
 
   async function sendFeedback(signal: 1 | -1) {
@@ -162,35 +249,24 @@ function ResultPanel({ task }: { task: Task }) {
 
           {/* Render content fields */}
           {Object.entries(art.content).map(([key, val]) => {
+            // Skip internal metadata keys
+            if (key.startsWith("_")) return null
             if (val === null || val === undefined || val === "") return null
             if (Array.isArray(val) && val.length === 0) return null
-            // Coerce an item to a display string: prefer .text/.name/.title, else JSON
-            function itemText(item: unknown): string {
-              if (typeof item === "string") return item
-              if (typeof item === "object" && item !== null) {
-                const o = item as Record<string, unknown>
-                return String(o.text ?? o.name ?? o.title ?? o.action ?? JSON.stringify(item))
-              }
-              return String(item)
-            }
+
             return (
               <div key={key} className="mb-4">
                 <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-2">
                   {key.replace(/_/g, " ")}
                 </p>
                 {Array.isArray(val) ? (
-                  <ul className="flex flex-col gap-1">
-                    {(val as unknown[]).map((item, j) => (
-                      <li key={j} className="text-sm flex items-start gap-2">
-                        <span className="text-[var(--muted-foreground)] mt-0.5">·</span>
-                        {itemText(item)}
-                      </li>
-                    ))}
-                  </ul>
+                  <CollapsibleList items={val as unknown[]} />
                 ) : typeof val === "object" ? (
                   <pre className="text-xs text-[var(--muted-foreground)] whitespace-pre-wrap bg-[var(--muted)] rounded-lg p-3 overflow-auto">
                     {JSON.stringify(val, null, 2)}
                   </pre>
+                ) : typeof val === "string" && val.length > 200 ? (
+                  <LongText text={val} />
                 ) : (
                   <p className="text-sm leading-relaxed">{String(val)}</p>
                 )}
@@ -260,12 +336,12 @@ function ResultPanel({ task }: { task: Task }) {
           className={`p-2 rounded-lg transition-all ${feedback === -1 ? "bg-red-100 text-red-600" : "hover:bg-[var(--muted)]"}`}>
           <ThumbsDown className="w-4 h-4" />
         </button>
-        <button onClick={() => setChatOpen(true)}
+        <button onClick={() => setChatOpen((v) => !v)}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)]
                      text-xs font-semibold hover:bg-[var(--muted)] transition-colors">
           <MessageSquare className="w-3.5 h-3.5" /> Refine with chat
         </button>
-        <a href={`${API}/projects/${task.project_id}/tasks/${task.id}/export.html`}
+        <a href={`/projects/${task.project_id}/tasks/${task.id}/export.html`}
            target="_blank" rel="noopener noreferrer"
            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)]
                       text-xs font-semibold hover:bg-[var(--muted)] transition-colors">
@@ -278,20 +354,25 @@ function ResultPanel({ task }: { task: Task }) {
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
           <h3 className="font-semibold text-sm mb-3">Refine Result</h3>
           <div className="flex flex-col gap-3 mb-3 max-h-64 overflow-y-auto">
-            {(task.chat ?? []).map((m, i) => (
+            {chatHistory.map((m, i) => (
               <div key={i} className={`text-sm p-3 rounded-xl ${m.role === "user"
-                ? "bg-black text-white dark:bg-white dark:text-black self-end max-w-xs"
+                ? "bg-black text-white dark:bg-white dark:text-black self-end max-w-xs ml-auto"
                 : "bg-[var(--muted)] max-w-sm"}`}>
                 {m.content}
               </div>
             ))}
+            {chatHistory.length === 0 && (
+              <p className="text-xs text-[var(--muted-foreground)] text-center py-4">
+                Ask a follow-up question about this result.
+              </p>
+            )}
           </div>
           <form onSubmit={sendChat} className="flex gap-2">
             <input value={chatMsg} onChange={(e) => setChatMsg(e.target.value)}
               placeholder="Ask a follow-up question…"
               className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]
                          px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white" />
-            <button type="submit" disabled={chatLoading || !chatMsg}
+            <button type="submit" disabled={chatLoading || !chatMsg.trim()}
               className="px-4 py-2 rounded-lg bg-black dark:bg-white text-white dark:text-black
                          text-sm font-semibold hover:opacity-80 disabled:opacity-40 transition-opacity">
               {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send"}
@@ -308,10 +389,16 @@ export default function TaskDetailPage({
   params,
 }: { params: Promise<{ id: string; taskId: string }> }) {
   const { id: projectId, taskId } = use(params)
+
   const { data: task, mutate: refresh } = useSWR<Task>(
-    `${API}/api/projects/${projectId}/tasks/${taskId}`,
+    `/api/projects/${projectId}/tasks/${taskId}`,
     fetcher,
     { refreshInterval: (data: Task | undefined) => data?.status === "running" ? 3000 : 0 }
+  )
+
+  const { data: project } = useSWR<Project>(
+    `/api/projects/${projectId}`,
+    fetcher
   )
 
   const [launching, setLaunching] = useState(false)
@@ -338,7 +425,9 @@ export default function TaskDetailPage({
         <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)] mb-2">
           <Link href="/projects" className="hover:underline">Projects</Link>
           <span>/</span>
-          <Link href={`/projects/${projectId}`} className="hover:underline">Project</Link>
+          <Link href={`/projects/${projectId}`} className="hover:underline">
+            {project?.name ?? "Project"}
+          </Link>
           <span>/</span>
           <span className="truncate">{task?.objective ?? "Task"}</span>
         </div>
@@ -346,10 +435,15 @@ export default function TaskDetailPage({
           <GradientHeading size="sm" weight="bold">
             {task?.objective ?? "Loading…"}
           </GradientHeading>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
             {task?.domain && (
               <span className="text-xs px-2 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)] font-medium">
                 {task.domain}
+              </span>
+            )}
+            {task?.persona && (
+              <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium">
+                {task.persona}
               </span>
             )}
             {task && task.status !== "running" && (
@@ -386,6 +480,17 @@ export default function TaskDetailPage({
           <p className="text-sm text-[var(--muted-foreground)]">
             Task is ready. Hit <strong>Run</strong> to start the research pipeline.
           </p>
+          <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
+            {task.domain && (
+              <span className="text-xs bg-[var(--muted)] px-2 py-0.5 rounded">{task.domain}</span>
+            )}
+            {task?.persona && (
+              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">{task.persona}</span>
+            )}
+            {task?.status === "planned" && (
+              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Plan ready</span>
+            )}
+          </div>
         </div>
       )}
     </div>

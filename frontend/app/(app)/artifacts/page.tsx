@@ -6,9 +6,8 @@ import Link from "next/link"
 import { GradientHeading } from "@/components/ui/gradient-heading"
 import { CodeBlock } from "@/components/ui/code-block"
 import { type Artifact } from "@/lib/api"
-import { Globe, Lock, AlertTriangle, FileText, Download, ChevronDown, ChevronUp, Calendar } from "lucide-react"
+import { Globe, Lock, AlertTriangle, FileText, ChevronDown, ChevronUp, Calendar, Search } from "lucide-react"
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
 
 const TYPE_COLORS: Record<string, string> = {
@@ -16,6 +15,11 @@ const TYPE_COLORS: Record<string, string> = {
   accountbrief: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
   report:       "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
   summary:      "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+}
+
+const BACKEND_COLORS: Record<string, string> = {
+  vllm:   "bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400",
+  gemini: "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400",
 }
 
 function ArtifactRow({ artifact }: { artifact: Artifact }) {
@@ -38,6 +42,12 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
               ${TYPE_COLORS[artifact.type] ?? TYPE_COLORS.summary}`}>
               {artifact.type}
             </span>
+            {artifact.backend && (
+              <span className={`text-xs px-2 py-0.5 rounded font-mono shrink-0
+                ${BACKEND_COLORS[artifact.backend] ?? "bg-gray-100 text-gray-600"}`}>
+                {artifact.backend}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-[var(--muted-foreground)]">
             <span className="flex items-center gap-1">
@@ -66,12 +76,6 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
               View project
             </Link>
           )}
-          <a href={`${API}/api/artifacts/${artifact.id}/export`}
-            target="_blank" rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="p-1.5 rounded-lg hover:bg-[var(--muted)] text-[var(--muted-foreground)]">
-            <Download className="w-3.5 h-3.5" />
-          </a>
           {expanded
             ? <ChevronUp className="w-4 h-4 text-[var(--muted-foreground)]" />
             : <ChevronDown className="w-4 h-4 text-[var(--muted-foreground)]" />}
@@ -117,11 +121,17 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
 }
 
 export default function ArtifactsPage() {
-  const { data: artifacts, isLoading } = useSWR<Artifact[]>(`${API}/api/artifacts`, fetcher)
+  const { data: artifacts, isLoading } = useSWR<Artifact[]>("/api/artifacts", fetcher)
   const [filter, setFilter] = useState<string>("all")
+  const [search, setSearch] = useState<string>("")
 
   const types = ["all", ...Array.from(new Set((artifacts ?? []).map((a) => a.type)))]
-  const filtered = filter === "all" ? (artifacts ?? []) : (artifacts ?? []).filter((a) => a.type === filter)
+
+  const filtered = (artifacts ?? []).filter((a) => {
+    const matchesType = filter === "all" || a.type === filter
+    const matchesSearch = search === "" || a.target.toLowerCase().includes(search.toLowerCase())
+    return matchesType && matchesSearch
+  })
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto">
@@ -132,18 +142,35 @@ export default function ArtifactsPage() {
         </p>
       </div>
 
-      {/* Type filter */}
-      <div className="flex gap-2 flex-wrap">
-        {types.map((t) => (
-          <button key={t} onClick={() => setFilter(t)}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border capitalize
-              ${filter === t
-                ? "bg-black dark:bg-white text-white dark:text-black border-transparent"
-                : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-black/30"
-              }`}>
-            {t}
-          </button>
-        ))}
+      {/* Search + type filter row */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        {/* Text search */}
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+          <input
+            type="text"
+            placeholder="Search by target…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 rounded-full text-xs border border-[var(--border)]
+                       bg-[var(--card)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]
+                       focus:outline-none focus:ring-2 focus:ring-black/10 dark:focus:ring-white/10"
+          />
+        </div>
+
+        {/* Type filter pills */}
+        <div className="flex gap-2 flex-wrap">
+          {types.map((t) => (
+            <button key={t} onClick={() => setFilter(t)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border capitalize
+                ${filter === t
+                  ? "bg-black dark:bg-white text-white dark:text-black border-transparent"
+                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-black/30"
+                }`}>
+              {t}
+            </button>
+          ))}
+        </div>
       </div>
 
       {isLoading ? (
@@ -155,10 +182,14 @@ export default function ArtifactsPage() {
       ) : filtered.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[var(--border)] p-16 text-center">
           <FileText className="w-10 h-10 text-[var(--muted-foreground)] mx-auto mb-3" />
-          <p className="text-sm text-[var(--muted-foreground)]">No artifacts yet.</p>
-          <p className="text-xs text-[var(--muted-foreground)] mt-1">
-            Run a research task to generate battlecards and account briefs.
+          <p className="text-sm text-[var(--muted-foreground)]">
+            {search || filter !== "all" ? "No artifacts match your filter." : "No artifacts yet."}
           </p>
+          {!search && filter === "all" && (
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">
+              Run a research task to generate battlecards and account briefs.
+            </p>
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-3">

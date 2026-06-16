@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
       // Proxy JSON API and status polling to the Python backend
       { source: "/api/:path*", destination: `${BACKEND}/api/:path*` },
       { source: "/projects/:path*/status.json", destination: `${BACKEND}/projects/:path*/status.json` },
+      // Export HTML proxies
+      { source: "/projects/:path*/tasks/:taskPath*/export.html", destination: `${BACKEND}/projects/:path*/tasks/:taskPath*/export.html` },
+      { source: "/projects/:path*/export.html", destination: `${BACKEND}/projects/:path*/export.html` },
     ];
   },
 };
