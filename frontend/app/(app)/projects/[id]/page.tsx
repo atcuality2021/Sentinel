@@ -1,18 +1,19 @@
 "use client"
 
 import { use, useState } from "react"
-import useSWR, { mutate } from "swr"
+import useSWR from "swr"
 import Link from "next/link"
 import { GradientHeading } from "@/components/ui/gradient-heading"
 import { DirectionAwareTabs } from "@/components/ui/direction-aware-tabs"
 import { AnimatedNumber } from "@/components/ui/animated-number"
 import {
   type Project, type Task, type MemoryData, type KBData,
-  type Artifact, tasks as tasksApi, kb as kbApi, projects as projectsApi,
+  tasks as tasksApi, kb as kbApi, memory as memoryApi,
 } from "@/lib/api"
 import {
   Plus, Play, Globe, Lock, AlertTriangle, Clock, CheckCircle2,
   XCircle, Loader2, BookOpen, Database, Zap, FileText, Brain,
+  Trash2, RefreshCw,
 } from "lucide-react"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
@@ -36,8 +37,19 @@ function StatusBadge({ status }: { status: Task["status"] }) {
 }
 
 // ── Task row ───────────────────────────────────────────────────────────────
-function TaskRow({ task, projectId, onRun }: { task: Task; projectId: string; onRun: () => void }) {
+function TaskRow({
+  task,
+  projectId,
+  onRun,
+  onDelete,
+}: {
+  task: Task
+  projectId: string
+  onRun: () => void
+  onDelete: () => void
+}) {
   const [running, setRunning] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   async function handleRun(e: React.MouseEvent) {
     e.preventDefault()
@@ -45,6 +57,16 @@ function TaskRow({ task, projectId, onRun }: { task: Task; projectId: string; on
     await tasksApi.run(projectId, task.id).catch(() => {})
     onRun()
     setRunning(false)
+  }
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!confirm(`Delete task "${task.objective}"? This cannot be undone.`)) return
+    setDeleting(true)
+    await tasksApi.delete(projectId, task.id).catch(() => {})
+    onDelete()
+    setDeleting(false)
   }
 
   return (
@@ -76,6 +98,15 @@ function TaskRow({ task, projectId, onRun }: { task: Task; projectId: string; on
           Run
         </button>
       )}
+      <button
+        onClick={handleDelete}
+        disabled={deleting}
+        title="Delete task"
+        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500
+                   hover:bg-red-50 dark:hover:bg-red-900/20 transition-all disabled:opacity-40"
+      >
+        {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+      </button>
     </Link>
   )
 }
@@ -84,9 +115,12 @@ function TaskRow({ task, projectId, onRun }: { task: Task; projectId: string; on
 function CreateTaskForm({ projectId, onCreated }: { projectId: string; onCreated: () => void }) {
   const [objective, setObjective] = useState("")
   const [domain, setDomain] = useState("market")
+  const [persona, setPersona] = useState("auto")
+  const [context, setContext] = useState("")
   const [loading, setLoading] = useState(false)
 
   const domains = ["market", "software", "finance", "academic", "product_research", "travel", "nutrition", "govt_proposal"]
+  const personaOptions = ["auto", "enterprise", "developer", "consumer", "student", "doctor", "nurse"]
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -94,10 +128,15 @@ function CreateTaskForm({ projectId, onCreated }: { projectId: string; onCreated
     await fetch(`${API}/api/projects/${projectId}/tasks`, {
       method: "POST", credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ objective, domain }),
+      body: JSON.stringify({
+        objective,
+        domain,
+        persona: persona === "auto" ? undefined : persona,
+        context: context.trim() || undefined,
+      }),
     })
     onCreated()
-    setObjective(""); setLoading(false)
+    setObjective(""); setContext(""); setLoading(false)
   }
 
   return (
@@ -111,17 +150,42 @@ function CreateTaskForm({ projectId, onCreated }: { projectId: string; onCreated
                      px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white resize-none"
         />
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">Domain</label>
+          <select
+            value={domain} onChange={(e) => setDomain(e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)]
+                       px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
+          >
+            {domains.map((d) => (
+              <option key={d} value={d}>{d.replace("_", " ")}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">Persona</label>
+          <select
+            value={persona} onChange={(e) => setPersona(e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)]
+                       px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
+          >
+            {personaOptions.map((p) => (
+              <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+            ))}
+          </select>
+        </div>
+      </div>
       <div>
-        <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">Domain</label>
-        <select
-          value={domain} onChange={(e) => setDomain(e.target.value)}
+        <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">
+          Additional Context <span className="font-normal">(optional)</span>
+        </label>
+        <textarea
+          value={context} onChange={(e) => setContext(e.target.value)} rows={2}
+          placeholder="Additional context for this research task…"
           className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)]
-                     px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
-        >
-          {domains.map((d) => (
-            <option key={d} value={d}>{d.replace("_", " ")}</option>
-          ))}
-        </select>
+                     px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white resize-none"
+        />
       </div>
       <button
         type="submit" disabled={loading || !objective}
@@ -145,6 +209,20 @@ function KBTab({ projectId }: { projectId: string }) {
     setAdding(true)
     await kbApi.addSource(projectId, url).catch(() => {})
     setUrl(""); refresh(); setAdding(false)
+  }
+
+  async function retrySource(sourceId: string) {
+    await fetch(`${API}/api/projects/${projectId}/kb/sources/${sourceId}/retry`, {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => {})
+    refresh()
+  }
+
+  async function deleteSource(sourceId: string) {
+    if (!confirm("Remove this knowledge source?")) return
+    await kbApi.deleteSource(projectId, sourceId).catch(() => {})
+    refresh()
   }
 
   const statusIcon = (s: string) => ({
@@ -173,10 +251,29 @@ function KBTab({ projectId }: { projectId: string }) {
       </form>
       <div className="flex flex-col gap-2">
         {(data?.sources ?? []).map((s) => (
-          <div key={s.id} className="flex items-center gap-3 p-3 rounded-xl border border-[var(--border)] bg-[var(--card)]">
+          <div key={s.id}
+            className="group flex items-center gap-3 p-3 rounded-xl border border-[var(--border)] bg-[var(--card)]">
             {statusIcon(s.status)}
             <span className="text-xs truncate flex-1 font-mono text-[var(--muted-foreground)]">{s.url}</span>
             <span className="text-xs text-[var(--muted-foreground)] shrink-0">{s.chunk_count} chunks</span>
+            {s.status === "failed" && (
+              <button
+                onClick={() => retrySource(s.id)}
+                title="Retry ingestion"
+                className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20
+                           transition-all shrink-0"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              onClick={() => deleteSource(s.id)}
+              title="Remove source"
+              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500
+                         hover:bg-red-50 dark:hover:bg-red-900/20 transition-all shrink-0"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           </div>
         ))}
         {(data?.sources ?? []).length === 0 && (
@@ -191,8 +288,14 @@ function KBTab({ projectId }: { projectId: string }) {
 
 // ── Memory tab ──────────────────────────────────────────────────────────────
 function MemoryTab({ projectId }: { projectId: string }) {
-  const { data } = useSWR<MemoryData>(`${API}/api/projects/${projectId}/memory`, fetcher)
+  const { data, mutate: refreshMemory } = useSWR<MemoryData>(`${API}/api/projects/${projectId}/memory`, fetcher)
   const [tab, setTab] = useState<"episodes" | "facts">("episodes")
+
+  async function deleteEpisode(episodeId: string) {
+    if (!confirm("Delete this memory episode? This cannot be undone.")) return
+    await memoryApi.deleteRun(projectId, episodeId).catch(() => {})
+    refreshMemory()
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -209,12 +312,23 @@ function MemoryTab({ projectId }: { projectId: string }) {
       {tab === "episodes" && (
         <div className="flex flex-col gap-2">
           {(data?.episodes ?? []).map((ep) => (
-            <div key={ep.id} className="p-3 rounded-xl border border-[var(--border)] bg-[var(--card)]">
+            <div key={ep.id}
+              className="group p-3 rounded-xl border border-[var(--border)] bg-[var(--card)]">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">{ep.target || ep.entity}</span>
-                <span className="text-xs text-[var(--muted-foreground)]">
-                  {new Date(ep.created_at).toLocaleDateString()}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[var(--muted-foreground)]">
+                    {new Date(ep.created_at).toLocaleDateString()}
+                  </span>
+                  <button
+                    onClick={() => deleteEpisode(ep.id)}
+                    title="Delete episode"
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-red-500
+                               hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
               <div className="flex gap-3 mt-1.5 text-xs text-[var(--muted-foreground)]">
                 <span className="flex items-center gap-1"><Globe className="w-3 h-3 text-blue-400" /> {ep.public}</span>
@@ -281,7 +395,13 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         </div>
       )}
       {(taskList ?? []).map((t) => (
-        <TaskRow key={t.id} task={t} projectId={id} onRun={refreshTasks} />
+        <TaskRow
+          key={t.id}
+          task={t}
+          projectId={id}
+          onRun={refreshTasks}
+          onDelete={refreshTasks}
+        />
       ))}
       {(taskList ?? []).length === 0 && !showTaskForm && (
         <p className="text-sm text-[var(--muted-foreground)] text-center py-8">

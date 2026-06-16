@@ -6,12 +6,11 @@ import { GradientHeading } from "@/components/ui/gradient-heading"
 import { DirectionAwareTabs } from "@/components/ui/direction-aware-tabs"
 import { type FlatSentinelConfig as SentinelConfig } from "@/lib/api"
 import {
-  Server, Cpu, Shield, Search, Brain, FileText, MessageSquare,
-  Save, RotateCcw, CheckCircle2, AlertTriangle, Loader2,
+  Save, RotateCcw, CheckCircle2, AlertTriangle, Loader2, XCircle,
 } from "lucide-react"
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
-const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
+const fetchSettings = (): Promise<SentinelConfig> =>
+  fetch("/api/settings", { credentials: "include" }).then((r) => r.json())
 
 // ── Reusable field components ────────────────────────────────────────────────
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -201,6 +200,21 @@ function MemoryTab({ config, onChange }: { config: SentinelConfig; onChange: (c:
 function PromptsTab({ config, onChange }: { config: SentinelConfig; onChange: (c: Partial<SentinelConfig>) => void }) {
   return (
     <div className="flex flex-col gap-5">
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--muted)] p-4 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold">Prompt Templates</p>
+          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+            Manage all agent prompt templates — view, edit, and reset to defaults.
+          </p>
+        </div>
+        <a
+          href="/settings/prompts"
+          className="px-4 py-2 rounded-lg bg-black dark:bg-white text-white dark:text-black text-sm font-semibold hover:opacity-80 transition-opacity"
+        >
+          Open Prompt Editor →
+        </a>
+      </div>
+
       <Field label="Competitor Research System Prompt Override"
         hint="Leave blank to use the built-in prompt.">
         <textarea value={config.competitor_system_prompt ?? ""}
@@ -223,35 +237,52 @@ function PromptsTab({ config, onChange }: { config: SentinelConfig; onChange: (c
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
-  const { data: serverConfig, mutate } = useSWR<SentinelConfig>(`${API}/api/settings`, fetcher)
+  const { data: serverConfig, mutate } = useSWR<SentinelConfig>("/api/settings", fetchSettings)
   const [local, setLocal] = useState<Partial<SentinelConfig>>({})
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle")
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const config: SentinelConfig = { ...(serverConfig ?? {}), ...local } as SentinelConfig
 
   function patch(partial: Partial<SentinelConfig>) {
     setLocal((prev) => ({ ...prev, ...partial }))
-    setSaved(false)
+    setSaveStatus("idle")
+    setSaveError(null)
   }
 
   function reset() {
     setLocal({})
-    setSaved(false)
+    setSaveStatus("idle")
+    setSaveError(null)
   }
 
   async function save() {
     setSaving(true)
-    await fetch(`${API}/api/settings`, {
-      method: "POST", credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config),
-    }).catch(() => {})
-    await mutate()
-    setLocal({})
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+    setSaveError(null)
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => res.statusText)
+        throw new Error(text || `${res.status} ${res.statusText}`)
+      }
+      await mutate()
+      setLocal({})
+      setSaveStatus("saved")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setSaveError(msg)
+      setSaveStatus("error")
+      setTimeout(() => setSaveStatus("idle"), 4000)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const hasPendingChanges = Object.keys(local).length > 0
@@ -271,7 +302,7 @@ export default function SettingsPage() {
         <div>
           <GradientHeading size="md" weight="bold">Settings</GradientHeading>
           <p className="text-sm text-[var(--muted-foreground)] mt-1">
-            Configure Sentinel's backend, generation parameters, and governance policy.
+            Configure Sentinel&apos;s backend, generation parameters, and governance policy.
           </p>
         </div>
 
@@ -289,18 +320,36 @@ export default function SettingsPage() {
                        hover:opacity-80 disabled:opacity-40 transition-opacity">
             {saving
               ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
-              : saved
+              : saveStatus === "saved"
               ? <><CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> Saved</>
+              : saveStatus === "error"
+              ? <><XCircle className="w-3.5 h-3.5 text-red-400" /> Failed</>
               : <><Save className="w-3.5 h-3.5" /> Save</>}
           </button>
         </div>
       </div>
 
-      {hasPendingChanges && (
+      {hasPendingChanges && saveStatus !== "error" && (
         <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl
                         border border-amber-200 bg-amber-50 dark:bg-amber-900/10 text-xs text-amber-700 dark:text-amber-400">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
           You have unsaved changes.
+        </div>
+      )}
+
+      {saveStatus === "error" && saveError && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl
+                        border border-red-200 bg-red-50 dark:bg-red-900/10 text-xs text-red-700 dark:text-red-400">
+          <XCircle className="w-3.5 h-3.5 shrink-0" />
+          Save failed: {saveError}
+        </div>
+      )}
+
+      {saveStatus === "saved" && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl
+                        border border-green-200 bg-green-50 dark:bg-green-900/10 text-xs text-green-700 dark:text-green-400">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+          Settings saved successfully.
         </div>
       )}
 

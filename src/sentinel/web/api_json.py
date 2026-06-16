@@ -183,6 +183,112 @@ async def api_get_task(project_id: str, task_id: str) -> JSONResponse:
     return JSONResponse(_task_dict(task))
 
 
+@router.post("/projects/{project_id}/tasks")
+async def api_create_task(
+    project_id: str, request: Request, background_tasks: BackgroundTasks
+) -> JSONResponse:
+    """Create a task, generate its plan, and run it in the background. Returns {task_id} immediately."""
+    from sentinel.web.app import _approve_and_run, _persona_for, _cloud_allowed_for
+    from sentinel.agent.orchestrator import AgentRegistry, plan_task
+    from sentinel.artifacts.schemas import Task, Domain
+    from sentinel.memory.schema import utcnow as _now
+
+    try:
+        body: dict = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    objective = (body.get("objective") or "").strip()
+    if not objective:
+        return JSONResponse({"error": "objective is required"}, status_code=400)
+
+    store = ProjectStore()
+    proj = store.get_project(project_id)
+    if proj is None:
+        return JSONResponse({"error": "project not found"}, status_code=404)
+
+    domain = (body.get("domain") or "market").strip()
+    persona_name = (body.get("persona") or "auto").strip()
+    context = (body.get("context") or "").strip()
+    override_backend = (body.get("backend") or "").strip()
+
+    task_persona = _persona_for(persona_name, domain=domain)
+
+    # Reuse existing task with same objective+domain to avoid duplicates on re-plan
+    existing = next(
+        (t for t in store.tasks_for_project(project_id)
+         if t.objective == objective
+         and (t.domain.name if hasattr(t.domain, "name") else str(t.domain)) == domain),
+        None,
+    )
+    if existing:
+        task = existing
+        task.persona = task_persona
+        if context:
+            task.context = context
+    else:
+        now = _now().isoformat()
+        task = Task(
+            id=f"task-{now}", project_id=project_id,
+            objective=objective, domain=Domain(name=domain),
+            persona=task_persona, created_at=now,
+            context=context or None,
+        )
+    store.save_task(task)
+    task_id = task.id
+
+    async def _plan_and_run() -> None:
+        _store = ProjectStore()
+        _task = _store.get_task(task_id)
+        _proj = _store.get_project(project_id)
+        if _task is None or _proj is None:
+            return
+        try:
+            proposal = await plan_task(_task, AgentRegistry(),
+                                       cloud_allowed=_cloud_allowed_for(_proj))
+            _task.status = "planned"
+            _task.plan_id = proposal.plan.id
+            _store.save_task(_task)
+            _store.save_plan(proposal.plan)
+        except Exception as exc:
+            _task.status = "failed"
+            try:
+                _store.save_task(_task)
+            except Exception:
+                pass
+            return
+        # _approve_and_run with background_tasks=None runs _execute_run inline
+        await _approve_and_run(
+            task_id,
+            override_backend=override_backend,
+            extra_context="",
+            background_tasks=None,
+        )
+
+    background_tasks.add_task(_plan_and_run)
+    return JSONResponse({"task_id": task_id, "status": "created"}, status_code=201)
+
+
+@router.post("/projects/{project_id}/kb/sources/{source_id}/retry")
+async def api_retry_kb_source(
+    project_id: str, source_id: str, background_tasks: BackgroundTasks
+) -> JSONResponse:
+    src = KBStore().get(source_id)
+    if not src or src.get("project_id") != project_id:
+        return JSONResponse({"error": "source not found"}, status_code=404)
+    if src.get("url", "").startswith("artifact://"):
+        return JSONResponse({"error": "artifact sources cannot be re-crawled"}, status_code=400)
+    KBStore().update_status(source_id, "pending", 0, None)
+
+    async def _crawl(src_id: str, pid: str, url: str, stype: str) -> None:
+        result = await KBManager(_kb_data_dir()).add_source(pid, url, SourceType(stype))
+        KBStore().update_status(src_id, result.status.value, result.chunk_count, result.error)
+
+    background_tasks.add_task(_crawl, source_id, project_id,
+                               src["url"], src.get("source_type", "web"))
+    return JSONResponse({"ok": True, "status": "pending"})
+
+
 @router.post("/projects/{project_id}/tasks/{task_id}/run")
 async def api_run_task(
     project_id: str, task_id: str, request: Request, background_tasks: BackgroundTasks

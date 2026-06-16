@@ -1,9 +1,10 @@
 "use client"
 
+import { useState } from "react"
 import useSWR from "swr"
 import { GradientHeading } from "@/components/ui/gradient-heading"
-import { type AgentSpec } from "@/lib/api"
-import { Zap, Globe, Lock, Database, Brain, Search, FileText, Bot } from "lucide-react"
+import { agents as agentsApi, type AgentSpec } from "@/lib/api"
+import { Zap, Globe, Lock, Database, Brain, Search, FileText, Bot, Trash2 } from "lucide-react"
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
@@ -32,12 +33,42 @@ const BOUNDARY_BADGE: Record<string, string> = {
   orchestrator: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 px-2 py-0.5 rounded text-xs font-semibold",
 }
 
-function AgentCard({ agent }: { agent: AgentSpec }) {
+function AgentCard({
+  agent,
+  onToggle,
+  onDelete,
+}: {
+  agent: AgentSpec
+  onToggle: () => void
+  onDelete: () => void
+}) {
+  const [toggling, setToggling] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
   const borderCls = BOUNDARY_COLORS[agent.boundary ?? "both"] ?? BOUNDARY_COLORS.both
   const badgeCls  = BOUNDARY_BADGE[agent.boundary ?? "both"]  ?? BOUNDARY_BADGE.both
+  const isCustom  = !agent.name.startsWith("sentinel_")
+
+  async function handleToggle(e: React.MouseEvent) {
+    e.preventDefault()
+    setToggling(true)
+    await agentsApi.update(agent.name, { enabled: !agent.enabled }).catch(() => {})
+    onToggle()
+    setToggling(false)
+  }
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.preventDefault()
+    if (!confirm(`Delete agent "${agent.name}"? This cannot be undone.`)) return
+    setDeleting(true)
+    await agentsApi.delete(agent.name).catch(() => {})
+    onDelete()
+    setDeleting(false)
+  }
 
   return (
-    <div className={`rounded-2xl border p-5 flex flex-col gap-3 ${borderCls}`}>
+    <div className={`group relative rounded-2xl border p-5 flex flex-col gap-3 ${borderCls} ${!agent.enabled ? "opacity-60" : ""}`}>
+      {/* Top row: icon + name + toggle + (optional delete) */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-xl bg-black dark:bg-white flex items-center justify-center shrink-0">
@@ -50,7 +81,38 @@ function AgentCard({ agent }: { agent: AgentSpec }) {
             )}
           </div>
         </div>
-        <span className={badgeCls}>{agent.boundary ?? "both"}</span>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={badgeCls}>{agent.boundary ?? "both"}</span>
+
+          {/* Enable / disable pill toggle */}
+          <button
+            onClick={handleToggle}
+            disabled={toggling}
+            title={agent.enabled ? "Disable agent" : "Enable agent"}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold
+                        border transition-all select-none
+                        ${agent.enabled
+                          ? "bg-green-100 border-green-300 text-green-700 dark:bg-green-900/30 dark:border-green-700 dark:text-green-300"
+                          : "bg-gray-100 border-gray-300 text-gray-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-400"}
+                        disabled:opacity-40`}
+          >
+            {agent.enabled ? "● On" : "○ Off"}
+          </button>
+
+          {/* Delete — only for custom agents */}
+          {isCustom && (
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              title="Delete agent"
+              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500
+                         hover:bg-red-50 dark:hover:bg-red-900/20 transition-all disabled:opacity-40"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {agent.description && (
@@ -96,7 +158,7 @@ function AgentCard({ agent }: { agent: AgentSpec }) {
 }
 
 export default function AgentsPage() {
-  const { data: agents, isLoading } = useSWR<AgentSpec[]>(`${API}/api/agents`, fetcher)
+  const { data: agentList, isLoading, mutate } = useSWR<AgentSpec[]>(`${API}/api/agents`, fetcher)
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto">
@@ -133,7 +195,7 @@ export default function AgentsPage() {
             <div key={i} className="h-48 rounded-2xl bg-[var(--muted)] animate-pulse" />
           ))}
         </div>
-      ) : (agents ?? []).length === 0 ? (
+      ) : (agentList ?? []).length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[var(--border)] p-16 text-center">
           <Bot className="w-10 h-10 text-[var(--muted-foreground)] mx-auto mb-3" />
           <p className="text-sm text-[var(--muted-foreground)]">No agents registered.</p>
@@ -143,8 +205,13 @@ export default function AgentsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {(agents ?? []).map((a) => (
-            <AgentCard key={a.name} agent={a} />
+          {(agentList ?? []).map((a) => (
+            <AgentCard
+              key={a.name}
+              agent={a}
+              onToggle={() => mutate()}
+              onDelete={() => mutate()}
+            />
           ))}
         </div>
       )}

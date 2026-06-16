@@ -42,6 +42,8 @@ export const tasks = {
   list: (projectId: string) => request<Task[]>(`/api/projects/${projectId}/tasks`),
   get: (projectId: string, taskId: string) =>
     request<Task>(`/api/projects/${projectId}/tasks/${taskId}`),
+  create: (projectId: string, data: { objective: string; domain: string; persona?: string; context?: string; backend?: string }) =>
+    request<{ task_id: string; status: string }>(`/api/projects/${projectId}/tasks`, { method: "POST", body: JSON.stringify(data) }),
   run: (projectId: string, taskId: string) =>
     request(`/api/projects/${projectId}/tasks/${taskId}/run`, { method: "POST" }),
   status: (projectId: string, taskId: string) =>
@@ -61,6 +63,8 @@ export const kb = {
     request(`/api/projects/${projectId}/kb/sources`, { method: "POST", body: JSON.stringify({ url }) }),
   deleteSource: (projectId: string, sourceId: string) =>
     request(`/api/projects/${projectId}/kb/sources/${sourceId}/delete`, { method: "POST" }),
+  retrySource: (projectId: string, sourceId: string) =>
+    request(`/api/projects/${projectId}/kb/sources/${sourceId}/retry`, { method: "POST" }),
   search: (projectId: string, query: string) =>
     request<KBSearchResult[]>(`/api/projects/${projectId}/kb/search?q=${encodeURIComponent(query)}`),
   chat: (projectId: string, message: string) =>
