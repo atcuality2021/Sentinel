@@ -3,9 +3,11 @@
 import { use, useState } from "react"
 import useSWR from "swr"
 import Link from "next/link"
+import { Drawer } from "vaul"
 import { GradientHeading } from "@/components/ui/gradient-heading"
 import { TerminalAnimation } from "@/components/ui/terminal-animation"
 import { AnimatedNumber } from "@/components/ui/animated-number"
+import { DirectionAwareTabs } from "@/components/ui/direction-aware-tabs"
 import { type Task, type TaskStatus, type Project, tasks as tasksApi } from "@/lib/api"
 import {
   Globe, Lock, AlertTriangle, ThumbsUp, ThumbsDown,
@@ -220,8 +222,10 @@ function ResultPanel({ task }: { task: Task }) {
     await tasksApi.feedback(task.project_id, task.id, signal).catch(() => {})
   }
 
-  return (
-    <div className="flex flex-col gap-6">
+  // ── Tab content components ──────────────────────────────────────────────
+
+  const overviewContent = (
+    <div className="flex flex-col gap-4">
       {/* Summary */}
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6">
         <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-3">
@@ -230,7 +234,34 @@ function ResultPanel({ task }: { task: Task }) {
         <p className="text-sm leading-relaxed">{result.summary}</p>
       </div>
 
-      {/* Artifacts */}
+      {/* Grade */}
+      {result.grade && (
+        <div className={`rounded-2xl border p-4 ${result.grade.passed
+          ? "border-green-200 bg-green-50 dark:bg-green-900/10"
+          : "border-red-200 bg-red-50 dark:bg-red-900/10"}`}>
+          <div className="flex items-center gap-2">
+            {result.grade.passed
+              ? <CheckCircle2 className="w-4 h-4 text-green-600" />
+              : <XCircle className="w-4 h-4 text-red-600" />}
+            <span className="text-sm font-semibold">
+              Quality check {result.grade.passed ? "passed" : "failed"}
+              {result.grade.score !== undefined && ` · ${result.grade.score}/5`}
+            </span>
+          </div>
+          {result.grade.hard_failures.length > 0 && (
+            <ul className="mt-2 flex flex-col gap-1">
+              {result.grade.hard_failures.map((f, i) => (
+                <li key={i} className="text-xs text-red-600">· {f}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
+  const artifactsContent = (
+    <div className="flex flex-col gap-4">
       {result.artifacts.map((art, i) => (
         <div key={i} className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6">
           <div className="flex items-center justify-between mb-4">
@@ -275,57 +306,50 @@ function ResultPanel({ task }: { task: Task }) {
           })}
         </div>
       ))}
+    </div>
+  )
 
-      {/* Citations */}
-      {result.citations.length > 0 && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
-          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-3">
-            Sources
-          </p>
-          <div className="flex flex-col gap-1.5">
-            {result.citations.map((c, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs">
-                <span className={c.boundary === "public" ? "badge-public" : "badge-private"}>
-                  {c.boundary === "public" ? <Globe className="w-2.5 h-2.5 inline" /> : <Lock className="w-2.5 h-2.5 inline" />}
-                  {" "}{c.boundary}
-                </span>
-                {c.url ? (
-                  <a href={c.url} target="_blank" rel="noopener noreferrer"
-                     className="text-blue-500 hover:underline truncate">{c.label}</a>
-                ) : (
-                  <span className="text-[var(--muted-foreground)]">{c.label}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Grade */}
-      {result.grade && (
-        <div className={`rounded-2xl border p-4 ${result.grade.passed
-          ? "border-green-200 bg-green-50 dark:bg-green-900/10"
-          : "border-red-200 bg-red-50 dark:bg-red-900/10"}`}>
-          <div className="flex items-center gap-2">
-            {result.grade.passed
-              ? <CheckCircle2 className="w-4 h-4 text-green-600" />
-              : <XCircle className="w-4 h-4 text-red-600" />}
-            <span className="text-sm font-semibold">
-              Quality check {result.grade.passed ? "passed" : "failed"}
-              {result.grade.score !== undefined && ` · ${result.grade.score}/5`}
+  const citationsContent = (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+      <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-3">
+        Sources
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {result.citations.map((c, i) => (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span className={c.boundary === "public" ? "badge-public" : "badge-private"}>
+              {c.boundary === "public" ? <Globe className="w-2.5 h-2.5 inline" /> : <Lock className="w-2.5 h-2.5 inline" />}
+              {" "}{c.boundary}
             </span>
+            {c.url ? (
+              <a href={c.url} target="_blank" rel="noopener noreferrer"
+                 className="text-blue-500 hover:underline truncate">{c.label}</a>
+            ) : (
+              <span className="text-[var(--muted-foreground)]">{c.label}</span>
+            )}
           </div>
-          {result.grade.hard_failures.length > 0 && (
-            <ul className="mt-2 flex flex-col gap-1">
-              {result.grade.hard_failures.map((f, i) => (
-                <li key={i} className="text-xs text-red-600">· {f}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+        ))}
+      </div>
+    </div>
+  )
 
-      {/* Feedback + chat */}
+  // Build tab list conditionally
+  const tabs = [
+    { id: 0, label: "Overview", content: overviewContent },
+    ...(result.artifacts.length > 0
+      ? [{ id: 1, label: "Artifacts", content: artifactsContent }]
+      : []),
+    ...(result.citations.length > 0
+      ? [{ id: result.artifacts.length > 0 ? 2 : 1, label: "Citations", content: citationsContent }]
+      : []),
+  ]
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Direction-aware tabs for result sections */}
+      <DirectionAwareTabs tabs={tabs} />
+
+      {/* Feedback bar + export — always visible below tabs */}
       <div className="flex items-center gap-3">
         <span className="text-xs text-[var(--muted-foreground)]">Was this useful?</span>
         <button onClick={() => sendFeedback(1)}
@@ -336,11 +360,54 @@ function ResultPanel({ task }: { task: Task }) {
           className={`p-2 rounded-lg transition-all ${feedback === -1 ? "bg-red-100 text-red-600" : "hover:bg-[var(--muted)]"}`}>
           <ThumbsDown className="w-4 h-4" />
         </button>
-        <button onClick={() => setChatOpen((v) => !v)}
-          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)]
-                     text-xs font-semibold hover:bg-[var(--muted)] transition-colors">
-          <MessageSquare className="w-3.5 h-3.5" /> Refine with chat
-        </button>
+
+        {/* vaul Drawer trigger for chat */}
+        <Drawer.Root open={chatOpen} onOpenChange={setChatOpen}>
+          <Drawer.Trigger asChild>
+            <button
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)]
+                         text-xs font-semibold hover:bg-[var(--muted)] transition-colors">
+              <MessageSquare className="w-3.5 h-3.5" /> Refine with chat
+            </button>
+          </Drawer.Trigger>
+          <Drawer.Portal>
+            <Drawer.Overlay className="fixed inset-0 bg-black/40 z-40" />
+            <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 flex flex-col
+                                       bg-[var(--card)] border-t border-[var(--border)]
+                                       rounded-t-2xl max-h-[80vh]">
+              <Drawer.Handle className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-[var(--muted-foreground)]/30" />
+              <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-3">
+                <h3 className="font-semibold text-sm">Refine Result</h3>
+                {chatHistory.map((m, i) => (
+                  <div key={i} className={`text-sm p-3 rounded-xl ${m.role === "user"
+                    ? "bg-black text-white dark:bg-white dark:text-black self-end max-w-xs ml-auto"
+                    : "bg-[var(--muted)] max-w-sm"}`}>
+                    {m.content}
+                  </div>
+                ))}
+                {chatHistory.length === 0 && (
+                  <p className="text-xs text-[var(--muted-foreground)] text-center py-4">
+                    Ask a follow-up question about this result.
+                  </p>
+                )}
+              </div>
+              <div className="p-4 border-t border-[var(--border)] bg-[var(--card)]">
+                <form onSubmit={sendChat} className="flex gap-2">
+                  <input value={chatMsg} onChange={(e) => setChatMsg(e.target.value)}
+                    placeholder="Ask a follow-up question…"
+                    className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]
+                               px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white" />
+                  <button type="submit" disabled={chatLoading || !chatMsg.trim()}
+                    className="px-4 py-2 rounded-lg bg-black dark:bg-white text-white dark:text-black
+                               text-sm font-semibold hover:opacity-80 disabled:opacity-40 transition-opacity">
+                    {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send"}
+                  </button>
+                </form>
+              </div>
+            </Drawer.Content>
+          </Drawer.Portal>
+        </Drawer.Root>
+
         <a href={`/projects/${task.project_id}/tasks/${task.id}/export.html`}
            target="_blank" rel="noopener noreferrer"
            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)]
@@ -348,38 +415,6 @@ function ResultPanel({ task }: { task: Task }) {
           <Download className="w-3.5 h-3.5" /> Export
         </a>
       </div>
-
-      {/* Chat drawer */}
-      {chatOpen && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
-          <h3 className="font-semibold text-sm mb-3">Refine Result</h3>
-          <div className="flex flex-col gap-3 mb-3 max-h-64 overflow-y-auto">
-            {chatHistory.map((m, i) => (
-              <div key={i} className={`text-sm p-3 rounded-xl ${m.role === "user"
-                ? "bg-black text-white dark:bg-white dark:text-black self-end max-w-xs ml-auto"
-                : "bg-[var(--muted)] max-w-sm"}`}>
-                {m.content}
-              </div>
-            ))}
-            {chatHistory.length === 0 && (
-              <p className="text-xs text-[var(--muted-foreground)] text-center py-4">
-                Ask a follow-up question about this result.
-              </p>
-            )}
-          </div>
-          <form onSubmit={sendChat} className="flex gap-2">
-            <input value={chatMsg} onChange={(e) => setChatMsg(e.target.value)}
-              placeholder="Ask a follow-up question…"
-              className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]
-                         px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white" />
-            <button type="submit" disabled={chatLoading || !chatMsg.trim()}
-              className="px-4 py-2 rounded-lg bg-black dark:bg-white text-white dark:text-black
-                         text-sm font-semibold hover:opacity-80 disabled:opacity-40 transition-opacity">
-              {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send"}
-            </button>
-          </form>
-        </div>
-      )}
     </div>
   )
 }

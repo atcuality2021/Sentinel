@@ -6,14 +6,16 @@ import Link from "next/link"
 import { GradientHeading } from "@/components/ui/gradient-heading"
 import { DirectionAwareTabs } from "@/components/ui/direction-aware-tabs"
 import { AnimatedNumber } from "@/components/ui/animated-number"
+import { PopoverForm, PopoverFormButton, PopoverFormSuccess } from "@/components/ui/popover-form"
+import { useToast } from "@/components/ui/toast"
 import {
   type Project, type Task, type MemoryData, type KBData, type Artifact,
   tasks as tasksApi, kb as kbApi, memory as memoryApi,
 } from "@/lib/api"
 import {
   Plus, Play, Globe, Lock, AlertTriangle, Clock, CheckCircle2,
-  XCircle, Loader2, BookOpen, Database, Zap, FileText, Brain,
-  Trash2, RefreshCw, Pencil, Check, ChevronDown, ChevronUp,
+  XCircle, Loader2, BookOpen, FileText, Brain,
+  Trash2, RefreshCw, Pencil, Check, ChevronDown, ChevronUp, Clipboard,
 } from "lucide-react"
 
 const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
@@ -47,13 +49,14 @@ function TaskRow({
   onRun: () => void
   onDelete: () => void
 }) {
+  const { toast } = useToast()
   const [running, setRunning] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   async function handleRun(e: React.MouseEvent) {
     e.preventDefault()
     setRunning(true)
-    await tasksApi.run(projectId, task.id).catch(() => {})
+    await tasksApi.run(projectId, task.id).catch((err) => toast(err?.message ?? "Something went wrong", "error"))
     onRun()
     setRunning(false)
   }
@@ -63,7 +66,8 @@ function TaskRow({
     e.stopPropagation()
     if (!confirm(`Delete task "${task.objective}"? This cannot be undone.`)) return
     setDeleting(true)
-    await tasksApi.delete(projectId, task.id).catch(() => {})
+    await tasksApi.delete(projectId, task.id).catch((err) => toast(err?.message ?? "Something went wrong", "error"))
+    toast("Task deleted", "success")
     onDelete()
     setDeleting(false)
   }
@@ -110,7 +114,7 @@ function TaskRow({
   )
 }
 
-// ── Create task form ───────────────────────────────────────────────────────
+// ── Create task form (kept for direct use inside PopoverForm) ──────────────
 function CreateTaskForm({ projectId, onCreated }: { projectId: string; onCreated: () => void }) {
   const [objective, setObjective] = useState("")
   const [domain, setDomain] = useState("market")
@@ -207,33 +211,155 @@ function CreateTaskForm({ projectId, onCreated }: { projectId: string; onCreated
   )
 }
 
+// ── Task popover form content ───────────────────────────────────────────────
+function TaskFormContent({
+  projectId,
+  loading,
+  onSubmit,
+}: {
+  projectId: string
+  loading: boolean
+  onSubmit: (data: { objective: string; domain: string; persona?: string }) => void
+}) {
+  const [objective, setObjective] = useState("")
+  const [domain, setDomain] = useState("market")
+  const [persona, setPersona] = useState("auto")
+
+  const domains = ["market", "software", "finance", "academic", "product_research", "travel", "nutrition", "govt_proposal"]
+  const personaOptions = ["auto", "enterprise", "developer", "consumer", "student", "doctor", "nurse"]
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    onSubmit({ objective, domain, persona: persona === "auto" ? undefined : persona })
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 p-3 h-full">
+      <div className="mt-6">
+        <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">Research Objective *</label>
+        <textarea
+          value={objective} onChange={(e) => setObjective(e.target.value)} required rows={3}
+          placeholder="What competitive advantages does Acme Corp have in the BFSI sector?"
+          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)]
+                     px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white resize-none"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">Domain</label>
+          <select
+            value={domain} onChange={(e) => setDomain(e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)]
+                       px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
+          >
+            {domains.map((d) => (
+              <option key={d} value={d}>{d.replace("_", " ")}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">Persona</label>
+          <select
+            value={persona} onChange={(e) => setPersona(e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)]
+                       px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
+          >
+            {personaOptions.map((p) => (
+              <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="flex justify-end mt-auto pt-1">
+        <PopoverFormButton loading={loading} text="Start Research" />
+      </div>
+    </form>
+  )
+}
+
+// ── KB source form content ─────────────────────────────────────────────────
+function KBSourceFormContent({
+  loading,
+  onSubmit,
+}: {
+  loading: boolean
+  onSubmit: (url: string) => void
+}) {
+  const [url, setUrl] = useState("")
+
+  async function handlePaste() {
+    try {
+      const text = await navigator.clipboard.readText()
+      setUrl(text.trim())
+    } catch {
+      // clipboard not available — silently ignore
+    }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (url.trim()) onSubmit(url.trim())
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 p-3 h-full">
+      <div className="mt-6">
+        <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">Source URL</label>
+        <div className="flex gap-2">
+          <input
+            value={url} onChange={(e) => setUrl(e.target.value)} required
+            placeholder="https://docs.example.com"
+            className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)]
+                       px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
+          />
+          <button
+            type="button"
+            onClick={handlePaste}
+            title="Paste from clipboard"
+            className="p-2 rounded-lg border border-[var(--border)] hover:bg-[var(--muted)] transition-colors"
+          >
+            <Clipboard className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+          </button>
+        </div>
+      </div>
+      <div className="flex justify-end mt-auto pt-1">
+        <PopoverFormButton loading={loading} text="Add Source" />
+      </div>
+    </form>
+  )
+}
+
 // ── KB tab ──────────────────────────────────────────────────────────────────
 function KBTab({ projectId }: { projectId: string }) {
+  const { toast } = useToast()
   const { data, mutate: refresh } = useSWR<KBData>(
     `/api/projects/${projectId}/kb`,
     fetcher,
     { refreshInterval: (kbData) => kbData?.sources?.some(s => s.status === "pending" || s.status === "crawling") ? 3000 : 0 }
   )
-  const [url, setUrl] = useState("")
-  const [adding, setAdding] = useState(false)
-  const [addError, setAddError] = useState<string | null>(null)
+  const [urlFormOpen, setUrlFormOpen] = useState(false)
+  const [showUrlSuccess, setShowUrlSuccess] = useState(false)
+  const [addingUrl, setAddingUrl] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<Array<{ text: string; source: string; score: number }>>([])
   const [searching, setSearching] = useState(false)
 
-  async function addSource(e: React.FormEvent) {
-    e.preventDefault()
-    setAdding(true)
-    setAddError(null)
+  async function handleAddSource(url: string) {
+    setAddingUrl(true)
     try {
       await kbApi.addSource(projectId, url)
-      setUrl("")
+      setShowUrlSuccess(true)
+      toast("Source added — crawling started", "success")
       refresh()
+      setTimeout(() => {
+        setUrlFormOpen(false)
+        setShowUrlSuccess(false)
+      }, 2000)
     } catch (err: unknown) {
-      setAddError(err instanceof Error ? err.message : "Failed to add source")
+      toast(err instanceof Error ? err.message : "Something went wrong", "error")
     } finally {
-      setAdding(false)
+      setAddingUrl(false)
     }
   }
 
@@ -241,13 +367,14 @@ function KBTab({ projectId }: { projectId: string }) {
     await fetch(`/api/projects/${projectId}/kb/sources/${sourceId}/retry`, {
       method: "POST",
       credentials: "include",
-    }).catch(() => {})
+    }).catch((err) => toast(err?.message ?? "Something went wrong", "error"))
     refresh()
   }
 
   async function deleteSource(sourceId: string) {
     if (!confirm("Remove this knowledge source?")) return
-    await kbApi.deleteSource(projectId, sourceId).catch(() => {})
+    await kbApi.deleteSource(projectId, sourceId).catch((err) => toast(err?.message ?? "Something went wrong", "error"))
+    toast("Source removed", "success")
     refresh()
   }
 
@@ -274,24 +401,32 @@ function KBTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <form onSubmit={addSource} className="flex flex-col gap-2">
-        <div className="flex gap-2">
-          <input
-            value={url} onChange={(e) => setUrl(e.target.value)} required
-            placeholder="https://docs.example.com or paste article URL"
-            className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]
-                       px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
-          />
-          <button
-            type="submit" disabled={adding || !url}
-            className="px-4 py-2 rounded-lg bg-black dark:bg-white text-white dark:text-black
-                       text-sm font-semibold hover:opacity-80 disabled:opacity-40 transition-opacity"
-          >
-            {adding ? "Adding…" : "Add"}
-          </button>
-        </div>
-        {addError && <p className="text-xs text-red-500">{addError}</p>}
-      </form>
+      {/* Add Source popover */}
+      <div className="relative">
+        <PopoverForm
+          title="Add Source"
+          open={urlFormOpen}
+          setOpen={(open) => {
+            setUrlFormOpen(open)
+            if (!open) setShowUrlSuccess(false)
+          }}
+          showSuccess={showUrlSuccess}
+          width="380px"
+          height="180px"
+          openChild={
+            <KBSourceFormContent
+              loading={addingUrl}
+              onSubmit={handleAddSource}
+            />
+          }
+          successChild={
+            <PopoverFormSuccess
+              title="Source Queued"
+              description="Crawling started — check status below."
+            />
+          }
+        />
+      </div>
 
       <div className="flex flex-col gap-2">
         {(data?.sources ?? []).map((s) => (
@@ -393,12 +528,14 @@ function KBTab({ projectId }: { projectId: string }) {
 
 // ── Memory tab ──────────────────────────────────────────────────────────────
 function MemoryTab({ projectId }: { projectId: string }) {
+  const { toast } = useToast()
   const { data, mutate: refreshMemory } = useSWR<MemoryData>(`/api/projects/${projectId}/memory`, fetcher)
   const [tab, setTab] = useState<"episodes" | "facts">("episodes")
 
   async function deleteEpisode(episodeId: string) {
     if (!confirm("Delete this memory episode? This cannot be undone.")) return
-    await memoryApi.deleteRun(projectId, episodeId).catch(() => {})
+    await memoryApi.deleteRun(projectId, episodeId).catch((err) => toast(err?.message ?? "Something went wrong", "error"))
+    toast("Episode deleted", "success")
     refreshMemory()
   }
 
@@ -632,7 +769,10 @@ function EditProjectForm({
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const [showTaskForm, setShowTaskForm] = useState(false)
+  const { toast } = useToast()
+  const [taskFormOpen, setTaskFormOpen] = useState(false)
+  const [showTaskSuccess, setShowTaskSuccess] = useState(false)
+  const [taskFormLoading, setTaskFormLoading] = useState(false)
   const [editMode, setEditMode] = useState(false)
 
   const { data: project, mutate: mutateProject } = useSWR<Project>(`/api/projects/${id}`, fetcher)
@@ -644,25 +784,58 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   const runningCount = taskList?.filter(t => t.status === "running").length ?? 0
 
+  async function handleCreateTask(data: { objective: string; domain: string; persona?: string }) {
+    setTaskFormLoading(true)
+    try {
+      await tasksApi.create(id, data)
+      setShowTaskSuccess(true)
+      toast("Task created and queued for research", "success")
+      refreshTasks()
+      setTimeout(() => {
+        setTaskFormOpen(false)
+        setShowTaskSuccess(false)
+      }, 2000)
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : "Something went wrong", "error")
+    } finally {
+      setTaskFormLoading(false)
+    }
+  }
+
   const tasksContent = (
     <div className="flex flex-col gap-3">
       <div className="flex justify-between items-center">
         <span className="text-xs text-[var(--muted-foreground)]">
           {(taskList ?? []).length} task{(taskList ?? []).length !== 1 ? "s" : ""}
         </span>
-        <button
-          onClick={() => setShowTaskForm(!showTaskForm)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black dark:bg-white
-                     text-white dark:text-black text-xs font-semibold hover:opacity-80 transition-opacity"
-        >
-          <Plus className="w-3.5 h-3.5" /> New Task
-        </button>
-      </div>
-      {showTaskForm && (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-          <CreateTaskForm projectId={id} onCreated={() => { refreshTasks(); setShowTaskForm(false) }} />
+        {/* PopoverForm replaces the old collapsible CreateTaskForm panel */}
+        <div className="relative">
+          <PopoverForm
+            title="New Task"
+            open={taskFormOpen}
+            setOpen={(open) => {
+              setTaskFormOpen(open)
+              if (!open) setShowTaskSuccess(false)
+            }}
+            showSuccess={showTaskSuccess}
+            width="420px"
+            height="360px"
+            openChild={
+              <TaskFormContent
+                projectId={id}
+                loading={taskFormLoading}
+                onSubmit={handleCreateTask}
+              />
+            }
+            successChild={
+              <PopoverFormSuccess
+                title="Research Started!"
+                description="Your task is being planned and will start shortly."
+              />
+            }
+          />
         </div>
-      )}
+      </div>
       {(taskList ?? []).map((t) => (
         <TaskRow
           key={t.id}
@@ -672,7 +845,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           onDelete={refreshTasks}
         />
       ))}
-      {(taskList ?? []).length === 0 && !showTaskForm && (
+      {(taskList ?? []).length === 0 && (
         <p className="text-sm text-[var(--muted-foreground)] text-center py-8">
           No tasks yet. Create one to start researching.
         </p>

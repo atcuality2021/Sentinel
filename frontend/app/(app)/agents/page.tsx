@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react"
 import useSWR from "swr"
 import { GradientHeading } from "@/components/ui/gradient-heading"
+import { TextureCard, TextureCardContent } from "@/components/ui/texture-card"
 import { agents as agentsApi, type AgentSpec } from "@/lib/api"
 import { Zap, Globe, Lock, Database, Brain, Search, FileText, Bot, Trash2 } from "lucide-react"
 
@@ -18,13 +19,6 @@ const CAPABILITY_ICONS: Record<string, React.ReactNode> = {
   public_read:       <Globe className="w-3.5 h-3.5" />,
 }
 
-const BOUNDARY_COLORS: Record<string, string> = {
-  public_only:   "border-blue-200 bg-blue-50/50 dark:bg-blue-900/10",
-  private_only:  "border-amber-200 bg-amber-50/50 dark:bg-amber-900/10",
-  both:          "border-[var(--border)] bg-[var(--card)]",
-  orchestrator:  "border-purple-200 bg-purple-50/50 dark:bg-purple-900/10",
-}
-
 const BOUNDARY_BADGE: Record<string, string> = {
   public_only:  "badge-public",
   private_only: "badge-private",
@@ -38,6 +32,14 @@ const ROLE_BADGE: Record<string, string> = {
   synthesizer:  "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
   grader:       "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
   orchestrator: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+}
+
+// TextureCard border tints per boundary type — outer className overrides
+const BOUNDARY_TEXTURE_CLS: Record<string, string> = {
+  public_only:  "border-blue-200 dark:border-blue-800/50",
+  private_only: "border-amber-200 dark:border-amber-800/50",
+  both:         "",
+  orchestrator: "border-purple-200 dark:border-purple-800/50",
 }
 
 function EvalBadge({ score }: { score: number }) {
@@ -61,10 +63,10 @@ function AgentCard({
   const [toggling, setToggling] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const borderCls = BOUNDARY_COLORS[agent.boundary ?? "both"] ?? BOUNDARY_COLORS.both
-  const badgeCls  = BOUNDARY_BADGE[agent.boundary ?? "both"]  ?? BOUNDARY_BADGE.both
-  const roleCls   = ROLE_BADGE[agent.role ?? ""] ?? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
-  const isCustom  = !agent.name.startsWith("sentinel_")
+  const textureCls = BOUNDARY_TEXTURE_CLS[agent.boundary ?? "both"] ?? ""
+  const badgeCls   = BOUNDARY_BADGE[agent.boundary ?? "both"]  ?? BOUNDARY_BADGE.both
+  const roleCls    = ROLE_BADGE[agent.role ?? ""] ?? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+  const isCustom   = !agent.name.startsWith("sentinel_")
 
   async function handleToggle(e: React.MouseEvent) {
     e.preventDefault()
@@ -84,111 +86,113 @@ function AgentCard({
   }
 
   return (
-    <div className={`group relative rounded-2xl border p-5 flex flex-col gap-3 ${borderCls} ${!agent.enabled ? "opacity-60" : ""}`}>
-      {/* Top row: icon + name + eval badge + toggle + (optional delete) */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-xl bg-black dark:bg-white flex items-center justify-center shrink-0">
-            <Bot className="w-5 h-5 text-white dark:text-black" />
+    <TextureCard className={`group relative ${textureCls} ${!agent.enabled ? "opacity-60" : ""}`}>
+      <TextureCardContent className="p-5 flex flex-col gap-3">
+        {/* Top row: icon + name + eval badge + toggle + (optional delete) */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-xl bg-black dark:bg-white flex items-center justify-center shrink-0">
+              <Bot className="w-5 h-5 text-white dark:text-black" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-sm">{agent.name}</h3>
+              {agent.model && (
+                <span className="text-xs text-[var(--muted-foreground)] font-mono">{agent.model}</span>
+              )}
+            </div>
           </div>
-          <div>
-            <h3 className="font-semibold text-sm">{agent.name}</h3>
-            {agent.model && (
-              <span className="text-xs text-[var(--muted-foreground)] font-mono">{agent.model}</span>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Eval score badge */}
+            {agent.eval_score != null && <EvalBadge score={agent.eval_score} />}
+
+            <span className={badgeCls}>{agent.boundary ?? "both"}</span>
+
+            {/* Enable / disable pill toggle */}
+            <button
+              onClick={handleToggle}
+              disabled={toggling}
+              title={agent.enabled ? "Disable agent" : "Enable agent"}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold
+                          border transition-all select-none
+                          ${agent.enabled
+                            ? "bg-green-100 border-green-300 text-green-700 dark:bg-green-900/30 dark:border-green-700 dark:text-green-300"
+                            : "bg-gray-100 border-gray-300 text-gray-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-400"}
+                          disabled:opacity-40`}
+            >
+              {agent.enabled ? "● On" : "○ Off"}
+            </button>
+
+            {/* Delete — only for custom agents */}
+            {isCustom && (
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                title="Delete agent"
+                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500
+                           hover:bg-red-50 dark:hover:bg-red-900/20 transition-all disabled:opacity-40"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Eval score badge */}
-          {agent.eval_score != null && <EvalBadge score={agent.eval_score} />}
-
-          <span className={badgeCls}>{agent.boundary ?? "both"}</span>
-
-          {/* Enable / disable pill toggle */}
-          <button
-            onClick={handleToggle}
-            disabled={toggling}
-            title={agent.enabled ? "Disable agent" : "Enable agent"}
-            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold
-                        border transition-all select-none
-                        ${agent.enabled
-                          ? "bg-green-100 border-green-300 text-green-700 dark:bg-green-900/30 dark:border-green-700 dark:text-green-300"
-                          : "bg-gray-100 border-gray-300 text-gray-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-400"}
-                        disabled:opacity-40`}
-          >
-            {agent.enabled ? "● On" : "○ Off"}
-          </button>
-
-          {/* Delete — only for custom agents */}
-          {isCustom && (
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              title="Delete agent"
-              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500
-                         hover:bg-red-50 dark:hover:bg-red-900/20 transition-all disabled:opacity-40"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Role badge */}
-      {agent.role && (
-        <div>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${roleCls}`}>
-            {agent.role}
-          </span>
-          {!agent.enabled && (
-            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold
-                             bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-              Disabled
+        {/* Role badge */}
+        {agent.role && (
+          <div>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${roleCls}`}>
+              {agent.role}
             </span>
-          )}
-        </div>
-      )}
-
-      {agent.description && (
-        <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">{agent.description}</p>
-      )}
-
-      {agent.capabilities && agent.capabilities.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-2">
-            Capabilities
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {agent.capabilities.map((cap) => (
-              <span key={cap}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg
-                           bg-[var(--muted)] text-[var(--muted-foreground)] text-xs font-medium">
-                {CAPABILITY_ICONS[cap] ?? <Zap className="w-3.5 h-3.5" />}
-                {cap.replace(/_/g, " ")}
+            {!agent.enabled && (
+              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold
+                               bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+                Disabled
               </span>
-            ))}
+            )}
           </div>
-        </div>
-      )}
+        )}
 
-      {agent.tools && agent.tools.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-2">
-            Tools
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {agent.tools.map((tool) => (
-              <code key={tool}
-                className="text-xs bg-[var(--muted)] text-[var(--muted-foreground)]
-                           px-2 py-0.5 rounded font-mono">
-                {tool}
-              </code>
-            ))}
+        {agent.description && (
+          <p className="text-xs text-[var(--muted-foreground)] leading-relaxed">{agent.description}</p>
+        )}
+
+        {agent.capabilities && agent.capabilities.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-2">
+              Capabilities
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {agent.capabilities.map((cap) => (
+                <span key={cap}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg
+                             bg-[var(--muted)] text-[var(--muted-foreground)] text-xs font-medium">
+                  {CAPABILITY_ICONS[cap] ?? <Zap className="w-3.5 h-3.5" />}
+                  {cap.replace(/_/g, " ")}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+        {agent.tools && agent.tools.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-2">
+              Tools
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {agent.tools.map((tool) => (
+                <code key={tool}
+                  className="text-xs bg-[var(--muted)] text-[var(--muted-foreground)]
+                             px-2 py-0.5 rounded font-mono">
+                  {tool}
+                </code>
+              ))}
+            </div>
+          </div>
+        )}
+      </TextureCardContent>
+    </TextureCard>
   )
 }
 

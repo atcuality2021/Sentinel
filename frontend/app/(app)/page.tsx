@@ -5,7 +5,7 @@ import useSWR from "swr"
 import Link from "next/link"
 import { AnimatedNumber } from "@/components/ui/animated-number"
 import { GradientHeading } from "@/components/ui/gradient-heading"
-import { TextureCard } from "@/components/ui/texture-card"
+import { TextureCard, TextureCardContent } from "@/components/ui/texture-card"
 import {
   type DashboardData, type RunRecord, type Project, type Artifact,
 } from "@/lib/api"
@@ -38,57 +38,58 @@ function ProjectCard({ project, runs }: { project: Project; runs: RunRecord[] })
 
   return (
     <Link href={`/projects/${project.id}`}>
-      <TextureCard className="group h-full p-4 rounded-2xl border border-[var(--border)] flex flex-col gap-3
-                              hover:border-black/20 dark:hover:border-white/20 hover:shadow-md transition-all cursor-pointer">
-        {/* Icon + name */}
-        <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 to-violet-500
-                          flex items-center justify-center text-white font-bold text-sm shrink-0">
-            {project.name.charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <p className="font-semibold text-sm truncate group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors">
-              {project.name}
-            </p>
-            {project.description && (
-              <p className="text-xs text-[var(--muted-foreground)] line-clamp-1 mt-0.5">
-                {project.description}
+      <TextureCard className="group h-full hover:shadow-md transition-all cursor-pointer">
+        <TextureCardContent className="p-4 flex flex-col gap-3">
+          {/* Icon + name */}
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 to-violet-500
+                            flex items-center justify-center text-white font-bold text-sm shrink-0">
+              {project.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-sm truncate group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors">
+                {project.name}
               </p>
+              {project.description && (
+                <p className="text-xs text-[var(--muted-foreground)] line-clamp-1 mt-0.5">
+                  {project.description}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Stats row */}
+          <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
+            <span className="flex items-center gap-1">
+              <Play className="w-3 h-3" /> {projectRuns.length} run{projectRuns.length !== 1 ? "s" : ""}
+            </span>
+            {findings > 0 && (
+              <span className="flex items-center gap-1">
+                <Globe className="w-3 h-3 text-blue-400" /> {findings} findings
+              </span>
+            )}
+            {lastRun && (
+              <span className="ml-auto flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {new Date(lastRun.created_at).toLocaleDateString()}
+              </span>
             )}
           </div>
-        </div>
 
-        {/* Stats row */}
-        <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
-          <span className="flex items-center gap-1">
-            <Play className="w-3 h-3" /> {projectRuns.length} run{projectRuns.length !== 1 ? "s" : ""}
-          </span>
-          {findings > 0 && (
-            <span className="flex items-center gap-1">
-              <Globe className="w-3 h-3 text-blue-400" /> {findings} findings
+          {/* Website pill */}
+          {project.website && (
+            <span className="self-start text-[10px] px-2 py-0.5 rounded-full bg-[var(--muted)]
+                             text-[var(--muted-foreground)] truncate max-w-full">
+              {project.website.replace(/^https?:\/\//, "")}
             </span>
           )}
-          {lastRun && (
-            <span className="ml-auto flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              {new Date(lastRun.created_at).toLocaleDateString()}
-            </span>
-          )}
-        </div>
 
-        {/* Website pill */}
-        {project.website && (
-          <span className="self-start text-[10px] px-2 py-0.5 rounded-full bg-[var(--muted)]
-                           text-[var(--muted-foreground)] truncate max-w-full">
-            {project.website.replace(/^https?:\/\//, "")}
-          </span>
-        )}
-
-        {/* Arrow */}
-        <div className="flex justify-end mt-auto">
-          <ArrowRight className="w-3.5 h-3.5 text-[var(--muted-foreground)] opacity-0
-                                  group-hover:opacity-100 transition-all" />
-        </div>
+          {/* Arrow */}
+          <div className="flex justify-end mt-auto">
+            <ArrowRight className="w-3.5 h-3.5 text-[var(--muted-foreground)] opacity-0
+                                    group-hover:opacity-100 transition-all" />
+          </div>
+        </TextureCardContent>
       </TextureCard>
     </Link>
   )
@@ -169,24 +170,25 @@ function KPITile({
   label: string; value: number; sub?: string
   icon: React.ElementType; color: string; href?: string
 }) {
-  const content = (
-    <div className={`rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5
-                     flex flex-col gap-3 ${href ? "hover:shadow-md hover:border-black/10 dark:hover:border-white/10 transition-all cursor-pointer" : ""}`}>
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-          {label}
-        </span>
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}>
-          <Icon className="w-4 h-4" />
+  const inner = (
+    <TextureCard className={`h-full ${href ? "hover:shadow-lg transition-all cursor-pointer" : ""}`}>
+      <TextureCardContent className="p-5 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+            {label}
+          </span>
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}>
+            <Icon className="w-4 h-4" />
+          </div>
         </div>
-      </div>
-      <div>
-        <AnimatedNumber value={value} className="text-3xl font-bold tabular-nums" />
-        {sub && <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{sub}</p>}
-      </div>
-    </div>
+        <div>
+          <AnimatedNumber value={value} className="text-3xl font-bold tabular-nums" />
+          {sub && <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{sub}</p>}
+        </div>
+      </TextureCardContent>
+    </TextureCard>
   )
-  return href ? <Link href={href}>{content}</Link> : content
+  return href ? <Link href={href}>{inner}</Link> : inner
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
