@@ -263,6 +263,8 @@ export interface Artifact {
   created_at: string
   project_id?: string
   task_id?: string
+  finding_texts: string[]
+  reference: string
 }
 
 export interface KBData {

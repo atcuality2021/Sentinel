@@ -761,6 +761,8 @@ async def api_list_artifacts(project: str = "") -> JSONResponse:
             "created_at": r.created_at.isoformat(),
             "project_id": r.project_id,
             "task_id": r.task_id,
+            "finding_texts": r.finding_texts or [],
+            "reference": r.reference or "",
         }
         for r in records
     ])

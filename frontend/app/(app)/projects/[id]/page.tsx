@@ -1244,8 +1244,84 @@ const DOMAIN_TYPE_COLOR: Record<string, string> = {
   self_profile:     "bg-indigo-900/50 text-indigo-300 border-indigo-800/50",
 }
 
-function ArtifactsTab({ projectId }: { projectId: string }) {
+function ArtifactCard({ a, projectId }: { a: Artifact; projectId: string }) {
   const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const domainLabel = DOMAIN_LABELS[a.type] ?? a.type
+  const domainIcon  = DOMAIN_ICONS[a.type] ?? <FileText className="w-3 h-3" />
+  const badgeCls    = DOMAIN_TYPE_COLOR[a.type] ?? "bg-gray-800 text-gray-300 border-gray-700"
+  const taskHref    = a.task_id ? `/projects/${projectId}/tasks/${a.task_id}` : null
+  const findings    = a.finding_texts ?? []
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+      {/* Header row — always visible */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 p-3 text-left hover:bg-white/5 transition-colors"
+      >
+        <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${badgeCls}`}>
+          {domainIcon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{a.target}</p>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${badgeCls}`}>
+              {domainLabel}
+            </span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)] border border-[var(--border)]">
+              {a.backend}
+            </span>
+            <span className="text-[10px] text-[var(--muted-foreground)]">
+              {new Date(a.created_at).toLocaleDateString()}
+            </span>
+            {findings.length > 0 && (
+              <span className="text-[10px] text-[var(--muted-foreground)]">
+                {findings.length} finding{findings.length !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {a.gaps > 0 && (
+            <span className="flex items-center gap-1 text-xs text-amber-400">
+              <AlertTriangle className="w-3 h-3" /> {a.gaps}
+            </span>
+          )}
+          {open ? <ChevronUp className="w-4 h-4 text-[var(--muted-foreground)]" /> : <ChevronDown className="w-4 h-4 text-[var(--muted-foreground)]" />}
+        </div>
+      </button>
+
+      {/* Expanded findings */}
+      {open && (
+        <div className="border-t border-[var(--border)] px-3 pb-3 pt-2">
+          {findings.length > 0 ? (
+            <ul className="flex flex-col gap-1.5">
+              {findings.map((f, i) => (
+                <li key={i} className="flex gap-2 text-xs text-[var(--muted-foreground)]">
+                  <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-[var(--muted-foreground)] shrink-0 opacity-60" />
+                  <span className="leading-relaxed">{f}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-[var(--muted-foreground)] italic">No findings recorded for this run.</p>
+          )}
+          {taskHref && (
+            <button
+              onClick={() => router.push(taskHref)}
+              className="mt-3 flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              <ArrowRight className="w-3 h-3" /> View full task report
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ArtifactsTab({ projectId }: { projectId: string }) {
   const { data: artifacts } = useSWR<Artifact[]>(`/api/artifacts?project=${projectId}`, fetcher)
 
   if (!artifacts) {
@@ -1268,48 +1344,9 @@ function ArtifactsTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex flex-col gap-2">
-      {artifacts.map((a) => {
-        const domainLabel = DOMAIN_LABELS[a.type] ?? a.type
-        const domainIcon  = DOMAIN_ICONS[a.type] ?? <FileText className="w-3 h-3" />
-        const badgeCls    = DOMAIN_TYPE_COLOR[a.type] ?? "bg-gray-800 text-gray-300 border-gray-700"
-        const taskHref    = a.task_id ? `/projects/${projectId}/tasks/${a.task_id}` : null
-
-        return (
-          <div
-            key={a.id}
-            onClick={() => taskHref && router.push(taskHref)}
-            className={`group flex items-center gap-3 p-3 rounded-xl border border-[var(--border)] bg-[var(--card)] transition-colors ${taskHref ? "cursor-pointer hover:border-white/20 hover:bg-white/5" : ""}`}
-          >
-            <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${badgeCls}`}>
-              {domainIcon}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{a.target}</p>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${badgeCls}`}>
-                  {domainLabel}
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)] border border-[var(--border)]">
-                  {a.backend}
-                </span>
-                <span className="text-[10px] text-[var(--muted-foreground)]">
-                  {new Date(a.created_at).toLocaleDateString()}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)] shrink-0">
-              {a.gaps > 0 && (
-                <span className="flex items-center gap-1 text-amber-400">
-                  <AlertTriangle className="w-3 h-3" /> {a.gaps} gap{a.gaps !== 1 ? "s" : ""}
-                </span>
-              )}
-              {taskHref && (
-                <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-[var(--muted-foreground)]" />
-              )}
-            </div>
-          </div>
-        )
-      })}
+      {artifacts.map((a) => (
+        <ArtifactCard key={a.id} a={a} projectId={projectId} />
+      ))}
     </div>
   )
 }
