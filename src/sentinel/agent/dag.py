@@ -1230,8 +1230,7 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
                 if _kb_on and project_id:
                     try:
                         from sentinel.kb.search import hybrid_search
-                        kb_dir = str(data_dir() / "kb")
-                        hits = hybrid_search(project_id, kb_dir, target, rerank_top_k=5)
+                        hits = hybrid_search(project_id, data_dir(), target, rerank_top_k=5)
                         if hits:
                             from sentinel.security.sandbox import validate_tool_output as _vto
                             kb_lines = []

@@ -6,8 +6,8 @@ import { GradientHeading } from "@/components/ui/gradient-heading"
 import { type Project, projects as projectsApi } from "@/lib/api"
 import { FolderOpen, Globe, Trash2, ChevronRight, Plus, Calendar } from "lucide-react"
 import Link from "next/link"
+import { fetcher } from "@/lib/fetcher"
 
-const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
 const PROJECTS_KEY = "/api/projects"
 
 function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => void }) {
@@ -171,7 +171,7 @@ export default function ProjectsPage() {
   const projectCount = (data ?? []).length
 
   return (
-    <div className="flex flex-col gap-6 max-w-6xl mx-auto">
+    <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
       <div className="flex items-end justify-between">
         <div>
           <div className="flex items-center gap-3">

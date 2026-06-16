@@ -7,8 +7,7 @@ import { GradientHeading } from "@/components/ui/gradient-heading"
 import { CodeBlock } from "@/components/ui/code-block"
 import { type Artifact } from "@/lib/api"
 import { Globe, Lock, AlertTriangle, FileText, ChevronDown, ChevronUp, Calendar, Search } from "lucide-react"
-
-const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
+import { fetcher } from "@/lib/fetcher"
 
 const TYPE_COLORS: Record<string, string> = {
   battlecard:   "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
@@ -134,7 +133,7 @@ export default function ArtifactsPage() {
   })
 
   return (
-    <div className="flex flex-col gap-6 max-w-5xl mx-auto">
+    <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
       <div>
         <GradientHeading size="md" weight="bold">Artifacts</GradientHeading>
         <p className="text-sm text-[var(--muted-foreground)] mt-1">

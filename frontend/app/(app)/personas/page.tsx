@@ -389,7 +389,7 @@ export default function PersonasPage() {
   const showForm = formMode !== null
 
   return (
-    <div className="flex flex-col gap-6 max-w-5xl mx-auto">
+    <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
       {/* heading */}
       <div className="flex items-end justify-between">
         <div>

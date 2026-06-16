@@ -14,8 +14,7 @@ import {
   Play, Download, MessageSquare, Loader2, CheckCircle2,
   XCircle, Clock, ChevronDown, ChevronUp,
 } from "lucide-react"
-
-const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
+import { fetcher } from "@/lib/fetcher"
 
 // ── Live status poller ──────────────────────────────────────────────────────
 function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string }) {

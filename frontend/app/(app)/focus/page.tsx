@@ -14,8 +14,7 @@ import {
 } from "@/components/ui/feature-voting"
 import { type FocusEntity } from "@/lib/api"
 import { Globe, Lock, Target, TrendingUp } from "lucide-react"
-
-const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
+import { fetcher } from "@/lib/fetcher"
 
 // Compute tier from run_count since the API does not return tier
 function computeTier(runCount: number): "tier1" | "tier2" | "tier3" {
@@ -58,7 +57,7 @@ export default function FocusPage() {
   )
 
   return (
-    <div className="flex flex-col gap-6 max-w-4xl mx-auto">
+    <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
       <div>
         <GradientHeading size="md" weight="bold">Focus Entities</GradientHeading>
         <p className="text-sm text-[var(--muted-foreground)] mt-1">

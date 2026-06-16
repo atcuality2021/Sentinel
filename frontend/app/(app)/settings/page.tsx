@@ -5,13 +5,11 @@ import useSWR from "swr"
 import { GradientHeading } from "@/components/ui/gradient-heading"
 import { DirectionAwareTabs } from "@/components/ui/direction-aware-tabs"
 import { type FlatSentinelConfig as SentinelConfig } from "@/lib/api"
-import {
-  Save, RotateCcw, CheckCircle2, AlertTriangle, Loader2, XCircle,
-} from "lucide-react"
+import { Save, RotateCcw, CheckCircle2, AlertTriangle, Loader2, XCircle } from "lucide-react"
+import { fetcher } from "@/lib/fetcher"
 
 const fetchSettings = (): Promise<SentinelConfig> =>
-  fetch("/api/settings", { credentials: "include" }).then((r) => r.json())
-
+  fetcher("/api/settings")
 // ── Reusable field components ────────────────────────────────────────────────
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (

@@ -65,6 +65,8 @@ export const kb = {
     request(`/api/projects/${projectId}/kb/sources/${sourceId}/delete`, { method: "POST" }),
   retrySource: (projectId: string, sourceId: string) =>
     request(`/api/projects/${projectId}/kb/sources/${sourceId}/retry`, { method: "POST" }),
+  getSourceChunks: (projectId: string, sourceId: string) =>
+    request<KBChunk[]>(`/api/projects/${projectId}/kb/sources/${sourceId}/chunks`),
   search: (projectId: string, query: string) =>
     request<KBSearchResult[]>(`/api/projects/${projectId}/kb/search?q=${encodeURIComponent(query)}`),
   chat: (projectId: string, message: string) =>
@@ -238,9 +240,12 @@ export interface RunRecord {
   target: string
   mode: string
   backend: string
+  kind: string
   public: number
   private: number
   gaps: number
+  reference: string
+  finding_texts: string[]
   created_at: string
   project_id?: string
 }
@@ -257,6 +262,7 @@ export interface Artifact {
   content?: Record<string, unknown>
   created_at: string
   project_id?: string
+  task_id?: string
 }
 
 export interface KBData {
@@ -277,6 +283,19 @@ export interface KBSearchResult {
   text: string
   source: string
   score: number
+}
+
+export interface KBChunk {
+  id: string
+  text: string
+  metadata: {
+    url?: string
+    source_id?: string
+    source_type?: string
+    title?: string
+    chunk_index?: number
+    [key: string]: unknown
+  }
 }
 
 export interface MemoryData {

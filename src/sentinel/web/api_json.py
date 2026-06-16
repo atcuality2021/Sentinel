@@ -189,7 +189,8 @@ async def api_create_task(
 ) -> JSONResponse:
     """Create a task, generate its plan, and run it in the background. Returns {task_id} immediately."""
     from sentinel.web.app import _approve_and_run, _persona_for, _cloud_allowed_for
-    from sentinel.agent.orchestrator import AgentRegistry, plan_task
+    from sentinel.agent.registry import AgentRegistry
+    from sentinel.agent.orchestrator_planner import plan_task
     from sentinel.artifacts.schemas import Task, Domain
     from sentinel.memory.schema import utcnow as _now
 
@@ -445,6 +446,16 @@ async def api_add_kb_source(
     return JSONResponse({"id": source.id, "url": crawl_url, "status": "pending"}, status_code=201)
 
 
+@router.get("/projects/{project_id}/kb/sources/{source_id}/chunks")
+async def api_get_source_chunks(project_id: str, source_id: str) -> JSONResponse:
+    try:
+        from sentinel.kb.vector_store import get_chunks_by_source
+        chunks = get_chunks_by_source(project_id, _kb_data_dir(), source_id)
+        return JSONResponse(chunks)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 @router.post("/projects/{project_id}/kb/sources/{source_id}/delete")
 async def api_delete_kb_source(project_id: str, source_id: str) -> JSONResponse:
     try:
@@ -531,8 +542,10 @@ async def api_get_memory(project_id: str) -> JSONResponse:
         "episodes": [
             {
                 "id": r.id, "entity": r.entity, "target": r.target,
-                "mode": r.mode, "backend": r.backend,
+                "mode": r.mode, "backend": r.backend, "kind": r.kind,
                 "public": r.public, "private": r.private, "gaps": r.gaps,
+                "reference": r.reference,
+                "finding_texts": r.finding_texts or [],
                 "created_at": r.created_at.isoformat(),
             }
             for r in episodes
@@ -747,6 +760,7 @@ async def api_list_artifacts(project: str = "") -> JSONResponse:
             "public_count": r.public, "private_count": r.private, "gaps": r.gaps,
             "created_at": r.created_at.isoformat(),
             "project_id": r.project_id,
+            "task_id": r.task_id,
         }
         for r in records
     ])

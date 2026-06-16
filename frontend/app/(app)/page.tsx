@@ -13,9 +13,7 @@ import {
   Clock, Globe, Lock, AlertTriangle, RefreshCw, FolderOpen,
   Play, CheckCircle2, Loader2, ArrowRight, Plus, FileText, Zap,
 } from "lucide-react"
-
-const fetcher = (url: string) =>
-  fetch(url, { credentials: "include" }).then((r) => r.json())
+import { fetcher } from "@/lib/fetcher"
 
 // ── Domain colour map ─────────────────────────────────────────────────────────
 const DOMAIN_COLORS: Record<string, string> = {
@@ -224,7 +222,7 @@ export default function DashboardPage() {
   const hasFindings = (data?.total_public_findings ?? 0) + (data?.total_private_findings ?? 0) > 0
 
   return (
-    <div className="flex flex-col gap-8 max-w-6xl mx-auto">
+    <div className="flex flex-col gap-8 max-w-7xl mx-auto w-full">
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>

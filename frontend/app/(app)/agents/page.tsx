@@ -6,8 +6,7 @@ import { GradientHeading } from "@/components/ui/gradient-heading"
 import { TextureCard, TextureCardContent } from "@/components/ui/texture-card"
 import { agents as agentsApi, type AgentSpec } from "@/lib/api"
 import { Zap, Globe, Lock, Database, Brain, Search, FileText, Bot, Trash2 } from "lucide-react"
-
-const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json())
+import { fetcher } from "@/lib/fetcher"
 
 const CAPABILITY_ICONS: Record<string, React.ReactNode> = {
   web_search:        <Search className="w-3.5 h-3.5" />,
@@ -215,7 +214,7 @@ export default function AgentsPage() {
   }, [agentList, boundaryFilter])
 
   return (
-    <div className="flex flex-col gap-6 max-w-5xl mx-auto">
+    <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
       <div>
         <GradientHeading size="md" weight="bold">Agent Roster</GradientHeading>
         <p className="text-sm text-[var(--muted-foreground)] mt-1">

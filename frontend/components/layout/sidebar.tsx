@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { useTheme } from "@/lib/theme"
 import {
   LayoutDashboard,
   FolderOpen,
@@ -12,6 +13,8 @@ import {
   Settings,
   Zap,
   Shield,
+  Sun,
+  Moon,
 } from "lucide-react"
 
 const NAV = [
@@ -26,6 +29,7 @@ const NAV = [
 
 export function Sidebar() {
   const path = usePathname()
+  const { theme, toggle } = useTheme()
 
   return (
     <aside className="fixed left-0 top-0 h-full w-16 z-40 flex flex-col items-center py-4 gap-1
@@ -51,7 +55,6 @@ export function Sidebar() {
             )}
           >
             <Icon className="w-4 h-4" />
-            {/* Tooltip */}
             <span className="pointer-events-none absolute left-14 whitespace-nowrap
                              rounded-md bg-black dark:bg-white text-white dark:text-black
                              px-2 py-1 text-xs font-medium opacity-0 group-hover:opacity-100
@@ -61,6 +64,24 @@ export function Sidebar() {
           </Link>
         )
       })}
+
+      {/* Theme toggle — pinned to bottom */}
+      <div className="mt-auto">
+        <button
+          onClick={toggle}
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          className="group relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-150
+                     text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+        >
+          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          <span className="pointer-events-none absolute left-14 whitespace-nowrap
+                           rounded-md bg-black dark:bg-white text-white dark:text-black
+                           px-2 py-1 text-xs font-medium opacity-0 group-hover:opacity-100
+                           transition-opacity shadow-lg z-50">
+            {theme === "dark" ? "Light mode" : "Dark mode"}
+          </span>
+        </button>
+      </div>
     </aside>
   )
 }

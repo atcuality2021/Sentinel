@@ -328,6 +328,7 @@ _RUN_MIGRATIONS = (
     ("sources", "TEXT NOT NULL DEFAULT '[]'"),
     ("run_seq", "INTEGER NOT NULL DEFAULT 0"),
     ("project_id", "TEXT"),
+    ("task_id", "TEXT"),
 )
 _MEMORY_MIGRATIONS = (
     ("project_id", "TEXT"),
@@ -420,6 +421,7 @@ def _row_to_run(r: sqlite3.Row) -> RunRecord:
         sources=json.loads(r["sources"] or "[]"),
         run_seq=r["run_seq"] or 0,
         project_id=_opt_col(r, "project_id"),
+        task_id=_opt_col(r, "task_id"),
         created_at=r["created_at"],
     )
 
@@ -986,8 +988,8 @@ class RunStore:
             conn.execute(
                 "INSERT OR REPLACE INTO run_records "
                 "(id, entity, target, mode, backend, kind, public, private, gaps, reference, "
-                " finding_texts, sources, run_seq, project_id, created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " finding_texts, sources, run_seq, project_id, task_id, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     rec.id,
                     rec.entity,
@@ -1003,6 +1005,7 @@ class RunStore:
                     json.dumps([s.model_dump() for s in rec.sources]),
                     rec.run_seq,
                     rec.project_id,
+                    rec.task_id,
                     rec.created_at.isoformat(),
                 ),
             )

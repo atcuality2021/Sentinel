@@ -1417,6 +1417,7 @@ def _persist_run(task, result, backend: str) -> None:
         kind=task.domain.name, public=public, private=private, gaps=len(result.missing_inputs),
         reference=", ".join(result.artifacts), sources=list(result.citations),
         project_id=task.project_id,
+        task_id=task.id,
         finding_texts=_extract_finding_texts(result),
     )
     RunStore().save(rec)
@@ -1798,6 +1799,8 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
         policy = _run_policy(cloud_allowed)
         if backend:
             policy["backend"] = backend
+        from sentinel.agent.governance import effective_search_provider as _esp
+        policy["search_provider"] = _esp(get_config(), allow_cloud=cloud_allowed, backend=policy["backend"])
         outcome = await gate_proposal(
             proposal, autonomy=proj.settings.autonomy, seeds=_plan_seeds(task, proposal.plan, proj),
             cfg=get_config(), cloud_allowed=cloud_allowed, trace=trace, **policy,
@@ -1945,6 +1948,11 @@ async def _execute_run(task, plan, proj, override_backend: str) -> None:
             policy["vllm_model"] = "gemma-4-27b-it"
         elif override_backend in ("gemini", "vllm") and (cloud_allowed or override_backend != "gemini"):
             policy["backend"] = override_backend
+        # Re-derive search_provider now that backend is finalised — the initial _run_policy call used
+        # the config default (vllm), so google_search would never be attached even when the user
+        # picked gemini. Re-computing here ensures the search provider matches the resolved backend.
+        from sentinel.agent.governance import effective_search_provider as _esp
+        policy["search_provider"] = _esp(get_config(), allow_cloud=cloud_allowed, backend=policy["backend"])
         entry["backend"] = policy["backend"]   # resolved truth — the timeline labels models off this
         outcome = await gate_proposal(
             proposal, autonomy="autonomous", seeds=_plan_seeds(task, plan, proj),
@@ -2287,6 +2295,8 @@ async def run(
         policy = _run_policy(cloud_allowed)
         if backend:
             policy["backend"] = backend
+        from sentinel.agent.governance import effective_search_provider as _esp
+        policy["search_provider"] = _esp(get_config(), allow_cloud=cloud_allowed, backend=policy["backend"])
         trace: list[str] = []
         try:
             outcome = await gate_proposal(

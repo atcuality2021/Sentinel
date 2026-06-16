@@ -15,17 +15,19 @@ export default function LoginPage() {
     setLoading(true)
     setError("")
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/login`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({ password }),
-        }
-      )
-      if (res.ok || res.redirected) {
+      const res = await fetch("/auth/login", {
+        method: "POST",
+        credentials: "include",
+        redirect: "manual",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ password }),
+      })
+      // Backend responds 303 on success, 200 on error (wrong password page)
+      if (res.status === 303 || res.type === "opaqueredirect") {
         router.push("/")
+      } else if (res.ok) {
+        // Backend returned the login page again — wrong password
+        setError("Invalid password. Try again.")
       } else {
         setError("Invalid password. Try again.")
       }

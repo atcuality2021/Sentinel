@@ -63,6 +63,31 @@ def query_chunks(
     ]
 
 
+def get_chunks_by_source(
+    project_id: str,
+    data_dir: Path,
+    source_id: str,
+    limit: int = 50,
+) -> list[dict]:
+    """Return all chunks for a specific source (no embedding required)."""
+    col = _collection(project_id, data_dir)
+    if col.count() == 0:
+        return []
+    result = col.get(
+        where={"source_id": {"$eq": source_id}},
+        include=["documents", "metadatas"],
+        limit=limit,
+    )
+    return [
+        {
+            "id": result["ids"][i],
+            "text": result["documents"][i],
+            "metadata": result["metadatas"][i],
+        }
+        for i in range(len(result["ids"]))
+    ]
+
+
 def delete_project_collection(project_id: str, data_dir: Path) -> None:
     client = chromadb.PersistentClient(
         path=str(data_dir / "kb_chroma"),

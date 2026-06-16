@@ -144,6 +144,7 @@ class RunRecord(BaseModel):
     # Project scoping key (SENTINEL-012 / ADR-0003). Runs are episodic, so this is a real filter
     # key (the dashboard reads scope by it). None for legacy/unscoped runs.
     project_id: str | None = None
+    task_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
     @model_validator(mode="after")
