@@ -1349,13 +1349,37 @@ async def run_dag(plan: Plan, **kwargs) -> Result:
 def _mine_urls_from_artifact(art: dict) -> list[Source]:
     """Fallback citation extraction when the model leaves sources: [] empty.
 
-    Walks known URL-bearing sub-fields (products_found[].source_url,
-    department_mappings[].url, any top-level 'url' string) and constructs
-    Source objects from them. Relies on simple str fields the 26B model
-    fills reliably, unlike the list[Source] structured field it skips."""
+    Walks known URL-bearing sub-fields and constructs Source objects from them:
+    - Finding-shaped items in any list: {"text":…, "source":{"boundary":…,"label":…,"url":…}}
+      covers Battlecard (strengths/weaknesses/pricing_signals/recent_developments),
+      AccountBrief (public_signal/private_signal), SoftwareBrief, FinancialProfile, etc.
+    - ProductResearch: products_found[].source_url (flat shape)
+    - action_plan[].url
+    - Any top-level string that is a bare URL"""
     found: list[Source] = []
 
-    # ProductResearch: products_found[].{name, source_url}
+    # Finding-shaped items: {"text": "...", "source": {"boundary": "...", "label": "...", "url": "..."}}
+    # This is the serialised form of every domain artifact's list[Finding] fields.
+    for _k, v in art.items():
+        if not isinstance(v, list):
+            continue
+        for item in v:
+            if not isinstance(item, dict):
+                continue
+            src = item.get("source")
+            if not isinstance(src, dict):
+                continue
+            url = (src.get("url") or "").strip()
+            if url and url.startswith("http"):
+                raw_boundary = src.get("boundary", "public")
+                boundary = raw_boundary if raw_boundary in ("public", "private") else "public"
+                found.append(Source(
+                    boundary=boundary,
+                    label=src.get("label") or item.get("text", "")[:80] or _k,
+                    url=url,
+                ))
+
+    # ProductResearch: products_found[].{name, source_url} (flat shape, no nested source dict)
     for p in (art.get("products_found") or []):
         if not isinstance(p, dict):
             continue
@@ -1367,7 +1391,7 @@ def _mine_urls_from_artifact(art: dict) -> list[Source]:
                 url=url,
             ))
 
-    # GovernmentProposal: no per-dept URLs from model, but check action_plan items
+    # GovernmentProposal: action_plan[].url
     for a in (art.get("action_plan") or []):
         if not isinstance(a, dict):
             continue
@@ -1375,7 +1399,7 @@ def _mine_urls_from_artifact(art: dict) -> list[Source]:
         if url and url.startswith("http"):
             found.append(Source(boundary="public", label=a.get("action", "Reference"), url=url))
 
-    # Generic: any top-level string field that looks like a URL
+    # Generic: any top-level string field that is a bare URL
     for _k, v in art.items():
         if isinstance(v, str) and v.startswith("http") and " " not in v and len(v) < 300:
             found.append(Source(boundary="public", label=_k, url=v))
