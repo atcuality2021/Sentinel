@@ -236,8 +236,8 @@ export interface RunRecord {
   id: string
   entity: string
   target: string
-  mode: "competitor" | "client"
-  backend: "gemini" | "vllm"
+  mode: string
+  backend: string
   public: number
   private: number
   gaps: number
