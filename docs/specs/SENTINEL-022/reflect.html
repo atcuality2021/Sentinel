@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SENTINEL-022 — Reflect</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1.5rem; color: #111; }
+    h1 { font-size: 1.4rem; border-bottom: 2px solid #111; padding-bottom: .5rem; }
+    h2 { font-size: 1.05rem; margin-top: 2rem; }
+    table { border-collapse: collapse; width: 100%; font-size: .9rem; margin: .75rem 0; }
+    td, th { border: 1px solid #ccc; padding: .4rem .7rem; text-align: left; }
+    th { background: #f5f5f5; }
+    code { background: #f5f5f5; padding: .1em .35em; border-radius: 3px; font-size: .88em; }
+    .pass { color: #16a34a; font-weight: 600; }
+    .skip { color: #9333ea; font-weight: 600; }
+    .note { background: #fefce8; border-left: 3px solid #ca8a04; padding: .5rem .75rem; font-size: .9rem; margin: 1rem 0; }
+  </style>
+</head>
+<body>
+
+<h1>SENTINEL-022 Reflect — Shopping-Search Price Discovery</h1>
+<p>Completed: 2026-06-16 &nbsp;|&nbsp; Author: harish@atcuality.com &nbsp;|&nbsp; Branch: <code>feature/SENTINEL-022-shopping-search</code></p>
+
+<h2>AC Gate Summary</h2>
+<table>
+  <thead><tr><th>AC</th><th>Description</th><th>Status</th><th>Evidence</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>AC1</td>
+      <td>Collision guard — no built-in <code>google_search</code> when MCP toolsets attached</td>
+      <td class="pass">PASS</td>
+      <td><code>test_search_provider_collision.py</code> (3 tests)</td>
+    </tr>
+    <tr>
+      <td>AC2</td>
+      <td><code>product_research.public_research</code> prompt names shopping tools explicitly</td>
+      <td class="pass">PASS</td>
+      <td><code>test_product_research_prompt.py</code> (2 tests)</td>
+    </tr>
+    <tr>
+      <td>AC3</td>
+      <td>Deterministic cascade: structured shopping → SERP fallback on thin results</td>
+      <td class="pass">PASS</td>
+      <td><code>test_shopping_cascade.py</code> (6 tests) + <code>test_shopping_client.py</code> (6 tests)</td>
+    </tr>
+    <tr>
+      <td>AC4</td>
+      <td>ToolPreferenceStore records winning tool per query class; prefers it next run</td>
+      <td class="pass">PASS</td>
+      <td><code>test_tool_preference_store.py</code> (6 tests)</td>
+    </tr>
+    <tr>
+      <td>AC5</td>
+      <td>Live run yields <code>products_found ≥ 5</code> with <code>price + source_url + seller</code></td>
+      <td class="pass">PASS (live)</td>
+      <td>Verified at commit <code>5a51c1a</code> — query: "best laptop under 80000 INR 16GB RAM RTX graphics for video editing"; <code>status=success</code>, <code>tool=google_shopping_search</code>, ≥5 priced listings with <code>source_url</code> + <code>seller</code> returned; ToolPreferenceStore updated <code>product_research:shopping → google_shopping_search</code></td>
+    </tr>
+    <tr>
+      <td>AC6</td>
+      <td>Sovereign posture preserved; <code>cloud_allowed=False</code> path unaffected</td>
+      <td class="pass">PASS</td>
+      <td><code>test_search_provider_collision.py::test_sovereign_path_no_shopping_tools</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Test Count</h2>
+<table>
+  <thead><tr><th>File</th><th>Tests</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td><code>test_tool_preference_store.py</code></td><td>6</td><td class="pass">6 pass</td></tr>
+    <tr><td><code>test_shopping_cascade.py</code></td><td>6</td><td class="pass">6 pass</td></tr>
+    <tr><td><code>test_shopping_client.py</code></td><td>6</td><td class="pass">6 pass</td></tr>
+    <tr><td><code>test_search_provider_collision.py</code></td><td>3</td><td class="pass">3 pass</td></tr>
+    <tr><td><code>test_product_research_prompt.py</code></td><td>2</td><td class="pass">2 pass</td></tr>
+    <tr><td><code>test_e2e_product_research.py</code></td><td>2</td><td class="skip">2 skip (offline) / PASS live</td></tr>
+    <tr><td><strong>Total (offline)</strong></td><td><strong>25</strong></td><td class="pass"><strong>23 pass, 2 skip</strong></td></tr>
+    <tr><td><strong>Full suite with branch</strong></td><td><strong>884</strong></td><td class="pass"><strong>882 pass, 2 skip-offline</strong></td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <strong>Live proof (AC5):</strong> Commit <code>5a51c1a</code> records the live SearchAPI MCP result. Query class <code>product_research:shopping</code> → <code>google_shopping_search</code> won the cascade on first run. <code>ToolPreferenceStore</code> persisted this. Second live run (gaming laptop query) hit the preferred leg directly (no cascade trial). Both verified on 2026-06-14.
+</div>
+
+<h2>What Went Well</h2>
+<ul>
+  <li>Bottom-up build order (Step 1 leaf → Step 7 live) kept each step independently testable. The cascade passed unit tests before it was ever wired into <code>product_research</code>.</li>
+  <li>The collision guard (AC1) was the highest-risk change — touching the shared <code>agent_spec.py</code> branch. Isolated to a <code>cloud_allowed</code> guard that is already present, so no new always-on surface was introduced.</li>
+  <li><code>ToolPreferenceStore</code> uses SQLite (same DB, different table) — zero new infra dependency. Fail-soft on corrupt DB means a bad preferences row never crashes a research run.</li>
+</ul>
+
+<h2>What to Watch</h2>
+<ul>
+  <li><strong>Pinned-mode collision (TD-SENTINEL-022):</strong> AC1 guard applies to cloud/auto-select modes only. If a future mode pins a provider <em>and</em> attaches function toolsets, the <code>google_search</code> collision could resurface. Scoped to a tech-debt note; no user-facing risk today.</li>
+  <li><strong>SearchAPI quota:</strong> <code>google_shopping_search</code> consumes SearchAPI credits per call. High-frequency product research (e.g., batch deal-finder) should rate-limit. Not in scope for this task.</li>
+  <li><strong>Thin-result heuristic:</strong> <code>shopping_results_thin()</code> uses a threshold of &lt;3 priced results. If SearchAPI degrades (partial response), the cascade falls back to SERP and the ToolPreferenceStore records SERP as the winner — degrading future runs. A minimum-confidence score on the preference record would prevent this regression.</li>
+</ul>
+
+<h2>Files Changed (SENTINEL-022 only)</h2>
+<table>
+  <thead><tr><th>File</th><th>Change</th></tr></thead>
+  <tbody>
+    <tr><td><code>src/sentinel/memory/store.py</code></td><td>+<code>ToolPreferenceStore</code> class, <code>tool_preference</code> table migration</td></tr>
+    <tr><td><code>src/sentinel/tools/shopping_cascade.py</code></td><td>New — <code>shopping_results_thin()</code>, <code>classify_query_class()</code>, cascade policy</td></tr>
+    <tr><td><code>src/sentinel/tools/shopping_client.py</code></td><td>New — programmatic SearchAPI MCP client, result normalizer</td></tr>
+    <tr><td><code>src/sentinel/agent/modes/spec.py</code></td><td>+<code>find_deals</code> cascade, <code>_build_product_deal_tool()</code>, AC1 collision guard</td></tr>
+    <tr><td><code>src/sentinel/agent/prompts/product_research.py</code></td><td>Shopping-first prompt update (AC2)</td></tr>
+    <tr><td><code>tests/test_tool_preference_store.py</code></td><td>New (Step 1 tests)</td></tr>
+    <tr><td><code>tests/test_shopping_cascade.py</code></td><td>New (Steps 2+4 tests)</td></tr>
+    <tr><td><code>tests/test_shopping_client.py</code></td><td>New (Step 3 tests)</td></tr>
+    <tr><td><code>tests/test_search_provider_collision.py</code></td><td>New (Steps 5+6 tests)</td></tr>
+    <tr><td><code>tests/test_product_research_prompt.py</code></td><td>New (Step 6 tests)</td></tr>
+    <tr><td><code>tests/test_e2e_product_research.py</code></td><td>New (Step 7 live proof, skip-guarded)</td></tr>
+  </tbody>
+</table>
+
+</body>
+</html>
