@@ -24,14 +24,28 @@ function fmtLabel(key: string) {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+// Case-insensitive prefix strip so "research_dept_..." and "RESEARCH_DEPT_..." both work
 function cleanArtType(type: string): string {
   return (
     type
-      .replace(/^(RESEARCH_DEPT_|GOVT_DEPT_|DEPT_|RESEARCH_|GOVT_)/, "")
+      .replace(/^(research_dept_|govt_dept_|dept_|research_|govt_)/i, "")
       .replace(/_/g, " ")
       .replace(/\b\w/g, (c) => c.toUpperCase())
       .trim() || "Report"
   )
+}
+
+// Pull the real entity name from artifact content (dept, entity, etc.)
+// rather than using art.target which is usually the task objective
+function getArtTitle(art: ArtifactData): string {
+  const c = art.content
+  for (const f of ["department", "dept", "department_name", "entity_name", "entity", "name", "title"]) {
+    const v = c[f]
+    if (typeof v === "string" && v.length > 2 && v.length < 120) return v
+  }
+  const cleaned = cleanArtType(art.type)
+  if (cleaned !== "Report") return cleaned
+  return art.target.length > 80 ? art.target.slice(0, 78) + "…" : art.target
 }
 
 function extractSummary(art: ArtifactData): { brief?: string; insights: string[] } {
@@ -78,11 +92,7 @@ function InlineMd({ text }: { text: string }) {
         if (p.startsWith("*") && p.endsWith("*"))
           return <em key={i}>{p.slice(1, -1)}</em>
         if (p.startsWith("`") && p.endsWith("`"))
-          return (
-            <code key={i} className="text-[11px] bg-neutral-700 px-1 rounded font-mono">
-              {p.slice(1, -1)}
-            </code>
-          )
+          return <code key={i} className="text-[11px] bg-neutral-700 px-1 rounded font-mono">{p.slice(1, -1)}</code>
         return <span key={i}>{p}</span>
       })}
     </>
@@ -96,7 +106,7 @@ function MdMessage({ text }: { text: string }) {
         const lines = block.split("\n").filter(Boolean)
         if (!lines.length) return null
         const first = lines[0].trim()
-        if (/^\d+\./.test(first)) {
+        if (/^\d+\./.test(first))
           return (
             <ol key={i} className="list-decimal pl-5 space-y-0.5">
               {lines.map((l, j) => (
@@ -106,8 +116,7 @@ function MdMessage({ text }: { text: string }) {
               ))}
             </ol>
           )
-        }
-        if (/^[-*•]/.test(first)) {
+        if (/^[-*•]/.test(first))
           return (
             <ul key={i} className="list-disc pl-5 space-y-0.5">
               {lines.map((l, j) => (
@@ -117,7 +126,6 @@ function MdMessage({ text }: { text: string }) {
               ))}
             </ul>
           )
-        }
         return (
           <p key={i} className="text-sm leading-relaxed">
             <InlineMd text={block} />
@@ -128,7 +136,7 @@ function MdMessage({ text }: { text: string }) {
   )
 }
 
-// ── Artifact content renderers ────────────────────────────────────────────────
+// ── Content renderers ─────────────────────────────────────────────────────────
 
 function ArtifactItem({ item }: { item: unknown }) {
   if (typeof item === "string") return <span>{item}</span>
@@ -139,9 +147,7 @@ function ArtifactItem({ item }: { item: unknown }) {
     if (url)
       return (
         <a href={url} target="_blank" rel="noopener noreferrer"
-           className="text-blue-400 hover:underline break-all">
-          {label}
-        </a>
+           className="text-blue-400 hover:underline break-all">{label}</a>
       )
     return <span>{label}</span>
   }
@@ -178,7 +184,7 @@ function CollapsibleList({ items }: { items: unknown[] }) {
 
 function LongText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false)
-  const isLong = text.length > 250
+  const isLong = text.length > 280
   return (
     <div>
       <p className={`text-sm leading-relaxed ${isLong && !expanded ? "line-clamp-4" : ""}`}>{text}</p>
@@ -190,6 +196,90 @@ function LongText({ text }: { text: string }) {
             ? <><ChevronUp className="w-3 h-3" /> Show less</>
             : <><ChevronDown className="w-3 h-3" /> Show more</>}
         </button>
+      )}
+    </div>
+  )
+}
+
+// ── Accordion card for Reports tab ────────────────────────────────────────────
+
+function ArtifactAccordion({ art, defaultOpen }: { art: ArtifactData; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen ?? false)
+  const title = getArtTitle(art)
+  const typeLabel = cleanArtType(art.type)
+
+  const contentEntries = Object.entries(art.content).filter(([k, v]) => {
+    if (k.startsWith("_")) return false
+    if (v === null || v === undefined || v === "") return false
+    if (Array.isArray(v) && v.length === 0) return false
+    return true
+  })
+
+  return (
+    <div className={`rounded-2xl border transition-colors ${
+      open ? "border-violet-500/30 bg-[var(--card)]" : "border-[var(--border)] bg-[var(--card)]"
+    }`}>
+      {/* Header — always visible */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left
+                   hover:bg-[var(--muted)] rounded-2xl transition-colors">
+        <div className="min-w-0 flex-1">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)]">
+            {typeLabel}
+          </span>
+          <p className="text-sm font-semibold mt-0.5 truncate">{title}</p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          {art.public_count > 0 && (
+            <span className="flex items-center gap-1 text-xs text-blue-400">
+              <Globe className="w-3 h-3" /> {art.public_count}
+            </span>
+          )}
+          {art.private_count > 0 && (
+            <span className="flex items-center gap-1 text-xs text-amber-400">
+              <Lock className="w-3 h-3" /> {art.private_count}
+            </span>
+          )}
+          {art.gaps > 0 && (
+            <span className="flex items-center gap-1 text-xs text-red-400">
+              <AlertTriangle className="w-3 h-3" /> {art.gaps}
+            </span>
+          )}
+          <span className="text-[11px] text-[var(--muted-foreground)]">
+            {contentEntries.length} section{contentEntries.length !== 1 ? "s" : ""}
+          </span>
+          {open
+            ? <ChevronUp className="w-4 h-4 text-[var(--muted-foreground)]" />
+            : <ChevronDown className="w-4 h-4 text-[var(--muted-foreground)]" />}
+        </div>
+      </button>
+
+      {/* Expanded content */}
+      {open && (
+        <>
+          <div className="h-px bg-[var(--border)] mx-5" />
+          <div className="p-5 flex flex-col gap-5">
+            {contentEntries.map(([key, val]) => (
+              <div key={key}>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-2">
+                  {fmtLabel(key)}
+                </p>
+                {Array.isArray(val) ? (
+                  <CollapsibleList items={val as unknown[]} />
+                ) : typeof val === "object" ? (
+                  <pre className="text-xs text-[var(--muted-foreground)] whitespace-pre-wrap bg-[var(--muted)] rounded-xl p-3 overflow-auto border border-[var(--border)]">
+                    {JSON.stringify(val, null, 2)}
+                  </pre>
+                ) : typeof val === "string" && val.length > 280 ? (
+                  <LongText text={val} />
+                ) : (
+                  <p className="text-sm leading-relaxed">{String(val)}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   )
@@ -269,7 +359,6 @@ function ResultPanel({ task }: { task: Task }) {
   const result = task.result
   if (!result) return null
 
-  // Use the last artifact (often the synthesis) for the brief
   const synthArt =
     result.artifacts.find((a) => /synthesis|overview|executive/i.test(a.type)) ??
     (result.artifacts.length > 0 ? result.artifacts[result.artifacts.length - 1] : null)
@@ -302,7 +391,6 @@ function ResultPanel({ task }: { task: Task }) {
     await tasksApi.feedback(task.project_id, task.id, signal).catch(() => {})
   }
 
-  // ── Inline chat ─────────────────────────────────────────────────────────────
   const SUGGESTIONS = [
     "What was the most important finding?",
     "Summarise the key risks",
@@ -310,6 +398,7 @@ function ResultPanel({ task }: { task: Task }) {
     "List the main sources used",
   ]
 
+  // ── Inline chat ─────────────────────────────────────────────────────────────
   const inlineChat = (
     <div className="rounded-2xl border border-neutral-800 bg-neutral-950 overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-neutral-800">
@@ -318,7 +407,7 @@ function ResultPanel({ task }: { task: Task }) {
       </div>
 
       {chatHistory.length > 0 && (
-        <div className="px-4 py-4 flex flex-col gap-3 max-h-72 overflow-y-auto">
+        <div className="px-4 py-4 flex flex-col gap-3 max-h-80 overflow-y-auto">
           {chatHistory.map((m, i) => (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className={`px-4 py-2.5 rounded-2xl max-w-[85%] leading-relaxed
@@ -380,95 +469,104 @@ function ResultPanel({ task }: { task: Task }) {
     </div>
   )
 
-  // ── Overview tab ─────────────────────────────────────────────────────────────
+  // ── Overview tab — 2-column layout ────────────────────────────────────────────
   const overviewContent = (
     <div className="flex flex-col gap-5">
-      {brief && (
-        <TextureCard className="p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <FileText className="w-3.5 h-3.5 text-violet-400" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)]">
-              Research Brief
-            </span>
-          </div>
-          <p className="text-sm leading-relaxed">{brief}</p>
-        </TextureCard>
-      )}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-5 items-start">
+        {/* Left: brief + insights */}
+        <div className="flex flex-col gap-4">
+          {brief && (
+            <TextureCard className="p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <FileText className="w-3.5 h-3.5 text-violet-400" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)]">
+                  Research Brief
+                </span>
+              </div>
+              <p className="text-sm leading-relaxed">{brief}</p>
+            </TextureCard>
+          )}
 
-      {insights.length > 0 && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)]">
-              Key Insights
-            </span>
-          </div>
-          <ul className="flex flex-col gap-2.5">
-            {insights.map((pt, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-sm leading-relaxed">
-                <span className="text-violet-400 shrink-0 text-xs mt-0.5">◆</span>
-                <span>{pt}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+          {insights.length > 0 && (
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)]">
+                  Key Insights
+                </span>
+              </div>
+              <ul className="flex flex-col gap-2.5">
+                {insights.map((pt, i) => (
+                  <li key={i} className="flex items-start gap-2.5 text-sm leading-relaxed">
+                    <span className="text-violet-400 shrink-0 text-xs mt-0.5">◆</span>
+                    <span>{pt}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-      {!brief && insights.length === 0 && (
-        <TextureCard className="p-5">
-          <p className="text-sm text-[var(--muted-foreground)]">
-            Research complete —{" "}
-            <span className="font-semibold text-[var(--foreground)]">{result.artifacts.length}</span>{" "}
-            report{result.artifacts.length !== 1 ? "s" : ""} generated. Open the{" "}
-            <span className="font-semibold text-[var(--foreground)]">Reports</span> tab for full findings.
-          </p>
-        </TextureCard>
-      )}
-
-      {result.artifacts.length > 0 && (
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-2.5">
-            Reports Generated ({result.artifacts.length})
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {result.artifacts.map((a, i) => (
-              <span
-                key={i}
-                className="text-xs px-2.5 py-1 rounded-full border border-[var(--border)]
-                           bg-[var(--card)] text-[var(--foreground)] font-medium">
-                {a.target}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {result.grade && (
-        <div className={`rounded-2xl border p-4 ${result.grade.passed
-          ? "border-green-500/30 bg-green-900/10"
-          : "border-red-500/30 bg-red-900/10"}`}>
-          <div className="flex items-center gap-2">
-            {result.grade.passed
-              ? <CheckCircle2 className="w-4 h-4 text-green-400" />
-              : <XCircle className="w-4 h-4 text-red-400" />}
-            <span className="text-sm font-semibold">
-              Quality check {result.grade.passed ? "passed" : "failed"}
-              {result.grade.score !== undefined && ` · ${result.grade.score}/5`}
-            </span>
-          </div>
-          {result.grade.hard_failures.length > 0 && (
-            <ul className="mt-2 flex flex-col gap-1">
-              {result.grade.hard_failures.map((f, i) => (
-                <li key={i} className="text-xs text-red-400">· {f}</li>
-              ))}
-            </ul>
+          {!brief && insights.length === 0 && (
+            <TextureCard className="p-5">
+              <p className="text-sm text-[var(--muted-foreground)]">
+                Research complete —{" "}
+                <span className="font-semibold text-[var(--foreground)]">{result.artifacts.length}</span>{" "}
+                report{result.artifacts.length !== 1 ? "s" : ""} generated. See the{" "}
+                <span className="font-semibold text-[var(--foreground)]">Reports</span> tab.
+              </p>
+            </TextureCard>
           )}
         </div>
-      )}
+
+        {/* Right: reports list + grade */}
+        <div className="flex flex-col gap-4">
+          {result.artifacts.length > 0 && (
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-3">
+                Reports ({result.artifacts.length})
+              </p>
+              <ul className="flex flex-col gap-2">
+                {result.artifacts.map((a, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm">
+                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0 mt-1.5" />
+                    <div className="min-w-0">
+                      <p className="font-medium leading-snug truncate">{getArtTitle(a)}</p>
+                      <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{cleanArtType(a.type)}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {result.grade && (
+            <div className={`rounded-2xl border p-4 ${result.grade.passed
+              ? "border-green-500/30 bg-green-900/10"
+              : "border-red-500/30 bg-red-900/10"}`}>
+              <div className="flex items-center gap-2">
+                {result.grade.passed
+                  ? <CheckCircle2 className="w-4 h-4 text-green-400" />
+                  : <XCircle className="w-4 h-4 text-red-400" />}
+                <span className="text-sm font-semibold">
+                  Quality {result.grade.passed ? "passed" : "failed"}
+                  {result.grade.score !== undefined && ` · ${result.grade.score}/5`}
+                </span>
+              </div>
+              {result.grade.hard_failures.length > 0 && (
+                <ul className="mt-2 flex flex-col gap-1">
+                  {result.grade.hard_failures.map((f, i) => (
+                    <li key={i} className="text-xs text-red-400">· {f}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {inlineChat}
 
-      <div className="flex items-center gap-2 pt-1">
+      <div className="flex items-center gap-2">
         <span className="text-xs text-[var(--muted-foreground)]">Helpful?</span>
         <button
           onClick={() => sendFeedback(1)}
@@ -488,64 +586,11 @@ function ResultPanel({ task }: { task: Task }) {
     </div>
   )
 
-  // ── Reports tab ──────────────────────────────────────────────────────────────
+  // ── Reports tab — accordion, all collapsed by default ────────────────────────
   const reportsContent = (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-3">
       {result.artifacts.map((art, i) => (
-        <TextureCard key={i} className="p-6">
-          <div className="flex items-start justify-between gap-3 mb-4">
-            <div className="min-w-0">
-              <span className="inline-block text-[10px] font-bold uppercase tracking-widest
-                               text-[var(--muted-foreground)] bg-[var(--muted)] px-2 py-0.5 rounded-full mb-2">
-                {cleanArtType(art.type)}
-              </span>
-              <h3 className="text-base font-semibold leading-snug">{art.target}</h3>
-            </div>
-            <div className="flex items-center gap-3 text-xs shrink-0 mt-1">
-              {art.public_count > 0 && (
-                <span className="flex items-center gap-1 text-blue-400">
-                  <Globe className="w-3 h-3" /> {art.public_count}
-                </span>
-              )}
-              {art.private_count > 0 && (
-                <span className="flex items-center gap-1 text-amber-400">
-                  <Lock className="w-3 h-3" /> {art.private_count}
-                </span>
-              )}
-              {art.gaps > 0 && (
-                <span className="flex items-center gap-1 text-red-400">
-                  <AlertTriangle className="w-3 h-3" /> {art.gaps}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="h-px bg-[var(--border)] mb-4" />
-
-          {Object.entries(art.content).map(([key, val]) => {
-            if (key.startsWith("_")) return null
-            if (val === null || val === undefined || val === "") return null
-            if (Array.isArray(val) && val.length === 0) return null
-            return (
-              <div key={key} className="mb-5 last:mb-0">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-2">
-                  {fmtLabel(key)}
-                </p>
-                {Array.isArray(val) ? (
-                  <CollapsibleList items={val as unknown[]} />
-                ) : typeof val === "object" ? (
-                  <pre className="text-xs text-[var(--muted-foreground)] whitespace-pre-wrap bg-[var(--muted)] rounded-xl p-3 overflow-auto border border-[var(--border)]">
-                    {JSON.stringify(val, null, 2)}
-                  </pre>
-                ) : typeof val === "string" && val.length > 250 ? (
-                  <LongText text={val} />
-                ) : (
-                  <p className="text-sm leading-relaxed">{String(val)}</p>
-                )}
-              </div>
-            )
-          })}
-        </TextureCard>
+        <ArtifactAccordion key={i} art={art} defaultOpen={i === 0} />
       ))}
     </div>
   )
@@ -561,9 +606,7 @@ function ResultPanel({ task }: { task: Task }) {
           {result.citations.map((c, i) => (
             <div key={i} className="flex items-center gap-2 text-sm">
               <span className={`shrink-0 ${c.boundary === "public" ? "text-blue-400" : "text-amber-400"}`}>
-                {c.boundary === "public"
-                  ? <Globe className="w-3 h-3" />
-                  : <Lock className="w-3 h-3" />}
+                {c.boundary === "public" ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
               </span>
               {c.url ? (
                 <a href={c.url} target="_blank" rel="noopener noreferrer"
@@ -582,9 +625,7 @@ function ResultPanel({ task }: { task: Task }) {
     ...(result.artifacts.length > 0
       ? [{ id: 1, label: `Reports (${result.artifacts.length})`, content: reportsContent }]
       : []),
-    ...(sourcesContent
-      ? [{ id: 2, label: "Sources", content: sourcesContent }]
-      : []),
+    ...(sourcesContent ? [{ id: 2, label: "Sources", content: sourcesContent }] : []),
   ]
 
   return <DirectionAwareTabs tabs={tabs} />
@@ -623,7 +664,7 @@ export default function TaskDetailPage({
   }
 
   return (
-    <div className="flex flex-col gap-5 max-w-3xl mx-auto">
+    <div className="flex flex-col gap-5 max-w-5xl mx-auto">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
         <Link href="/projects" className="hover:underline">Projects</Link>
@@ -632,7 +673,7 @@ export default function TaskDetailPage({
           {project?.name ?? "Project"}
         </Link>
         <span>/</span>
-        <span className="truncate max-w-[200px] text-[var(--foreground)]">
+        <span className="truncate max-w-[260px] text-[var(--foreground)]">
           {task?.objective ?? "Task"}
         </span>
       </div>
@@ -640,7 +681,7 @@ export default function TaskDetailPage({
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-bold leading-snug text-[var(--foreground)]">
+          <h1 className="text-xl font-bold leading-snug text-[var(--foreground)] line-clamp-2">
             {task?.objective ?? "Loading…"}
           </h1>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
