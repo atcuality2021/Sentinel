@@ -187,25 +187,33 @@ async def api_get_task(project_id: str, task_id: str) -> JSONResponse:
 async def api_run_task(
     project_id: str, task_id: str, request: Request, background_tasks: BackgroundTasks
 ) -> JSONResponse:
-    """Delegate to the HTML run route by importing its handler directly (no duplicated logic)."""
+    """Dispatch a task run via the same _approve_and_run path the HTML UI uses."""
+    from sentinel.web.app import _ACTIVE_RUNS, _approve_and_run
+
+    store = ProjectStore()
+    task = store.get_task(task_id)
+    if task is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if task.project_id != project_id:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if _ACTIVE_RUNS.get(task_id, {}).get("state") == "running":
+        return JSONResponse({"ok": True, "task_id": task_id, "already_running": True})
+
     try:
-        from sentinel.web.app import _ACTIVE_RUNS, run_async
-        from sentinel.artifacts.schemas import TaskStatus
-        from sentinel.agent.orchestrator import run_async as _run_async
-        store = ProjectStore()
-        task = store.get_task(task_id)
-        if task is None:
-            return JSONResponse({"error": "not found"}, status_code=404)
-        if task.project_id != project_id:
-            return JSONResponse({"error": "not found"}, status_code=404)
-        # Just accept JSON body with optional backend override
-        try:
-            body: dict = await request.json()
-        except Exception:
-            body = {}
-        _backend = (body.get("backend") or "").strip()
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        body: dict = await request.json()
+    except Exception:
+        body = {}
+    override_backend = (body.get("backend") or "").strip()
+    extra_context = (body.get("context") or "").strip()
+
+    # _approve_and_run normally returns a redirect; we ignore its return value and
+    # return our own JSON response so the React client doesn't follow a 303.
+    await _approve_and_run(
+        task_id,
+        override_backend=override_backend,
+        extra_context=extra_context,
+        background_tasks=background_tasks,
+    )
     return JSONResponse({"ok": True, "task_id": task_id})
 
 

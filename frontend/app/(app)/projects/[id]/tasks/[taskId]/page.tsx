@@ -314,9 +314,21 @@ export default function TaskDetailPage({
     { refreshInterval: (data: Task | undefined) => data?.status === "running" ? 3000 : 0 }
   )
 
+  const [launching, setLaunching] = useState(false)
+
   async function runTask() {
-    await tasksApi.run(projectId, taskId)
-    refresh()
+    if (launching) return
+    setLaunching(true)
+    try {
+      await tasksApi.run(projectId, taskId)
+      // Optimistically flip to "running" so LiveRunPanel mounts immediately;
+      // the 3-second SWR poller will reconcile with the real server state.
+      refresh({ ...task, status: "running" } as Task, false)
+    } catch {
+      // Non-fatal: SWR will refetch on the next interval and show real status
+    } finally {
+      setLaunching(false)
+    }
   }
 
   return (
@@ -340,11 +352,15 @@ export default function TaskDetailPage({
                 {task.domain}
               </span>
             )}
-            {task && task.status !== "running" && task.status !== "done" && (
-              <button onClick={runTask}
+            {task && task.status !== "running" && (
+              <button onClick={runTask} disabled={launching}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black dark:bg-white
-                           text-white dark:text-black text-sm font-semibold hover:opacity-80 transition-opacity">
-                <Play className="w-3.5 h-3.5" /> Run
+                           text-white dark:text-black text-sm font-semibold hover:opacity-80
+                           disabled:opacity-50 transition-opacity">
+                {launching
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Play className="w-3.5 h-3.5" />}
+                {task.status === "done" ? "Re-run" : "Run"}
               </button>
             )}
           </div>
