@@ -83,3 +83,65 @@ async def test_social_connector_returns_findings():
     with patch.object(connector, "_search_and_extract", new=AsyncMock(return_value=mock_findings)):
         result = await connector.fetch("Acme Corp", {"social_handles": '{"twitter": "@acmecorp"}'})
     assert result[0].trust_score == 0.5
+
+
+# ---------------------------------------------------------------------------
+# Extractor tests — mock _call_llm so no real LLM or gateway is invoked
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_extract_findings_returns_findings_from_valid_json():
+    from sentinel.memory.connectors._extractor import extract_findings
+
+    mock_response = '[{"text": "Acme has 100 employees.", "evidence": "About page"}]'
+    with patch("sentinel.memory.connectors._extractor._call_llm",
+               new=AsyncMock(return_value=mock_response)):
+        results = await extract_findings(
+            "Acme Corp", "website", "Acme has 100 employees (from About page).",
+            "https://acme.com", trust_score=0.8, boundary=DataBoundary.PUBLIC,
+        )
+    assert len(results) == 1
+    assert "100 employees" in results[0].text
+
+
+@pytest.mark.asyncio
+async def test_extract_findings_strips_markdown_fences():
+    from sentinel.memory.connectors._extractor import extract_findings
+
+    fenced = '```json\n[{"text": "Acme HQ is in Mumbai.", "evidence": ""}]\n```'
+    with patch("sentinel.memory.connectors._extractor._call_llm",
+               new=AsyncMock(return_value=fenced)):
+        results = await extract_findings(
+            "Acme Corp", "website", "some content",
+            "https://acme.com", trust_score=0.8, boundary=DataBoundary.PUBLIC,
+        )
+    assert len(results) == 1
+    assert "Mumbai" in results[0].text
+
+
+@pytest.mark.asyncio
+async def test_extract_findings_returns_empty_on_llm_error():
+    from sentinel.memory.connectors._extractor import extract_findings
+
+    with patch("sentinel.memory.connectors._extractor._call_llm",
+               new=AsyncMock(side_effect=RuntimeError("LLM unavailable"))):
+        results = await extract_findings(
+            "Acme Corp", "website", "some content",
+            "https://acme.com", trust_score=0.8, boundary=DataBoundary.PUBLIC,
+        )
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_extract_findings_skips_short_texts():
+    from sentinel.memory.connectors._extractor import extract_findings
+
+    short_json = '[{"text": "Hi.", "evidence": ""}, {"text": "Acme is a B2B AI company.", "evidence": ""}]'
+    with patch("sentinel.memory.connectors._extractor._call_llm",
+               new=AsyncMock(return_value=short_json)):
+        results = await extract_findings(
+            "Acme Corp", "website", "some content",
+            "https://acme.com", trust_score=0.8, boundary=DataBoundary.PUBLIC,
+        )
+    assert len(results) == 1  # "Hi." is < 10 chars, filtered
+    assert "B2B AI" in results[0].text

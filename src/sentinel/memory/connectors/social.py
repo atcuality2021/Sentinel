@@ -22,7 +22,8 @@ class SocialConnector(SourceConnector):
             handles: dict[str, str] = (
                 json.loads(handles_raw) if isinstance(handles_raw, str) else (handles_raw or {})
             )
-        except Exception:
+        except Exception as exc:
+            log.debug("social.py: malformed social_handles config %r — %s", handles_raw, exc)
             handles = {}
 
         query_parts: list[str] = []

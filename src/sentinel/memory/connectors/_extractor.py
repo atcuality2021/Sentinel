@@ -1,14 +1,16 @@
 # src/sentinel/memory/connectors/_extractor.py
 """Lightweight LLM-backed fact extractor for the Self-Driving Memory Brain.
 
-Uses a direct litellm call (same pattern as dag.py chunked synthesis) against the
-12B tool-caller model tier so we never spin up a full ADK runner just to parse text.
+Routes ALL inference through the sentinel.llm.gateway so sovereignty enforcement
+(on_prem_required mode) is respected.  Never constructs a model object directly —
+gateway config resolution owns backend selection and key lookup.
 Always fails soft — any error returns [].
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 
 from sentinel.memory.connectors.base import SourceFinding, SOURCE_TYPES
 from sentinel.memory.schema import DataBoundary
@@ -37,6 +39,51 @@ Raw content:
 """
 
 
+async def _call_llm(prompt: str) -> str:
+    """Call the 12B tool-caller tier via the gateway config.  Returns raw text output.
+
+    Backend selection, model-id, api_base, and api_key are all resolved from
+    SentinelConfig / sentinel.llm.gateway — callers never name a backend directly.
+    """
+    import litellm as _litellm
+    from sentinel.config import get_config
+    from sentinel.llm.gateway import _vllm_api_key
+
+    cfg = get_config()
+    backend = cfg.backend.default
+
+    if backend == "vllm":
+        roles = cfg.backend.roles or {}
+        # Prefer the "extractor" role model (12B tool-caller tier) when configured;
+        # fall back to the flat vllm option so deployments without roles still work.
+        opt = roles.get("extractor") or cfg.backend.vllm
+        model_id = opt.model
+        api_base = opt.api_base or "http://localhost:8000/v1"
+        api_key = _vllm_api_key(api_base)
+
+        resp = await _litellm.acompletion(
+            model=f"hosted_vllm/{model_id}",
+            messages=[{"role": "user", "content": prompt}],
+            api_base=api_base,
+            api_key=api_key,
+            max_tokens=1024,
+            temperature=0.1,
+            response_format={"type": "json_object"},
+        )
+    else:
+        # Gemini path — api key is env-only, never config (same contract as gateway).
+        gemini_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or ""
+        resp = await _litellm.acompletion(
+            model=cfg.backend.gemini.model,
+            messages=[{"role": "user", "content": prompt}],
+            api_key=gemini_key,
+            max_tokens=1024,
+            temperature=0.1,
+        )
+
+    return resp.choices[0].message.content or ""
+
+
 async def extract_findings(
     entity: str,
     source_type: SOURCE_TYPES,
@@ -48,51 +95,14 @@ async def extract_findings(
 ) -> list[SourceFinding]:
     """Extract structured SourceFindings from raw text via the 12B tool-caller model.
 
-    Truncates raw_text to _MAX_RAW_CHARS, calls the model, parses JSON,
-    and returns at most _MAX_FINDINGS findings. Fails soft on any error.
+    Truncates raw_text to _MAX_RAW_CHARS, calls the model via _call_llm,
+    parses JSON, and returns at most _MAX_FINDINGS findings. Fails soft on any error.
     """
     truncated = raw_text[:_MAX_RAW_CHARS]
     prompt = _EXTRACT_PROMPT.format(entity=entity, raw_text=truncated)
 
     try:
-        import litellm as _litellm
-        from sentinel.config import get_config
-        from sentinel.llm.gateway import _vllm_api_key
-
-        cfg = get_config()
-        backend = cfg.backend.default
-
-        if backend == "vllm":
-            roles = cfg.backend.roles or {}
-            # Use the extractor role model (12B tool-caller tier) if configured,
-            # falling back to the flat vllm option.
-            opt = roles.get("extractor") or cfg.backend.vllm
-            model_id = opt.model
-            api_base = opt.api_base or "http://localhost:8000/v1"
-            api_key = _vllm_api_key(api_base)
-
-            resp = await _litellm.acompletion(
-                model=f"hosted_vllm/{model_id}",
-                messages=[{"role": "user", "content": prompt}],
-                api_base=api_base,
-                api_key=api_key,
-                max_tokens=1024,
-                temperature=0.1,
-                response_format={"type": "json_object"},
-            )
-        else:
-            # Gemini path — use litellm with the gemini model id
-            import os
-            gemini_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or ""
-            resp = await _litellm.acompletion(
-                model=cfg.backend.gemini.model,
-                messages=[{"role": "user", "content": prompt}],
-                api_key=gemini_key,
-                max_tokens=1024,
-                temperature=0.1,
-            )
-
-        raw_json = resp.choices[0].message.content or ""
+        raw_json = await _call_llm(prompt)
         return _parse_response(raw_json, entity, source_type, source_url, trust_score, boundary)
 
     except Exception as exc:
@@ -110,8 +120,15 @@ def _parse_response(
 ) -> list[SourceFinding]:
     """Parse the LLM JSON response into SourceFindings. Fails soft on bad JSON."""
     try:
+        # Strip markdown code fences that Gemini often adds (```json\n...\n```).
+        text = raw_json.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1]   # drop the opening fence line (```json or ```)
+            text = text.rsplit("```", 1)[0]   # drop the trailing ```
+        raw_json = text.strip()
+
         # The model may wrap the array in {"findings": [...]} due to json_object mode.
-        parsed = json.loads(raw_json.strip())
+        parsed = json.loads(raw_json)
         if isinstance(parsed, dict):
             # Unwrap common wrapper keys
             for key in ("findings", "results", "items", "data"):

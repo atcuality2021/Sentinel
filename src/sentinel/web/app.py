@@ -16,6 +16,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, Request, Response, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from urllib.parse import urlparse
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
@@ -44,7 +45,23 @@ from sentinel.web import render
 from sentinel.web import settings as settings_helpers
 from sentinel.web import auth as _auth
 
-app = FastAPI(title="Sentinel — Sovereign Intelligence Agent", docs_url="/api")
+app = FastAPI(title="Sentinel — Sovereign Intelligence Agent", docs_url="/api/docs")
+
+_CORS_ORIGINS = [
+    o.strip()
+    for o in os.getenv("SENTINEL_CORS_ORIGINS", "http://localhost:3001,http://localhost:3000").split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+from sentinel.web.api_json import router as _api_router  # noqa: E402
+app.include_router(_api_router, prefix="/api")
 
 # ---- Auth constants ----
 _COOKIE = "sentinel_session"
@@ -87,6 +104,10 @@ async def _auth_middleware(request: Request, call_next):
 
     token = request.cookies.get(_COOKIE)
     if not _auth.is_valid_session(token):
+        # JSON API callers get 401 instead of an HTML redirect
+        if path.startswith("/api/"):
+            from fastapi.responses import JSONResponse as _J
+            return _J({"error": "unauthenticated"}, status_code=401)
         next_url = quote(path + ("?" + str(request.url.query) if request.url.query else ""))
         return RedirectResponse(f"/login?next={next_url}", status_code=307)
 
