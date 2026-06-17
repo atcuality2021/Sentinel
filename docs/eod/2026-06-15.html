@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EOD 2026-06-15 — Sentinel</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 24px; color: #1a1a2e; background: #f8f9fb; }
+  h1 { font-size: 22px; margin-bottom: 4px; } .date { color: #6b7280; font-size: 14px; margin-bottom: 32px; }
+  section { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px 24px; margin-bottom: 18px; }
+  h2 { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #6b7280; margin: 0 0 14px; }
+  ul { margin: 0; padding-left: 18px; } li { margin-bottom: 6px; font-size: 14px; line-height: 1.6; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 9px; margin-right: 6px; }
+  .green { background: #d1fae5; color: #065f46; } .yellow { background: #fef3c7; color: #92400e; }
+  .blue { background: #dbeafe; color: #1e40af; } .red { background: #fee2e2; color: #991b1b; }
+  .mono { font-family: monospace; font-size: 12px; background: #f3f4f6; padding: 1px 5px; border-radius: 4px; }
+  .ai { background: #f5f3ff; border-color: #ddd6fe; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }
+  .kv { font-size: 13px; } .kv b { display: inline-block; min-width: 160px; color: #374151; }
+</style>
+</head>
+<body>
+<h1>🌙 End of Day — Sentinel</h1>
+<p class="date">2026-06-15 · branch: main · 946 tests green</p>
+
+<section id="shipped">
+  <h2>Shipped</h2>
+  <ul>
+    <li><span class="badge green">SHIPPED</span> <b>Self-Driving Memory Brain</b> — full implementation across 18 commits pushed to main
+      <ul style="margin-top:6px">
+        <li>DB schema: <span class="mono">crawl_jobs</span> + <span class="mono">entity_source_config</span> tables with dedup indexes</li>
+        <li><span class="mono">SourceConnector</span> ABC + frozen <span class="mono">SourceFinding</span> dataclass</li>
+        <li><span class="mono">CrawlScheduler</span> — priority intervals (high=1h, medium=6h, low=24h) + <span class="mono">force_enqueue</span></li>
+        <li><span class="mono">MemoryWorker</span> — poll/claim/dispatch/write loop with per-connector dispatch</li>
+        <li>Four connectors: website (Firecrawl), YouTube (captions), email (IMAP filter), social (handle scan) + 12B extractor</li>
+        <li>Recall upgraded: <span class="mono">persona_id</span> merge + <span class="mono">source_type</span> on <span class="mono">MemoryEntry</span></li>
+        <li>API routes: <span class="mono">GET/POST /api/memory/source-config/{entity}</span> + <span class="mono">POST /api/memory/crawl-now/{entity}</span></li>
+        <li>High-priority crawl triggered at <span class="mono">run_dag</span> start for configured entities</li>
+        <li>SSRF guard on <span class="mono">website_url</span> — hardened with <span class="mono">getaddrinfo</span> all-record check, <span class="mono">gaierror</span> reject, hostname normalize</li>
+        <li>Memory Sources CRUD form on project Memory tab (priority pills + source toggles + URL inputs + Save + Crawl Now)</li>
+        <li>Source badges on memory entries in UI</li>
+        <li><span class="mono">/accounts</span> routes removed; Memory Sources form migrated to project Memory tab; nav cleaned</li>
+        <li>Full e2e test suite: API, worker, persona recall, scheduler, SSRF (946 tests green)</li>
+      </ul>
+    </li>
+  </ul>
+</section>
+
+<section id="wip">
+  <h2>WIP</h2>
+  <ul>
+    <li><span class="badge yellow">WIP</span> <span class="mono">connectors/_extractor.py</span> + <span class="mono">social.py</span> — minor uncommitted tweaks from connector hardening; no behaviour change, safe to carry over</li>
+    <li><span class="badge yellow">WIP</span> <b>SENTINEL-017</b> — v-next reusable workflows design + plan written (<span class="mono">docs/vnext-reusable-workflows-{design,plan}.md</span>); nothing built yet</li>
+  </ul>
+</section>
+
+<section id="tomorrow">
+  <h2>Tomorrow</h2>
+  <ul>
+    <li>Deploy to prod (35.252.125.139) — restart sentinel-memory-worker alongside the web process</li>
+    <li>Start <b>SENTINEL-017</b> (v-next reusable workflows, build order 017→020)</li>
+  </ul>
+</section>
+
+<section id="blockers">
+  <h2>Blockers</h2>
+  <ul>
+    <li>None</li>
+  </ul>
+</section>
+
+<section id="tech-debt-added">
+  <h2>Tech Debt Added</h2>
+  <ul>
+    <li><span class="badge yellow">TD</span> <span class="mono">POST /accounts/{entity}/purge</span> still alive at old URL (intentional — data-subject right-to-deletion compliance); should be migrated to <span class="mono">/projects/{id}/memory/purge</span> in a follow-up</li>
+    <li><span class="badge yellow">TD</span> <span class="mono">test_find_deals_returns_at_least_5_priced_products_live</span> — pre-existing live e2e failure (SearchAPI collision); tracked in SENTINEL-022</li>
+  </ul>
+</section>
+
+<section id="ai-usage" class="ai">
+  <h2>🧠 AI Usage — 2026-06-15</h2>
+  <div class="grid">
+    <div class="kv"><b>Sessions:</b> 1</div>
+    <div class="kv"><b>Projects:</b> 1</div>
+    <div class="kv"><b>User messages:</b> 422</div>
+    <div class="kv"><b>Assistant messages:</b> 642</div>
+    <div class="kv"><b>Tokens in:</b> 17,420</div>
+    <div class="kv"><b>Tokens out:</b> 390,727</div>
+    <div class="kv"><b>Cache write:</b> 1,922,032</div>
+    <div class="kv"><b>Cache read:</b> 74,946,895 (free)</div>
+    <div class="kv"><b>Billable total:</b> 2,330,179</div>
+  </div>
+  <p style="margin:14px 0 0;font-size:13px;color:#6b7280">
+    Top tools: Bash ×175 · Read ×72 · Agent ×24 · TaskUpdate ×20 · Edit ×18 · Write ×11 · browser_snapshot ×10 · browser_click ×9
+  </p>
+</section>
+</body>
+</html>

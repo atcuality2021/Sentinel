@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EOD — 2026-06-14</title>
+  <style>
+    :root {
+      --color-border: #e5e7eb; --color-bg: #ffffff;
+      --color-bg-subtle: #f9fafb; --color-text: #111827;
+      --color-muted: #6b7280; --color-shipped: #16a34a;
+      --color-wip: #d97706; --color-blocker: #dc2626;
+      --radius: 6px; --max-width: 860px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif; font-size: 15px;
+      line-height: 1.6; color: var(--color-text); background: var(--color-bg);
+      padding: 2rem 1rem;
+    }
+    main { max-width: var(--max-width); margin: 0 auto; }
+    header { border-bottom: 2px solid var(--color-border); padding-bottom: 1.25rem; margin-bottom: 2rem; }
+    header h1 { font-size: 1.5rem; }
+    section { margin-bottom: 2rem; }
+    h2 { font-size: 1.1rem; font-weight: 700; border-left: 4px solid var(--color-border); padding-left: 0.75rem; margin-bottom: 0.75rem; }
+    h2.shipped { border-color: var(--color-shipped); }
+    h2.wip     { border-color: var(--color-wip); }
+    h2.blocker { border-color: var(--color-blocker); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 0.5rem 0; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); }
+    th { background: var(--color-bg-subtle); font-weight: 600; }
+    p { margin-bottom: 0.4rem; }
+    @media (max-width: 600px) { table { font-size: 0.8rem; } }
+  </style>
+</head>
+<body>
+<main>
+  <header><h1>EOD — 2026-06-14</h1></header>
+
+  <section id="shipped">
+    <h2 class="shipped">Shipped</h2>
+    <p>Full layout-faithful Open Design redesign merged to main and deployed to prod (sentinel.atcuality.com @ a4f9704): memory/research/report/settings/personas reworked to each mockup&#x27;s specific .split layout; result-page agent timeline un-hidden; dead _project_report_page_LEGACY removed. Commits 17d1960, 8552912, 6bbcd83, 0df2f82, a4f9704. Chat streaming fix pushed (d156608).</p>
+  </section>
+
+  <section id="wip">
+    <h2 class="wip">WIP</h2>
+    <p>Chat-streaming commit d156608 (stop stuck &#x27;sovereign engine&#x27; popup + token-by-token streaming) is on origin/main but prod is one commit behind at a4f9704 — awaiting a one-line prod `git pull` (needs root/sudo, owner to run). ~95% done.</p>
+  </section>
+
+  <section id="tomorrow">
+    <h2>Tomorrow</h2>
+    <p>Verify d156608 live on prod; optionally make timeline sub-step labels domain-aware.</p>
+  </section>
+
+  <section id="blockers">
+    <h2 class="blocker">Blockers</h2>
+    <p>Prod deploy needs root: /opt/sentinel/.git is root:root and the service runs as User=root, so git pull + systemctl restart require sudo, which the agent is barred from running. Owner runs the provided one-liner.</p>
+  </section>
+
+  <section id="tech-debt-added">
+    <h2>Tech Debt Added</h2>
+    <p>none</p>
+  </section>
+
+  <section id="ai-usage">
+    <h2>AI Usage</h2>
+    <p>—</p>
+  </section>
+
+  <section id="change-history">
+    <h2>Change History</h2>
+    <table>
+      <thead><tr><th>Date</th><th>Section</th><th>What Changed</th><th>Trigger</th></tr></thead>
+      <tbody>
+        <tr><td>2026-06-14</td><td>all</td><td>Initial draft</td><td>eod</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>
