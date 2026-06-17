@@ -52,25 +52,31 @@ function extractSummary(art: ArtifactData): { brief?: string; insights: string[]
   const c = art.content
   const brief =
     (typeof c.executive_summary === "string" && (c.executive_summary as string).length > 20
-      ? (c.executive_summary as string)
-      : null) ??
+      ? (c.executive_summary as string) : null) ??
     (typeof c.summary === "string" && (c.summary as string).length > 20
-      ? (c.summary as string)
-      : null) ??
+      ? (c.summary as string) : null) ??
     (typeof c.overview === "string" && (c.overview as string).length > 20
-      ? (c.overview as string)
-      : null) ??
+      ? (c.overview as string) : null) ??
+    (typeof c.assessment === "string" && (c.assessment as string).length > 20
+      ? (c.assessment as string) : null) ??
+    (typeof c.positioning === "string" && (c.positioning as string).length > 20
+      ? (c.positioning as string) : null) ??
+    (typeof c.one_line_summary === "string" && (c.one_line_summary as string).length > 10
+      ? (c.one_line_summary as string) : null) ??
     undefined
 
   const insights: string[] = []
-  for (const field of ["key_findings", "key_insights", "highlights", "insights", "recommendations"]) {
+  for (const field of [
+    "key_findings", "key_insights", "highlights", "insights", "recommendations",
+    "strengths", "how_to_win", "action_plan", "weaknesses",
+  ]) {
     const arr = c[field]
     if (!Array.isArray(arr)) continue
     for (const item of arr as unknown[]) {
       if (typeof item === "string" && item.length > 15) insights.push(item)
       else if (typeof item === "object" && item !== null) {
         const o = item as Record<string, unknown>
-        const t = o.text ?? o.finding ?? o.insight ?? o.title ?? o.content
+        const t = o.summary ?? o.text ?? o.finding ?? o.insight ?? o.title ?? o.content
         if (typeof t === "string" && t.length > 15) insights.push(t)
       }
       if (insights.length >= 6) break
@@ -138,37 +144,138 @@ function MdMessage({ text }: { text: string }) {
 
 // ── Content renderers ─────────────────────────────────────────────────────────
 
-function ArtifactItem({ item }: { item: unknown }) {
-  if (typeof item === "string") return <span>{item}</span>
-  if (typeof item === "object" && item !== null) {
-    const o = item as Record<string, unknown>
-    const url = typeof o.url === "string" ? o.url : undefined
-    const label = String(o.text ?? o.name ?? o.title ?? o.action ?? JSON.stringify(item))
-    if (url)
-      return (
-        <a href={url} target="_blank" rel="noopener noreferrer"
-           className="text-blue-400 hover:underline break-all">{label}</a>
-      )
-    return <span>{label}</span>
-  }
-  return <span>{String(item)}</span>
+const VERDICT_STYLE: Record<string, string> = {
+  win:    "bg-green-900/40 text-green-300 border border-green-700/40",
+  loss:   "bg-red-900/40 text-red-300 border border-red-700/40",
+  parity: "bg-neutral-800 text-neutral-300 border border-neutral-700",
 }
 
-function CollapsibleList({ items }: { items: unknown[] }) {
+/** Detect the semantic type of a structured object from its keys. */
+function detectShape(o: Record<string, unknown>): string {
+  if ("axis" in o && "ours" in o && "theirs" in o) return "axis"
+  if ("what_was_missing" in o) return "gap"
+  if ("summary" in o && "evidence" in o) return "finding"
+  if ("boundary" in o && "label" in o) return "citation"
+  if ("name" in o && ("category" in o || "positioning" in o)) return "product"
+  if ("step" in o || "action" in o) return "action"
+  return "generic"
+}
+
+function AxisRow({ o }: { o: Record<string, unknown> }) {
+  const verdict = (typeof o.verdict === "string" ? o.verdict : "").toLowerCase()
+  const cls = VERDICT_STYLE[verdict] ?? VERDICT_STYLE.parity
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 p-3 flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold text-[var(--foreground)]">{String(o.axis ?? "")}</span>
+        {verdict && (
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide ${cls}`}>
+            {verdict}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <p className="text-[10px] font-semibold text-green-400 uppercase tracking-wide mb-0.5">Us</p>
+          <p className="text-[var(--foreground)] leading-relaxed">{String(o.ours ?? "")}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wide mb-0.5">Them</p>
+          <p className="text-[var(--muted-foreground)] leading-relaxed">{String(o.theirs ?? "")}</p>
+        </div>
+      </div>
+      {Boolean(o.note) && <p className="text-[11px] text-[var(--muted-foreground)] italic">{String(o.note)}</p>}
+    </div>
+  )
+}
+
+function GapRow({ o }: { o: Record<string, unknown> }) {
+  return (
+    <div className="rounded-lg border border-red-800/30 bg-red-900/10 p-3 flex flex-col gap-1">
+      <p className="text-sm text-red-300">{String(o.what_was_missing ?? o.gap ?? "")}</p>
+      {Boolean(o.impact) && <p className="text-xs text-[var(--muted-foreground)]">Impact: {String(o.impact)}</p>}
+    </div>
+  )
+}
+
+function FindingRow({ o }: { o: Record<string, unknown> }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="text-violet-400 shrink-0 text-xs mt-0.5">◆</span>
+      <div className="min-w-0">
+        <p className="text-sm leading-relaxed">{String(o.summary ?? o.finding ?? "")}</p>
+        {Boolean(o.evidence) && <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{String(o.evidence)}</p>}
+      </div>
+    </div>
+  )
+}
+
+function CitationRow({ o }: { o: Record<string, unknown> }) {
+  const label = String(o.label ?? o.name ?? "Source")
+  const url = typeof o.url === "string" ? o.url : undefined
+  const isPublic = o.boundary !== "private"
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`shrink-0 ${isPublic ? "text-blue-400" : "text-amber-400"}`}>
+        {isPublic ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+      </span>
+      {url ? (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline text-sm truncate">{label}</a>
+      ) : (
+        <span className="text-sm text-[var(--muted-foreground)]">{label}</span>
+      )}
+    </div>
+  )
+}
+
+function ArtifactItem({ item }: { item: unknown }) {
+  if (typeof item === "string") return <span className="text-sm leading-relaxed">{item}</span>
+  if (typeof item !== "object" || item === null) return <span className="text-sm">{String(item)}</span>
+  const o = item as Record<string, unknown>
+  const shape = detectShape(o)
+  if (shape === "axis")     return <AxisRow o={o} />
+  if (shape === "gap")      return <GapRow o={o} />
+  if (shape === "finding")  return <FindingRow o={o} />
+  if (shape === "citation") return <CitationRow o={o} />
+  // Generic: prefer human-readable label fields
+  const url = typeof o.url === "string" ? o.url : undefined
+  const label = String(o.text ?? o.summary ?? o.name ?? o.title ?? o.action ?? o.content ?? "")
+  if (label && label !== "[object Object]") {
+    if (url) return <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline text-sm break-all">{label}</a>
+    return <span className="text-sm leading-relaxed">{label}</span>
+  }
+  return (
+    <pre className="text-[11px] text-[var(--muted-foreground)] whitespace-pre-wrap bg-[var(--muted)] rounded-lg p-2 overflow-auto">
+      {JSON.stringify(o, null, 2)}
+    </pre>
+  )
+}
+
+function CollapsibleList({ items, sectionKey }: { items: unknown[]; sectionKey?: string }) {
   const [expanded, setExpanded] = useState(false)
-  const LIMIT = 4
+  // Axes need more space — show fewer collapsed
+  const LIMIT = sectionKey === "axes" ? 3 : 4
   const visible = expanded ? items : items.slice(0, LIMIT)
   const overflow = items.length - LIMIT
+  // Axes get card layout; others get bullet list
+  const isCards = items.length > 0 && typeof items[0] === "object" && items[0] !== null &&
+    ["axis", "gap", "product"].includes(detectShape(items[0] as Record<string, unknown>))
   return (
     <>
-      <ul className="flex flex-col gap-1">
+      <div className={isCards ? "flex flex-col gap-2" : "flex flex-col gap-1.5"}>
         {visible.map((item, j) => (
-          <li key={j} className="text-sm flex items-start gap-2">
-            <span className="text-[var(--muted-foreground)] mt-0.5 shrink-0">·</span>
-            <ArtifactItem item={item} />
-          </li>
+          isCards ? (
+            <ArtifactItem key={j} item={item} />
+          ) : (
+            <div key={j} className="flex items-start gap-2">
+              {typeof item !== "object" || detectShape(item as Record<string, unknown>) === "finding"
+                ? null
+                : <span className="text-[var(--muted-foreground)] mt-1 shrink-0 text-xs">·</span>}
+              <ArtifactItem item={item} />
+            </div>
+          )
         ))}
-      </ul>
+      </div>
       {overflow > 0 && (
         <button
           onClick={() => setExpanded((v) => !v)}
@@ -260,24 +367,37 @@ function ArtifactAccordion({ art, defaultOpen }: { art: ArtifactData; defaultOpe
         <>
           <div className="h-px bg-[var(--border)] mx-5" />
           <div className="p-5 flex flex-col gap-5">
-            {contentEntries.map(([key, val]) => (
-              <div key={key}>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-2">
-                  {fmtLabel(key)}
-                </p>
-                {Array.isArray(val) ? (
-                  <CollapsibleList items={val as unknown[]} />
-                ) : typeof val === "object" ? (
-                  <pre className="text-xs text-[var(--muted-foreground)] whitespace-pre-wrap bg-[var(--muted)] rounded-xl p-3 overflow-auto border border-[var(--border)]">
-                    {JSON.stringify(val, null, 2)}
-                  </pre>
-                ) : typeof val === "string" && val.length > 280 ? (
-                  <LongText text={val} />
-                ) : (
-                  <p className="text-sm leading-relaxed">{String(val)}</p>
-                )}
-              </div>
-            ))}
+            {contentEntries.map(([key, val]) => {
+              // Skip internal/redundant fields that are already visible elsewhere
+              if (["org", "target", "subject", "vertical_context"].includes(key) &&
+                  typeof val === "string" && val.length < 120) return null
+              return (
+                <div key={key}>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-2">
+                    {fmtLabel(key)}
+                  </p>
+                  {Array.isArray(val) ? (
+                    <CollapsibleList items={val as unknown[]} sectionKey={key} />
+                  ) : typeof val === "object" && val !== null ? (
+                    // Try to render objects as readable citations/items
+                    (() => {
+                      const o = val as Record<string, unknown>
+                      const shape = detectShape(o)
+                      if (shape !== "generic") return <ArtifactItem item={val} />
+                      return (
+                        <pre className="text-xs text-[var(--muted-foreground)] whitespace-pre-wrap bg-[var(--muted)] rounded-xl p-3 overflow-auto border border-[var(--border)]">
+                          {JSON.stringify(val, null, 2)}
+                        </pre>
+                      )
+                    })()
+                  ) : typeof val === "string" && val.length > 280 ? (
+                    <LongText text={val} />
+                  ) : (
+                    <p className="text-sm leading-relaxed">{String(val)}</p>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </>
       )}
@@ -689,9 +809,29 @@ function ResultPanel({ task }: { task: Task }) {
     </div>
   )
 
-  // ── Overview tab — 2-column layout ────────────────────────────────────────────
+  // Count total gaps across all artifacts
+  const totalGaps = result.artifacts.reduce((n, a) => n + (a.gaps ?? 0), 0)
+  const totalPublic = result.artifacts.reduce((n, a) => n + (a.public_count ?? 0), 0)
+
+  // ── Overview tab ────────────────────────────────────────────────────────────
   const overviewContent = (
     <div className="flex flex-col gap-5">
+
+      {/* Stats strip */}
+      <div className="grid grid-cols-4 gap-3">
+        {[
+          { label: "Reports", value: result.artifacts.length, color: "text-violet-400" },
+          { label: "Sources", value: result.citations.length, color: "text-blue-400" },
+          { label: "Public Signals", value: totalPublic, color: "text-green-400" },
+          { label: "Gaps", value: totalGaps, color: totalGaps > 0 ? "text-red-400" : "text-[var(--muted-foreground)]" },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-center">
+            <p className={`text-2xl font-bold ${color}`}>{value}</p>
+            <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 uppercase tracking-wide">{label}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-5 items-start">
         {/* Left: brief + insights */}
         <div className="flex flex-col gap-4">
@@ -727,31 +867,42 @@ function ResultPanel({ task }: { task: Task }) {
           )}
 
           {!brief && insights.length === 0 && (
-            <TextureCard className="p-5">
+            <div className="rounded-2xl border border-dashed border-[var(--border)] p-6 text-center">
+              <FileText className="w-8 h-8 text-[var(--muted-foreground)] mx-auto mb-2 opacity-40" />
               <p className="text-sm text-[var(--muted-foreground)]">
-                Research complete —{" "}
-                <span className="font-semibold text-[var(--foreground)]">{result.artifacts.length}</span>{" "}
-                report{result.artifacts.length !== 1 ? "s" : ""} generated. See the{" "}
-                <span className="font-semibold text-[var(--foreground)]">Reports</span> tab.
+                {result.artifacts.length} report{result.artifacts.length !== 1 ? "s" : ""} generated —
+                open the <strong className="text-[var(--foreground)]">Reports</strong> tab to read them.
               </p>
-            </TextureCard>
+            </div>
           )}
         </div>
 
-        {/* Right: reports list + grade */}
+        {/* Right: reports list + quality grade */}
         <div className="flex flex-col gap-4">
           {result.artifacts.length > 0 && (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
               <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-3">
                 Reports ({result.artifacts.length})
               </p>
-              <ul className="flex flex-col gap-2">
+              <ul className="flex flex-col gap-2.5">
                 {result.artifacts.map((a, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm">
+                  <li key={i} className="flex items-start gap-2.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0 mt-1.5" />
                     <div className="min-w-0">
-                      <p className="font-medium leading-snug truncate">{getArtTitle(a)}</p>
-                      <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">{cleanArtType(a.type)}</p>
+                      <p className="text-sm font-medium leading-snug">{getArtTitle(a)}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-[10px] text-[var(--muted-foreground)]">{cleanArtType(a.type)}</p>
+                        {a.public_count > 0 && (
+                          <span className="flex items-center gap-0.5 text-[10px] text-blue-400">
+                            <Globe className="w-2.5 h-2.5" />{a.public_count}
+                          </span>
+                        )}
+                        {a.gaps > 0 && (
+                          <span className="flex items-center gap-0.5 text-[10px] text-red-400">
+                            <AlertTriangle className="w-2.5 h-2.5" />{a.gaps} gap{a.gaps !== 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </li>
                 ))}
@@ -779,6 +930,35 @@ function ResultPanel({ task }: { task: Task }) {
                   ))}
                 </ul>
               )}
+            </div>
+          )}
+
+          {/* Citations preview */}
+          {result.citations.length > 0 && (
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-3">
+                Top Sources
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {result.citations.slice(0, 5).map((c, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm min-w-0">
+                    <span className={`shrink-0 ${c.boundary === "public" ? "text-blue-400" : "text-amber-400"}`}>
+                      {c.boundary === "public" ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                    </span>
+                    {c.url ? (
+                      <a href={c.url} target="_blank" rel="noopener noreferrer"
+                         className="text-blue-400 hover:underline truncate text-xs">{c.label}</a>
+                    ) : (
+                      <span className="text-[var(--muted-foreground)] text-xs truncate">{c.label}</span>
+                    )}
+                  </div>
+                ))}
+                {result.citations.length > 5 && (
+                  <p className="text-[10px] text-[var(--muted-foreground)] mt-1">
+                    +{result.citations.length - 5} more in Sources tab
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -816,27 +996,80 @@ function ResultPanel({ task }: { task: Task }) {
   )
 
   // ── Sources tab ──────────────────────────────────────────────────────────────
+  const publicCitations  = result.citations.filter((c) => c.boundary === "public")
+  const privateCitations = result.citations.filter((c) => c.boundary !== "public")
+
   const sourcesContent =
     result.citations.length > 0 ? (
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)] mb-4">
-          Sources
-        </p>
-        <div className="flex flex-col gap-2">
-          {result.citations.map((c, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm">
-              <span className={`shrink-0 ${c.boundary === "public" ? "text-blue-400" : "text-amber-400"}`}>
-                {c.boundary === "public" ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-              </span>
-              {c.url ? (
-                <a href={c.url} target="_blank" rel="noopener noreferrer"
-                   className="text-blue-400 hover:underline truncate">{c.label}</a>
-              ) : (
-                <span className="text-[var(--muted-foreground)]">{c.label}</span>
-              )}
-            </div>
-          ))}
+      <div className="flex flex-col gap-4">
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-blue-700/30 bg-blue-900/10 p-4 text-center">
+            <p className="text-2xl font-bold text-blue-400">{publicCitations.length}</p>
+            <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 uppercase tracking-wide flex items-center justify-center gap-1">
+              <Globe className="w-3 h-3" /> Public Sources
+            </p>
+          </div>
+          <div className="rounded-xl border border-amber-700/30 bg-amber-900/10 p-4 text-center">
+            <p className="text-2xl font-bold text-amber-400">{privateCitations.length}</p>
+            <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 uppercase tracking-wide flex items-center justify-center gap-1">
+              <Lock className="w-3 h-3" /> Private Sources
+            </p>
+          </div>
         </div>
+
+        {/* Public sources */}
+        {publicCitations.length > 0 && (
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+            <div className="px-5 py-3 border-b border-[var(--border)] flex items-center gap-2">
+              <Globe className="w-3.5 h-3.5 text-blue-400" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)]">
+                Public Intelligence ({publicCitations.length})
+              </span>
+            </div>
+            <div className="divide-y divide-[var(--border)]">
+              {publicCitations.map((c, i) => (
+                <div key={i} className="px-5 py-3 flex items-center gap-3">
+                  <span className="text-[10px] text-[var(--muted-foreground)] font-mono w-5 shrink-0">{i + 1}</span>
+                  {c.url ? (
+                    <a href={c.url} target="_blank" rel="noopener noreferrer"
+                       className="text-blue-400 hover:underline text-sm flex-1 min-w-0 truncate">{c.label}</a>
+                  ) : (
+                    <span className="text-sm text-[var(--foreground)] flex-1 min-w-0">{c.label}</span>
+                  )}
+                  {c.url && (
+                    <span className="text-[10px] text-[var(--muted-foreground)] font-mono shrink-0 hidden sm:block truncate max-w-[180px]">
+                      {(() => { try { return new URL(c.url).hostname } catch { return "" } })()}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Private sources */}
+        {privateCitations.length > 0 && (
+          <div className="rounded-2xl border border-amber-700/20 bg-[var(--card)] overflow-hidden">
+            <div className="px-5 py-3 border-b border-amber-700/20 flex items-center gap-2">
+              <Lock className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted-foreground)]">
+                Private Intelligence ({privateCitations.length})
+              </span>
+            </div>
+            <div className="divide-y divide-amber-700/10">
+              {privateCitations.map((c, i) => (
+                <div key={i} className="px-5 py-3 flex items-center gap-3">
+                  <span className="text-[10px] text-[var(--muted-foreground)] font-mono w-5 shrink-0">{i + 1}</span>
+                  <span className="text-sm text-[var(--foreground)] flex-1 min-w-0">{c.label}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-900/30 text-amber-300 border border-amber-700/30 font-semibold">
+                    PRIVATE
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     ) : null
 
