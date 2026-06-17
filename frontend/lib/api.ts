@@ -95,7 +95,7 @@ export const agents = {
 
 // ── Personas ──────────────────────────────────────────────────────────────────
 export const personas = {
-  list: () => request<Persona[]>("/api/personas"),
+  list: () => request<PersonasResponse>("/api/personas"),
   create: (data: Partial<Persona>) =>
     request("/api/personas/create", { method: "POST", body: JSON.stringify(data) }),
   generate: (description: string) =>
@@ -393,6 +393,24 @@ export interface Persona {
   source_policy?: string
 }
 
+export interface BuiltInPersona {
+  id: string
+  name: string
+  description: string
+  reading_level: string
+  tone: string
+  format: string
+  source_policy: string
+  built_in: true
+  editable: boolean
+  has_override: boolean
+}
+
+export interface PersonasResponse {
+  built_in: BuiltInPersona[]
+  custom: Persona[]
+}
+
 export interface SentinelConfig {
   backend: BackendConfig
   generation: GenerationConfig
@@ -425,6 +443,10 @@ export interface FlatSentinelConfig {
   chroma_prefix?: string
   competitor_system_prompt?: string
   account_system_prompt?: string
+  // Feature flags
+  two_tier?: boolean
+  coordinator?: boolean
+  strategy_overlay?: boolean
 }
 
 export interface BackendConfig {

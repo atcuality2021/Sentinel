@@ -3,112 +3,28 @@
 import { useState } from "react"
 import useSWR from "swr"
 import { GradientHeading } from "@/components/ui/gradient-heading"
-import { TextureCard } from "@/components/ui/texture-card"
-import { personas as personasApi, type Persona } from "@/lib/api"
-import { UserCircle, Sparkles, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react"
+import {
+  personas as personasApi,
+  type Persona, type BuiltInPersona, type PersonasResponse,
+} from "@/lib/api"
+import { fetcher } from "@/lib/fetcher"
+import {
+  UserCircle, Sparkles, Plus, Trash2, Edit2, RotateCcw, Lock,
+} from "lucide-react"
 
-const READING_LEVELS = ["professional", "general public", "technical", "executive"] as const
-const TONES = ["neutral", "technical", "plain", "strategic"] as const
-const FORMATS = ["brief", "report", "bullets", "table"] as const
-
-// ── Pill ─────────────────────────────────────────────────────────────────────
-
-function Pill({ label, color }: { label: string; color?: string }) {
-  const base =
-    "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium capitalize"
-  const palette = color ?? "bg-[var(--muted)] text-[var(--muted-foreground)]"
-  return <span className={`${base} ${palette}`}>{label}</span>
-}
-
-// ── Persona card ──────────────────────────────────────────────────────────────
-
-function PersonaCard({ persona, onDelete }: { persona: Persona; onDelete: () => void }) {
-  const [deleting, setDeleting] = useState(false)
-
-  async function handleDelete(e: React.MouseEvent) {
-    e.stopPropagation()
-    if (!confirm(`Delete persona "${persona.name}"?`)) return
-    setDeleting(true)
-    try {
-      await personasApi.delete(persona.id)
-    } catch {
-      // ignore
-    }
-    onDelete()
-    setDeleting(false)
-  }
-
-  return (
-    <TextureCard className="group relative p-5 rounded-2xl border border-[var(--border)] flex flex-col gap-4">
-      {/* header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-400 to-blue-500
-                        flex items-center justify-center text-white font-bold text-sm shrink-0"
-          >
-            {persona.name.charAt(0).toUpperCase()}
-          </div>
-          <div>
-            <h3 className="font-semibold text-sm">{persona.name}</h3>
-            {persona.role && (
-              <span className="text-xs text-[var(--muted-foreground)]">{persona.role}</span>
-            )}
-          </div>
-        </div>
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-50
-                     dark:hover:bg-red-900/20 text-red-500 transition-all"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {/* description */}
-      {persona.description && (
-        <p className="text-xs text-[var(--muted-foreground)] leading-relaxed line-clamp-3">
-          {persona.description}
-        </p>
-      )}
-
-      {/* pills: reading_level, tone, format */}
-      <div className="flex flex-wrap gap-1.5">
-        {persona.reading_level && (
-          <Pill
-            label={persona.reading_level}
-            color="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-          />
-        )}
-        {persona.tone && (
-          <Pill
-            label={persona.tone}
-            color="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
-          />
-        )}
-        {persona.format && (
-          <Pill
-            label={persona.format}
-            color="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-          />
-        )}
-        {persona.domains?.map((d) => (
-          <Pill key={d} label={d} />
-        ))}
-      </div>
-
-      {/* source_policy */}
-      {persona.source_policy && (
-        <p className="text-[11px] text-[var(--muted-foreground)] italic leading-snug">
-          Sources: {persona.source_policy}
-        </p>
-      )}
-    </TextureCard>
-  )
-}
-
-// ── Create / edit form ────────────────────────────────────────────────────────
+const READING_LEVELS = [
+  "professional", "general public", "technical", "executive",
+  "professional (engineering)", "professional (clinical)", "K-12 to undergraduate",
+] as const
+const TONES = ["neutral", "technical", "plain", "strategic", "clinical"] as const
+const FORMATS = [
+  "brief", "report", "bullets", "table",
+  "comparison table with code-level notes",
+  "short bullets ending in a clear recommendation",
+  "study guide with definitions and worked examples",
+  "structured brief with evidence levels per claim",
+  "checklist with a one-line rationale per item",
+] as const
 
 interface FormState {
   name: string
@@ -119,240 +35,302 @@ interface FormState {
   source_policy: string
 }
 
-const EMPTY_FORM: FormState = {
-  name: "",
-  description: "",
-  reading_level: "professional",
-  tone: "neutral",
-  format: "report",
-  source_policy: "",
+const EMPTY: FormState = {
+  name: "", description: "", reading_level: "professional",
+  tone: "neutral", format: "brief", source_policy: "",
 }
 
-function CreatePersonaForm({
-  initial,
-  onCreated,
-  onCancel,
-}: {
-  initial?: Partial<FormState>
-  onCreated: () => void
-  onCancel: () => void
-}) {
-  const [form, setForm] = useState<FormState>({ ...EMPTY_FORM, ...initial })
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+// ── Input helpers ─────────────────────────────────────────────────────────────
 
-  function set(key: keyof FormState) {
-    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
-      setForm((f) => ({ ...f, [key]: e.target.value }))
-  }
+const inputCls =
+  "w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-sm " +
+  "outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-    try {
-      await personasApi.create({
-        name: form.name,
-        description: form.description || undefined,
-        reading_level: form.reading_level || undefined,
-        tone: form.tone || undefined,
-        format: form.format || undefined,
-        source_policy: form.source_policy || undefined,
-      })
-      onCreated()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create persona")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const inputCls =
-    "w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
-  const selectCls = inputCls
-
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-      {/* name */}
-      <div>
-        <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">
-          Name *
-        </label>
-        <input
-          value={form.name}
-          onChange={set("name")}
-          required
-          placeholder="Senior Analyst"
-          className={inputCls}
-        />
-      </div>
-
-      {/* description */}
-      <div>
-        <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">
-          Description
-        </label>
-        <textarea
-          value={form.description}
-          onChange={set("description")}
-          rows={2}
-          placeholder="Expert in BFSI sector competitive analysis"
-          className={`${inputCls} resize-none`}
-        />
-      </div>
-
-      {/* reading_level + tone */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">
-            Reading level
-          </label>
-          <select value={form.reading_level} onChange={set("reading_level")} className={selectCls}>
-            {READING_LEVELS.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">
-            Tone
-          </label>
-          <select value={form.tone} onChange={set("tone")} className={selectCls}>
-            {TONES.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* format + source_policy */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">
-            Format
-          </label>
-          <select value={form.format} onChange={set("format")} className={selectCls}>
-            {FORMATS.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">
-            Source policy
-          </label>
-          <input
-            value={form.source_policy}
-            onChange={set("source_policy")}
-            placeholder="peer-reviewed only"
-            className={inputCls}
-          />
-        </div>
-      </div>
-
-      {error && <p className="text-xs text-red-500">{error}</p>}
-
-      <div className="flex gap-2 mt-1">
-        <button
-          type="submit"
-          disabled={loading || !form.name}
-          className="flex-1 rounded-lg bg-black dark:bg-white text-white dark:text-black
-                     py-2 text-sm font-semibold hover:opacity-80 disabled:opacity-40 transition-opacity"
-        >
-          {loading ? "Creating…" : "Create Persona"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-4 rounded-lg border border-[var(--border)] text-sm hover:bg-[var(--muted)] transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
+    <div>
+      <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1">{label}</label>
+      {children}
+    </div>
   )
 }
 
-// ── Generator section ─────────────────────────────────────────────────────────
+// ── Right panel: create / edit form + generator ───────────────────────────────
 
-function GeneratorSection({ onGenerated }: { onGenerated: (p: Partial<FormState>) => void }) {
-  const [open, setOpen] = useState(true)
-  const [description, setDescription] = useState("")
-  const [loading, setLoading] = useState(false)
+function RightPanel({
+  initial,
+  title,
+  onSaved,
+  onCancel,
+  isEditingBuiltIn,
+}: {
+  initial?: Partial<FormState>
+  title?: string
+  onSaved: () => void
+  onCancel: () => void
+  isEditingBuiltIn?: boolean
+}) {
+  const [form, setForm] = useState<FormState>({ ...EMPTY, ...initial })
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [genDesc, setGenDesc] = useState("")
+  const [generating, setGenerating] = useState(false)
+
+  function set(k: keyof FormState) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setForm((f) => ({ ...f, [k]: e.target.value }))
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form.name.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      await personasApi.create({
+        name: form.name, description: form.description || undefined,
+        reading_level: form.reading_level || undefined, tone: form.tone || undefined,
+        format: form.format || undefined, source_policy: form.source_policy || undefined,
+      })
+      onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault()
-    if (!description.trim()) return
-    setLoading(true)
+    if (!genDesc.trim()) return
+    setGenerating(true)
     setError(null)
     try {
-      const result = await personasApi.generate(description)
-      onGenerated({
+      const result = await personasApi.generate(genDesc)
+      setForm({
         name: result.name ?? "",
         description: result.description ?? "",
         reading_level: result.reading_level ?? "professional",
         tone: result.tone ?? "neutral",
-        format: result.format ?? "report",
+        format: result.format ?? "brief",
         source_policy: result.source_policy ?? "",
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generation failed")
     } finally {
-      setLoading(false)
+      setGenerating(false)
     }
   }
 
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
-      {/* header */}
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--muted)] transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-purple-500" />
-          <span className="text-sm font-semibold">AI Persona Generator</span>
-          <span className="text-xs text-[var(--muted-foreground)]">
-            — describe your audience and we'll fill the form
-          </span>
+    <div className="flex flex-col gap-4 sticky top-6">
+      {/* New / Edit form */}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold">{title ?? "New persona"}</h3>
+          {onCancel && (
+            <button onClick={onCancel} className="text-xs text-[var(--muted-foreground)] hover:underline">
+              Cancel
+            </button>
+          )}
         </div>
-        {open ? (
-          <ChevronUp className="w-4 h-4 text-[var(--muted-foreground)]" />
-        ) : (
-          <ChevronDown className="w-4 h-4 text-[var(--muted-foreground)]" />
-        )}
-      </button>
-
-      {open && (
-        <form onSubmit={handleGenerate} className="px-5 pb-5 flex flex-col gap-3">
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            placeholder="e.g. A CFO evaluating enterprise software at a Fortune 500 company"
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)]
-                       px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black dark:focus:ring-white resize-none"
-          />
+        <form onSubmit={handleSave} className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Name *">
+              <input value={form.name} onChange={set("name")} required
+                placeholder="e.g. CFO brief" className={inputCls}
+                readOnly={isEditingBuiltIn} />
+            </Field>
+            <Field label="Description">
+              <input value={form.description} onChange={set("description")}
+                placeholder="who this audience is" className={inputCls} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Reading level">
+              <select value={form.reading_level} onChange={set("reading_level")} className={inputCls}>
+                {READING_LEVELS.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </Field>
+            <Field label="Tone">
+              <select value={form.tone} onChange={set("tone")} className={inputCls}>
+                {TONES.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Output format">
+              <select value={form.format} onChange={set("format")} className={inputCls}>
+                {FORMATS.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </Field>
+            <Field label="Source policy">
+              <input value={form.source_policy} onChange={set("source_policy")}
+                placeholder="(none)" className={inputCls} />
+            </Field>
+          </div>
           {error && <p className="text-xs text-red-500">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading || !description.trim()}
-            className="self-start flex items-center gap-2 px-4 py-2 rounded-lg
-                       bg-gradient-to-r from-purple-500 to-blue-500 text-white text-sm font-semibold
-                       hover:opacity-90 disabled:opacity-40 transition-opacity"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            {loading ? "Generating…" : "Generate"}
+          <button type="submit" disabled={saving || !form.name.trim()}
+            className="w-full rounded-lg bg-black dark:bg-white text-white dark:text-black
+                       py-2 text-sm font-semibold hover:opacity-80 disabled:opacity-40 transition-opacity">
+            {saving ? "Saving…" : "Save persona"}
           </button>
         </form>
+        <p className="text-xs text-[var(--muted-foreground)] mt-3">
+          Saved personas appear in every task form&apos;s persona dropdown.
+        </p>
+      </div>
+
+      {/* AI generator */}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles className="w-4 h-4 text-purple-500" />
+          <h3 className="text-sm font-semibold">Generate a persona</h3>
+        </div>
+        <p className="text-xs text-[var(--muted-foreground)] mb-3">
+          Describe the audience in plain words — the vllm model drafts the full profile,
+          which lands in the form above for review before saving.
+        </p>
+        <form onSubmit={handleGenerate} className="flex flex-col gap-2">
+          <Field label="Audience description">
+            <textarea value={genDesc} onChange={(e) => setGenDesc(e.target.value)}
+              rows={3} placeholder="e.g. A hospital procurement officer comparing medical-device vendors under strict budget rules"
+              className={`${inputCls} resize-none`} />
+          </Field>
+          <Field label="Persona name (optional — carried into the form)">
+            <input value={form.name} onChange={set("name")}
+              placeholder="e.g. procurement officer" className={inputCls} />
+          </Field>
+          <button type="submit" disabled={generating || !genDesc.trim()}
+            className="w-full rounded-lg border border-[var(--border)] py-2 text-sm font-semibold
+                       hover:bg-[var(--muted)] disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+            <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+            {generating ? "Generating…" : "Generate profile"}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Saved persona card ────────────────────────────────────────────────────────
+
+function CustomPersonaCard({ persona, onDelete }: { persona: Persona; onDelete: () => void }) {
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleDelete() {
+    if (!confirm(`Delete persona "${persona.name}"?`)) return
+    setDeleting(true)
+    try { await personasApi.delete(persona.id) } catch { /* ignore */ }
+    onDelete()
+    setDeleting(false)
+  }
+
+  return (
+    <div className="group rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 flex flex-col gap-2">
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-400 to-blue-500
+                          flex items-center justify-center text-white font-bold text-xs shrink-0">
+            {persona.name.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <p className="text-sm font-semibold">{persona.name}</p>
+            {persona.role && <p className="text-xs text-[var(--muted-foreground)]">{persona.role}</p>}
+          </div>
+        </div>
+        <button onClick={handleDelete} disabled={deleting}
+          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20
+                     text-red-500 transition-all">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      {persona.description && (
+        <p className="text-xs text-[var(--muted-foreground)] line-clamp-2">{persona.description}</p>
+      )}
+      <div className="flex flex-wrap gap-1 text-[10px]">
+        {persona.reading_level && (
+          <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+            {persona.reading_level}
+          </span>
+        )}
+        {persona.tone && (
+          <span className="px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">
+            {persona.tone}
+          </span>
+        )}
+        {persona.format && (
+          <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
+            {persona.format}
+          </span>
+        )}
+      </div>
+      {persona.source_policy && (
+        <p className="text-[11px] text-[var(--muted-foreground)] italic">{persona.source_policy}</p>
+      )}
+    </div>
+  )
+}
+
+// ── Built-in persona row ──────────────────────────────────────────────────────
+
+function BuiltInRow({
+  persona,
+  onEdit,
+}: {
+  persona: BuiltInPersona
+  onEdit: (p: BuiltInPersona) => void
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-sm">{persona.name}</span>
+          <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded
+                           bg-[var(--muted)] text-[var(--muted-foreground)]">
+            BUILT-IN
+          </span>
+          {persona.has_override && (
+            <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded
+                             bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+              OVERRIDDEN
+            </span>
+          )}
+        </div>
+        {persona.editable ? (
+          <button onClick={() => onEdit(persona)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[var(--border)]
+                       text-xs hover:bg-[var(--muted)] transition-colors">
+            <Edit2 className="w-3 h-3" /> Edit
+          </button>
+        ) : (
+          <span className="flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
+            <Lock className="w-3 h-3" /> read-only
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-x-8 gap-y-0.5 text-xs text-[var(--muted-foreground)]">
+        {persona.reading_level && (
+          <><span className="font-medium text-[var(--foreground)]">reading level</span>
+          <span>{persona.reading_level}</span></>
+        )}
+        {persona.tone && (
+          <><span className="font-medium text-[var(--foreground)]">tone</span>
+          <span>{persona.tone}</span></>
+        )}
+        {persona.format && (
+          <><span className="font-medium text-[var(--foreground)]">format</span>
+          <span>{persona.format}</span></>
+        )}
+        {persona.source_policy && (
+          <><span className="font-medium text-[var(--foreground)]">sources</span>
+          <span>{persona.source_policy}</span></>
+        )}
+      </div>
+      {persona.name === "enterprise" && (
+        <p className="text-xs text-[var(--muted-foreground)] mt-2 italic">
+          Default audience — tasks with this persona skip the extra render pass (kept read-only).
+        </p>
       )}
     </div>
   )
@@ -361,98 +339,107 @@ function GeneratorSection({ onGenerated }: { onGenerated: (p: Partial<FormState>
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function PersonasPage() {
-  const { data: personaList, isLoading, mutate } = useSWR<Persona[]>(
-    "/api/personas",
-    () => personasApi.list(),
-  )
+  const { data, isLoading, mutate } = useSWR<PersonasResponse>("/api/personas", fetcher)
 
-  // "new" | "generated" | null
-  const [formMode, setFormMode] = useState<"new" | "generated" | null>(null)
-  const [prefill, setPrefill] = useState<Partial<FormState>>({})
+  const [editTarget, setEditTarget] = useState<{
+    form: Partial<FormState>
+    title: string
+    isBuiltIn: boolean
+  } | null>(null)
 
-  function handleGenerated(p: Partial<FormState>) {
-    setPrefill(p)
-    setFormMode("generated")
+  function handleEditBuiltIn(p: BuiltInPersona) {
+    setEditTarget({
+      form: {
+        name: p.name,
+        reading_level: p.reading_level,
+        tone: p.tone,
+        format: p.format,
+        source_policy: p.source_policy,
+      },
+      title: `Edit ${p.name}`,
+      isBuiltIn: true,
+    })
   }
 
-  function handleCreated() {
-    void mutate()
-    setFormMode(null)
-    setPrefill({})
-  }
-
-  function handleCancel() {
-    setFormMode(null)
-    setPrefill({})
-  }
-
-  const showForm = formMode !== null
+  const builtIns = data?.built_in ?? []
+  const customs  = data?.custom ?? []
 
   return (
     <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
-      {/* heading */}
-      <div className="flex items-end justify-between">
-        <div>
-          <GradientHeading size="md" weight="bold">Personas</GradientHeading>
-          <p className="text-sm text-[var(--muted-foreground)] mt-1">
-            Analyst personas shape how agents frame findings and what sources they prioritise.
-          </p>
-        </div>
-        {!showForm && (
-          <button
-            onClick={() => setFormMode("new")}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-black dark:bg-white
-                       text-white dark:text-black text-sm font-semibold hover:opacity-80 transition-opacity"
-          >
-            <Plus className="w-4 h-4" /> New Persona
-          </button>
-        )}
+      <div>
+        <GradientHeading size="md" weight="bold">Personas</GradientHeading>
+        <p className="text-sm text-[var(--muted-foreground)] mt-1">
+          Audience profiles that shape reading level, tone, and format.
+        </p>
       </div>
 
-      {/* AI generator (always visible unless form is open from "New Persona") */}
-      {!showForm && (
-        <GeneratorSection onGenerated={handleGenerated} />
-      )}
+      {/* Two-column layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
+        {/* Left: custom + built-ins */}
+        <div className="flex flex-col gap-6">
+          {/* Saved personas */}
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold">Saved personas</h3>
+              <button onClick={() => setEditTarget({ form: EMPTY, title: "New persona", isBuiltIn: false })}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black dark:bg-white
+                           text-white dark:text-black text-xs font-semibold hover:opacity-80 transition-opacity">
+                <Plus className="w-3.5 h-3.5" /> New
+              </button>
+            </div>
+            {isLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[...Array(2)].map((_, i) => (
+                  <div key={i} className="h-32 rounded-xl bg-[var(--muted)] animate-pulse" />
+                ))}
+              </div>
+            ) : customs.length === 0 ? (
+              <div className="flex flex-col items-center py-10 gap-2">
+                <UserCircle className="w-8 h-8 text-[var(--muted-foreground)]" />
+                <p className="text-sm text-[var(--muted-foreground)]">
+                  No saved personas yet — create or generate one.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {customs.map((p) => (
+                  <CustomPersonaCard key={p.id} persona={p} onDelete={() => void mutate()} />
+                ))}
+              </div>
+            )}
+          </div>
 
-      {/* create form */}
-      {showForm && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 max-w-xl">
-          <h3 className="font-semibold text-sm mb-4">
-            {formMode === "generated" ? "Review & save generated persona" : "New Persona"}
-          </h3>
-          <CreatePersonaForm
-            initial={prefill}
-            onCreated={handleCreated}
-            onCancel={handleCancel}
-          />
+          {/* Built-in personas */}
+          <div>
+            <h3 className="text-sm font-semibold mb-1">Built-in personas</h3>
+            <p className="text-xs text-[var(--muted-foreground)] mb-3">
+              <strong>Edit</strong> tweaks a built-in for every task (saved as an override);{" "}
+              <strong>Reset to default</strong> restores the code profile.{" "}
+              <strong>enterprise</strong> stays read-only. Pick <strong>auto</strong> in the task
+              form to let the agent choose one by domain.
+            </p>
+            <div className="flex flex-col gap-3">
+              {isLoading
+                ? [...Array(4)].map((_, i) => (
+                    <div key={i} className="h-20 rounded-xl bg-[var(--muted)] animate-pulse" />
+                  ))
+                : builtIns.map((p) => (
+                    <BuiltInRow key={p.id} persona={p} onEdit={handleEditBuiltIn} />
+                  ))}
+            </div>
+          </div>
         </div>
-      )}
 
-      {/* list */}
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-48 rounded-2xl bg-[var(--muted)] animate-pulse" />
-          ))}
-        </div>
-      ) : (personaList ?? []).length === 0 && !showForm ? (
-        <div className="rounded-2xl border border-dashed border-[var(--border)] p-16 text-center">
-          <UserCircle className="w-10 h-10 text-[var(--muted-foreground)] mx-auto mb-3" />
-          <p className="text-sm text-[var(--muted-foreground)]">No personas yet.</p>
-          <button
-            onClick={() => setFormMode("new")}
-            className="mt-3 text-sm font-semibold underline"
-          >
-            Create your first persona →
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(personaList ?? []).map((p) => (
-            <PersonaCard key={p.id} persona={p} onDelete={() => void mutate()} />
-          ))}
-        </div>
-      )}
+        {/* Right: always-visible form panel */}
+        <RightPanel
+          key={editTarget?.title ?? "new"}
+          initial={editTarget?.form ?? EMPTY}
+          title={editTarget?.title ?? "New persona"}
+          isEditingBuiltIn={editTarget?.isBuiltIn}
+          onSaved={() => { void mutate(); setEditTarget(null) }}
+          onCancel={() => setEditTarget(null)}
+        />
+      </div>
     </div>
   )
 }

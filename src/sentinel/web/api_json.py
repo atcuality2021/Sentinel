@@ -706,13 +706,49 @@ async def api_delete_agent(key: str) -> JSONResponse:
 
 
 # ── Personas ───────────────────────────────────────────────────────────────────
+_BUILTIN_DEFAULTS = {
+    "reading_level": "professional",
+    "tone": "neutral",
+    "format": "brief",
+    "source_policy": "",
+}
+
 @router.get("/personas")
 async def api_list_personas() -> JSONResponse:
     try:
         saved = PersonaStore().list()
     except Exception:
         saved = []
-    return JSONResponse([_persona_dict(p) for p in saved])
+
+    # Merge saved overrides for built-ins so the frontend can show the effective profile
+    try:
+        from sentinel.artifacts.schemas import PERSONA_PROFILES
+        saved_by_name = {p.name: p for p in saved}
+        builtin_list = []
+        for name, profile in PERSONA_PROFILES.items():
+            override = saved_by_name.get(name)
+            effective = {**_BUILTIN_DEFAULTS, **profile}
+            builtin_list.append({
+                "id": name,
+                "name": name,
+                "description": effective.get("description", ""),
+                "reading_level": effective["reading_level"],
+                "tone": effective["tone"],
+                "format": effective["format"],
+                "source_policy": effective.get("source_policy", ""),
+                "built_in": True,
+                "editable": name != "enterprise",
+                # surface any override the user saved
+                "has_override": override is not None,
+            })
+        # enterprise is always first
+        builtin_list.sort(key=lambda b: (0 if b["name"] == "enterprise" else 1, b["name"]))
+    except Exception:
+        builtin_list = []
+
+    # Custom saved personas (not matching a built-in name)
+    custom = [_persona_dict(p) for p in saved if p.name not in PERSONA_PROFILES]
+    return JSONResponse({"built_in": builtin_list, "custom": custom})
 
 
 @router.post("/personas/create")
@@ -867,6 +903,10 @@ async def api_get_settings() -> JSONResponse:
         "enable_semantic_memory": cfg.memory.kb_context,
         "memory_ttl_days": cfg.memory.retention_days,
         "chroma_prefix": "sentinel",
+        # Feature flags (agent pipeline capabilities)
+        "two_tier": cfg.research.two_tier,
+        "coordinator": cfg.coordinator.enabled,
+        "strategy_overlay": cfg.strategy.enabled,
     })
 
 
@@ -907,6 +947,13 @@ async def api_update_settings(request: Request) -> JSONResponse:
                 results=str(body["max_web_results"]),
                 onprem_fallback=cfg.search.onprem_fallback,
             )
+        if "two_tier" in body:
+            cfg.research.two_tier = bool(body["two_tier"])
+        if "coordinator" in body:
+            cfg.coordinator.enabled = bool(body["coordinator"])
+        if "strategy_overlay" in body:
+            cfg = _settings.apply_strategy(cfg, enabled=bool(body["strategy_overlay"]),
+                                           playbook_dir=cfg.strategy.playbook_dir)
         set_config(cfg, persist=True)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
