@@ -778,10 +778,18 @@ async def _run_one_step(
         if step.capability == PROGRAM_STRATEGY_CAP:
             # step.inputs maps output_key → compare_step_id (set by the template planner).
             # LLM-generated multi-compare plans often leave inputs={}, so fall back to
-            # scanning depends_on for any key that yields a valid ComparisonMatrix.
-            _input_keys = list(step.inputs.keys()) or step.depends_on
+            # resolving depends_on step IDs → output_keys (results_snapshot is keyed by
+            # output_key, not step ID — using step IDs directly always returns None).
+            if step.inputs:
+                _keys_to_check = list(step.inputs.keys())
+            else:
+                _keys_to_check = [
+                    by_id[dep_id].output_key
+                    for dep_id in step.depends_on
+                    if dep_id in by_id
+                ]
             _raw_matrices = []
-            for k in _input_keys:
+            for k in _keys_to_check:
                 raw = results_snapshot.get(k)
                 if raw is None:
                     continue
