@@ -13,9 +13,8 @@ import os
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    not os.getenv("SEARCHAPI_MCP_URL"),
-    reason="live SearchAPI MCP not configured (SEARCHAPI_MCP_URL unset)",
+pytestmark = pytest.mark.skip(
+    reason="SearchAPI MCP removed (API unavailable); shopping falls back to SERP leg",
 )
 
 

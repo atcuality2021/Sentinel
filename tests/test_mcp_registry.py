@@ -13,16 +13,14 @@ def cfg():
     return build_default()
 
 
-def test_defaults_ship_firecrawl_searchapi_gdrive(cfg):
+def test_defaults_ship_firecrawl_gdrive(cfg):
     assert "firecrawl" in cfg.mcp_servers
-    assert "searchapi" in cfg.mcp_servers
+    assert "searchapi" not in cfg.mcp_servers  # removed: API unavailable
     assert "gdrive" in cfg.mcp_servers
     fc = cfg.mcp_servers["firecrawl"]
     assert fc.transport == "stdio" and fc.command == "npx"
     assert fc.api_key_env == "FIRECRAWL_API_KEY"
     assert "firecrawl_search" in fc.tool_filter
-    sa = cfg.mcp_servers["searchapi"]
-    assert sa.transport == "http" and sa.url_env == "SEARCHAPI_MCP_URL"
     gd = cfg.mcp_servers["gdrive"]
     assert gd.transport == "stdio" and gd.api_key_env == "CLIENT_ID"
     # Read-only enforcement: the write tool must NOT be in the allow-list.
@@ -83,10 +81,9 @@ def test_build_failure_is_fail_soft(cfg, monkeypatch):
 
 def test_mcp_status_rows(cfg, monkeypatch):
     monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
-    monkeypatch.delenv("SEARCHAPI_MCP_URL", raising=False)
     rows = {r["name"]: r for r in mcp_status(cfg)}
     assert rows["firecrawl"]["configured"] is True
-    assert rows["searchapi"]["configured"] is False
+    assert "searchapi" not in rows  # removed from defaults
     assert rows["firecrawl"]["secret_env"] == "FIRECRAWL_API_KEY"
 
 

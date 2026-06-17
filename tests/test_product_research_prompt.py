@@ -39,7 +39,7 @@ def test_render_placeholders_preserved():
     assert "{target}" in p and "{research_plan}" in p
 
 
-def test_searchapi_description_mentions_shopping():
+def test_searchapi_not_in_defaults():
+    # SearchAPI removed from defaults (API unavailable); shopping falls back to SERP leg in find_deals
     cfg = SentinelConfig.default()
-    server = cfg.mcp_servers["searchapi"]   # cfg.mcp_servers is a {name: MCPServerConfig} dict
-    assert "google_shopping_search" in server.description
+    assert "searchapi" not in cfg.mcp_servers

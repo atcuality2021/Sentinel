@@ -360,10 +360,12 @@ def test_sovereign_run_never_inflates_the_cap(monkeypatch):
 def test_generous_gemini_cap_is_not_lowered():
     """An agent already configured above the floor keeps its own (larger) budget — the floor only
     raises, never clamps."""
+    from sentinel.agent.modes._build import GEMINI_MIN_OUTPUT_TOKENS
     cfg = _tiered_cfg()
-    cfg.agents["self_profile.synthesizer"].generation.max_output_tokens = 16384
+    above_floor = GEMINI_MIN_OUTPUT_TOKENS * 2  # clearly above floor → must not be clamped
+    cfg.agents["self_profile.synthesizer"].generation.max_output_tokens = above_floor
     agent = make_agent(
         cfg, "self_profile.synthesizer", name="synth", output_key="self_profile",
         mode_backend="gemini", cloud_allowed=True,
     )
-    assert agent.generate_content_config.max_output_tokens == 16384
+    assert agent.generate_content_config.max_output_tokens == above_floor

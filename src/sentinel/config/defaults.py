@@ -754,20 +754,21 @@ _P_PRODUCT_RESEARCH_EXTRACTOR = (
 )
 _P_PRODUCT_RESEARCH_SYNTH = (
     "Synthesize a ProductResearch for '{target}' from findings:\n\n{public_findings}\n\n"
-    "For each qualifying product, create a ProductOption: name, brand, price (₹), processor, ram, "
-    "storage, display, battery, score (X/10), pros (list), cons (list), source_url. "
+    "For each qualifying product, create a ProductOption: name, brand, price (₹ if available, else 0), "
+    "processor, ram, storage, display, battery, score (X/10), pros (list), cons (list), source_url. "
     "Set 'criteria' to the buyer's requirements summary. "
     "Rank ALL products by value-for-money in value_ranking (best first). "
-    "Declare the winner with a clear winner_rationale (cite specific specs and price advantage). "
+    "Declare the winner with a clear winner_rationale (cite specific specs and price if available). "
     "Write a one-line assessment. "
-    "Only include products with sourced prices. Every Finding.source.boundary MUST be 'public'. "
-    "Add Gaps for missing specs."
+    "Include ALL qualifying products found, even when exact price data is unavailable (set price=0). "
+    "Every Finding.source.boundary MUST be 'public'. Add Gaps for missing specs or prices."
 )
 _P_PRODUCT_RESEARCH_SYNTH_2T = (
     "Synthesize a ProductResearch for '{target}' from per-source extractions:\n\n{extractions}\n\n"
-    "Create ProductOptions for all qualifying products with sourced specs and prices (₹). "
-    "Rank by value-for-money, declare winner with rationale. "
+    "Create ProductOptions for all qualifying products with available specs; include price (₹) when "
+    "found, otherwise leave price empty. Rank by value-for-money, declare winner with rationale. "
     "Set 'criteria' to the buyer's requirements. "
+    "Include ALL products found, even without price data. "
     "Every Finding.source.boundary MUST be 'public'. Add Gaps for missing data."
 )
 
@@ -1036,17 +1037,6 @@ def _default_mcp_servers() -> dict:
             tool_filter=["firecrawl_search", "firecrawl_scrape"],
             domains=[],  # every domain — the model picks it when a page needs scraping
             description="Web scraping + search (Firecrawl). Markdown extraction from any URL.",
-        ),
-        "searchapi": MCPServerConfig(
-            transport="http", url_env="SEARCHAPI_MCP_URL",
-            # No local filter: the SearchAPI dashboard integration already curates which
-            # engine tools the URL exposes (verified live: tools/list returns only the
-            # engines selected when creating the integration). Add engines there, not here.
-            tool_filter=[],
-            domains=[],
-            description=("SearchAPI.io shopping engines — google_shopping_search (live priced "
-                         "e-commerce listings with seller + product_token) and google_product "
-                         "(token → multi-seller offers + price history). Use for product prices/deals."),
         ),
         "gdrive": MCPServerConfig(
             transport="stdio", command="npx", args="-y @isaacphi/mcp-gdrive",

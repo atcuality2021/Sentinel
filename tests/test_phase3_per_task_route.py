@@ -135,8 +135,8 @@ def test_running_task_shows_live_timeline_not_popup(monkeypatch):
         assert "Gemma-12B" in body["steps"][0]["model"]
         assert "Gemma-26B" in body["steps"][0]["model"]
 
-        # dag stamps started_at but leaves status='pending' → endpoint derives 'running'
-        plan.steps[0].started_at = _NOW
+        # dag.py sets status="running" directly when a step starts (app.py reads s.status verbatim)
+        plan.steps[0].status = "running"
         assert _client().get("/projects/p-pr/tasks/t-live/status.json").json()["steps"][0]["status"] == "running"
     finally:
         web_app._ACTIVE_RUNS.pop("t-live", None)
