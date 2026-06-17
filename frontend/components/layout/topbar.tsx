@@ -22,7 +22,7 @@ export function Topbar({ title }: { title?: string }) {
   const [gov, setGov] = useState<GovernanceMode>("cloud_ok")
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/settings`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/settings`, {
       credentials: "include",
     })
       .then((r) => r.json())

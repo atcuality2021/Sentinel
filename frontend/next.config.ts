@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
       // Auth endpoints — must go through the proxy so Set-Cookie lands on localhost:3001
       { source: "/auth/login",  destination: `${BACKEND}/login`  },
       { source: "/auth/logout", destination: `${BACKEND}/logout` },
+      { source: "/login",       destination: `${BACKEND}/login`  },
+      { source: "/logout",      destination: `${BACKEND}/logout` },
+      { source: "/setup",       destination: `${BACKEND}/setup`  },
       // Proxy JSON API and status polling to the Python backend
       { source: "/api/:path*", destination: `${BACKEND}/api/:path*` },
       { source: "/projects/:path*/status.json", destination: `${BACKEND}/projects/:path*/status.json` },
