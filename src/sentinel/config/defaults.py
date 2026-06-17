@@ -322,6 +322,8 @@ _P_PLANNER = (
     "You are the Sentinel research planner. You do NOT research or write any artifact yourself — "
     "your sole job is to decompose the objective into an ordered DAG of capability steps that other "
     "specialists will execute.\n\n"
+    "PROJECT CONTEXT (what this project is about — use this to understand whether the objective "
+    "is about OUR organisation or an external subject):\n{project_context}\n\n"
     "OBJECTIVE:\n{objective}\n\n"
     "DOMAIN: {domain}\n"
     "AUDIENCE/PERSONA (JSON, render-only — it shapes the final framing, NOT which steps you plan):\n"
@@ -330,8 +332,9 @@ _P_PLANNER = (
     "specialist):\n{capability_catalogue}\n\n"
     "Emit a Plan: a list of steps. Each step has:\n"
     "- id: a short unique slug (e.g. 's1', 'profile').\n"
-    "- capability: WHAT the step produces. Prefer a name from the catalogue above; invent a new "
-    "capability name ONLY when nothing listed fits.\n"
+    "- capability: WHAT the step produces. Use the bare capability name from the catalogue "
+    "(e.g. `competitor`, not `competitor (domain: market)`). Prefer a name from the catalogue; "
+    "invent a new bare name ONLY when nothing listed fits.\n"
     "- depends_on: the ids of steps whose output this step needs (an empty list for roots). The "
     "graph MUST be acyclic and every id in depends_on MUST be a step in this plan.\n"
     "- output_key: the state key this step writes (usually the capability name).\n"
@@ -960,9 +963,9 @@ def build_default() -> SentinelConfig:
         "persona.renderer": _prompt(_P_PERSONA_RENDER, ["finding_texts", "persona_profile"]),
         # eval judge: all three vars are build-time seeded state keys (not RESERVED) → declared here.
         "eval.judge": _prompt(_P_JUDGE, ["objective", "artifact_json", "sources_json"]),
-        # orchestrator planner: all four vars are build-time seeded state keys (not RESERVED).
+        # orchestrator planner: seeded state keys (not RESERVED).
         "orchestrator.planner": _prompt(
-            _P_PLANNER, ["objective", "domain", "persona", "capability_catalogue"]
+            _P_PLANNER, ["objective", "domain", "persona", "capability_catalogue", "project_context"]
         ),
         "coordinator": _prompt(_P_COORDINATOR, ["target"]),
         # builder-substituted notes for the {private_note} slot

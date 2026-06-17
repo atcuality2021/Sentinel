@@ -1789,8 +1789,10 @@ async def plan_review(project_id: str, objective: str = "", domain: str = "marke
         backend = ""
     if backend == "gemini" and not cloud_allowed:
         backend = "vllm"  # governance override: can't allow cloud when project is on_prem_required
+    _proj_ctx = (getattr(proj, "context", None) or getattr(proj, "description", None) or "").strip() or None
     try:
-        proposal = await plan_task(task, AgentRegistry(), cloud_allowed=cloud_allowed)
+        proposal = await plan_task(task, AgentRegistry(), cloud_allowed=cloud_allowed,
+                                   project_context=_proj_ctx)
         task.status = "planned"             # the plan exists now (reflected in the Tasks list)
         task.plan_id = proposal.plan.id
         store.save_task(task)
@@ -2002,7 +2004,16 @@ async def _execute_run(task, plan, proj, override_backend: str) -> None:
             return
 
     if outcome.ran and outcome.result is not None:
-        task.status = "failed" if outcome.result.degraded else "done"
+        if outcome.result.degraded:
+            task.status = "failed"
+            missing = outcome.result.missing_inputs
+            task.fail_reason = (
+                f"Degraded result — steps produced no output: {', '.join(missing)}."
+                if missing else "One or more research steps produced insufficient output."
+            )
+            entry["error"] = task.fail_reason
+        else:
+            task.status = "done"
         task.result = outcome.result
         store.save_task(task)
         _persist_run(task, outcome.result, entry.get("backend", "vllm"))

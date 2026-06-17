@@ -324,15 +324,18 @@ async def api_create_task(
         _fallback = _cfg.backend.fallback  # "gemini" | "claude" | None
         _run_backend = override_backend  # may be "" meaning "use config default"
 
+        _proj_ctx = (getattr(_proj, "context", None) or getattr(_proj, "description", None) or "").strip() or None
         try:
             proposal = await plan_task(_task, AgentRegistry(),
-                                       cloud_allowed=_cloud_allowed_for(_proj))
+                                       cloud_allowed=_cloud_allowed_for(_proj),
+                                       project_context=_proj_ctx)
         except Exception as exc:
             if _is_vllm_error(exc) and _fallback:
                 # vLLM is down — retry planning on the fallback backend
                 try:
                     proposal = await plan_task(_task, AgentRegistry(),
-                                               backend=_fallback, cloud_allowed=True)
+                                               backend=_fallback, cloud_allowed=True,
+                                               project_context=_proj_ctx)
                     _run_backend = _fallback  # carry fallback through to execution
                 except Exception as exc2:
                     _task.status = "failed"
@@ -391,7 +394,7 @@ async def api_retry_kb_source(
 async def api_run_task(
     project_id: str, task_id: str, request: Request, background_tasks: BackgroundTasks
 ) -> JSONResponse:
-    """Dispatch a task run via the same _approve_and_run path the HTML UI uses."""
+    """Re-plan + run a task (same pipeline as task creation — always generates a fresh plan)."""
     from sentinel.web.app import _ACTIVE_RUNS, _approve_and_run
 
     store = ProjectStore()
@@ -408,16 +411,56 @@ async def api_run_task(
     except Exception:
         body = {}
     override_backend = (body.get("backend") or "").strip()
-    extra_context = (body.get("context") or "").strip()
 
-    # _approve_and_run normally returns a redirect; we ignore its return value and
-    # return our own JSON response so the React client doesn't follow a 303.
-    await _approve_and_run(
-        task_id,
-        override_backend=override_backend,
-        extra_context=extra_context,
-        background_tasks=background_tasks,
-    )
+    async def _replan_and_run() -> None:
+        from sentinel.llm.gateway import _is_vllm_error
+        from sentinel.web.app import _approve_and_run, _cloud_allowed_for
+        from sentinel.agent.registry import AgentRegistry
+        from sentinel.agent.orchestrator_planner import plan_task
+        _store = ProjectStore()
+        _task = _store.get_task(task_id)
+        _proj = _store.get_project(project_id)
+        if _task is None or _proj is None:
+            return
+        _run_backend = override_backend
+        _proj_ctx = (getattr(_proj, "context", None) or getattr(_proj, "description", None) or "").strip() or None
+        try:
+            proposal = await plan_task(_task, AgentRegistry(),
+                                       cloud_allowed=_cloud_allowed_for(_proj),
+                                       project_context=_proj_ctx)
+        except Exception as exc:
+            cfg = get_config()
+            _fallback = cfg.backend.fallback
+            if _is_vllm_error(exc) and _fallback:
+                try:
+                    proposal = await plan_task(_task, AgentRegistry(),
+                                               backend=_fallback, cloud_allowed=True,
+                                               project_context=_proj_ctx)
+                    _run_backend = _fallback
+                except Exception as exc2:
+                    _task.status = "failed"
+                    _task.fail_reason = f"Re-plan failed — vLLM down; fallback also failed: {str(exc2)[:200]}"
+                    _store.save_task(_task)
+                    return
+            else:
+                _task.status = "failed"
+                _task.fail_reason = f"Re-plan failed: {type(exc).__name__}: {str(exc)[:300]}"
+                _store.save_task(_task)
+                return
+        _task.status = "planned"
+        _task.plan_id = proposal.plan.id
+        _store.save_task(_task)
+        _store.save_plan(proposal.plan)
+        # Clear any stale _ACTIVE_RUNS entry so the double-submit guard doesn't block
+        # re-plan execution (a previous failed/stuck run leaves state != "running" but
+        # a racing first invocation of _replan_and_run may have set it to "running"
+        # before we finish planning — pop it unconditionally before handing off).
+        from sentinel.web.app import _ACTIVE_RUNS
+        _ACTIVE_RUNS.pop(task_id, None)
+        await _approve_and_run(task_id, override_backend=_run_backend,
+                               extra_context="", background_tasks=None)
+
+    background_tasks.add_task(_replan_and_run)
     return JSONResponse({"ok": True, "task_id": task_id})
 
 

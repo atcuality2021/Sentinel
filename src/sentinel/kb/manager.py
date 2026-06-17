@@ -21,8 +21,8 @@ def _bm25_path(project_id: str, data_dir: Path) -> Path:
 class KBManager:
     """Orchestrates the full crawl → chunk → embed → dual-index pipeline."""
 
-    def __init__(self, data_dir: Path) -> None:
-        self._data_dir = data_dir
+    def __init__(self, data_dir: str | Path) -> None:
+        self._data_dir = Path(data_dir)
 
     async def add_source(
         self,

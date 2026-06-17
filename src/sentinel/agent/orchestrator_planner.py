@@ -87,7 +87,7 @@ def _capability_catalogue(registry: AgentRegistry) -> str:
     lines = []
     for cap, dom in sorted(seen):
         desc = _CAPABILITY_DESCRIPTIONS.get(cap, "a domain specialist.")
-        lines.append(f"- {cap} (domain: {dom}) — {desc}")
+        lines.append(f"- capability={cap!r}  domain={dom!r}  → {desc}")
     return "\n".join(lines)
 
 
@@ -170,6 +170,11 @@ def staff_plan(
     created: list[AgentSpec] = []
     domain = task.domain.name
     for step in plan.steps:
+        # Normalise: strip any " (domain: ...)" suffix the LLM may have copied verbatim
+        # from the catalogue line instead of using just the bare capability name.
+        cap = _re.sub(r"\s*\(domain:[^)]*\)\s*$", "", step.capability, flags=_re.I).strip()
+        if cap != step.capability:
+            step.capability = cap
         spec = registry.resolve(step.capability, domain)
         if spec is None:
             spec = _mint_created_spec(step.capability, domain, created_schema_ref)
@@ -184,6 +189,8 @@ import re as _re
 _COMPARE_RE = _re.compile(r"\b(?:vs\.?|versus|against|compared?\s+(?:to|with)|benchmark|head[- ]to[- ]head)\b", _re.I)
 _STRATEGY_RE = _re.compile(r"\b(?:strateg|market[- ]capture|go[- ]to[- ]market|capture the market)\b", _re.I)
 _PROFILE_RE = _re.compile(r"\b(?:profile|research|analy[sz]e|assess|overview of|about)\b", _re.I)
+# External URL in objective → study of an external company/product, never uses self_profile
+_EXTERNAL_URL_RE = _re.compile(r"https?://\S+", _re.I)
 # Parenthetical dept list: "(flood, agriculture, land records)"
 _GOVT_PAREN_RE = _re.compile(r"\(([^)]+)\)")
 # Keyword-based dept extraction (common Indian govt domains)
@@ -292,10 +299,23 @@ def _template_plan(task: Task) -> Plan | None:
             steps.append(Step(id="strategy", capability=PROGRAM_STRATEGY_CAP, depends_on=["compare"],
                               output_key="program_strategy", inputs={"compare": "compare"}))
         return Plan(id=pid, task_id=task.id, steps=steps)
-    if _PROFILE_RE.search(obj):                              # profile-us only
-        return Plan(id=pid, task_id=task.id,
-                    steps=[Step(id="self_profile", capability="self_profile",
-                                output_key="self_profile")])
+
+    # External URL in objective → studying an EXTERNAL company/product.
+    # self_profile profiles OUR organisation and must NEVER appear here.
+    # program_strategy requires ComparisonMatrix inputs (from a compare step) — not available
+    # without self_profile.  Two parallel steps suffice: product_research covers the product/market
+    # context; competitor runs the full planner→web-search→battlecard pipeline on the target company.
+    if _EXTERNAL_URL_RE.search(obj):
+        steps = [
+            Step(id="product_research", capability="product_research", output_key="product_research"),
+            Step(id="competitor", capability="competitor", output_key="competitor"),
+        ]
+        return Plan(id=pid, task_id=task.id, steps=steps)
+
+    # Non-compare market tasks (e.g. "Analyze venture capital trends") fall through to the LLM
+    # planner so it can pick the right capability using project context.  The old _PROFILE_RE
+    # catch-all that mapped any objective containing "analyze/research" to self_profile was
+    # wrong: self_profile is for OUR organisation, not external market research.
     return None
 
 
@@ -308,6 +328,7 @@ async def plan_task(
     cloud_allowed: bool = True,
     created_schema_ref: str = _DEFAULT_CREATED_SCHEMA,
     trace: list[str] | None = None,
+    project_context: str | None = None,
 ) -> PlanProposal:
     """Full planner: run the Plan-pass LLM, then the staffing pass. Returns a :class:`PlanProposal`
     (a staffed Plan + any created specs) — nothing executes here (propose-by-default, §AC-13)."""
@@ -332,6 +353,7 @@ async def plan_task(
             "domain": task.domain.name,
             "persona": task.persona.model_dump_json(),
             "capability_catalogue": _capability_catalogue(registry),
+            "project_context": project_context or "",
         }
         # Reasoner (26B) ⇒ SSE-streamed to clear the Cloudflare 524 wall (SENTINEL streaming policy).
         state = await orch.run_step(

@@ -143,6 +143,41 @@ async def _crawl_playwright(
     return pages
 
 
+async def _crawl_firecrawl(
+    start_url: str,
+    source_type: str,
+) -> list[CrawledPage]:
+    """Use Firecrawl API to extract content from JS-rendered pages."""
+    import os
+
+    import httpx
+
+    api_key = os.environ.get("FIRECRAWL_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("FIRECRAWL_API_KEY not set")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            "https://api.firecrawl.dev/v1/scrape",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"url": start_url, "formats": ["markdown"]},
+        )
+    if not resp.is_success:
+        raise RuntimeError(f"Firecrawl HTTP {resp.status_code}: {resp.text[:200]}")
+
+    payload = resp.json()
+    data = payload.get("data") or {}
+    markdown = (data.get("markdown") or "").strip()
+    metadata = data.get("metadata") or {}
+    title = (metadata.get("title") or metadata.get("ogTitle") or
+             urlparse(start_url).path or start_url)
+
+    if len(markdown) < 100:
+        raise RuntimeError("Firecrawl returned insufficient content")
+
+    return [CrawledPage(url=start_url, title=title, text=markdown, source_type=source_type)]
+
+
 async def crawl_website(
     start_url: str,
     max_pages: int = 50,
@@ -150,10 +185,13 @@ async def crawl_website(
     source_type: str = "web",
 ) -> list[CrawledPage]:
     """
-    Crawl start_url and all same-domain links up to max_depth.
-    Tries Playwright first (for JS-rendered pages); falls back to httpx if
-    Playwright's Chromium binary is unavailable.
+    Crawl start_url and extract content.
+    Priority: Firecrawl API (handles JS-rendered pages) → Playwright → httpx fallback.
     """
+    try:
+        return await _crawl_firecrawl(start_url, source_type)
+    except Exception:
+        pass
     try:
         return await _crawl_playwright(start_url, max_pages, max_depth, source_type)
     except Exception:

@@ -195,6 +195,23 @@ def test_capability_catalogue_describes_self_vs_rival(tmp_path):
     cat = _capability_catalogue(_registry(tmp_path))
     assert "self_profile" in cat and "OUR OWN" in cat        # the planner can tell 'us'...
     assert "competitor" in cat and "RIVAL" in cat            # ...from 'them' (the #1 mislabel)
+    # New format: capability=... domain=... so LLM doesn't copy "name (domain: x)" verbatim
+    assert "capability=" in cat
+    assert "(domain:" not in cat                             # old format must be gone
+
+
+def test_staff_plan_normalises_domain_suffix_in_capability(tmp_path):
+    """LLM sometimes copies 'competitor (domain: market)' from the catalogue line instead of
+    just 'competitor'. staff_plan must strip the suffix and resolve to the seeded spec."""
+    from sentinel.agent.orchestrator_planner import staff_plan
+    reg = _registry(tmp_path)
+    plan = Plan(id="pl", task_id="t1", steps=[
+        Step(id="s1", capability="competitor (domain: market)", output_key="competitor"),
+    ])
+    created = staff_plan(plan, _task(objective="Compare vs rival"), reg)
+    assert created == []                                     # resolved to seeded spec, nothing created
+    assert plan.steps[0].capability == "competitor"         # name normalised
+    assert plan.steps[0].agent_spec_id == "seed-competitor-market"
 
 
 def test_template_plan_emits_canonical_compare_chain():
@@ -217,14 +234,56 @@ def test_template_plan_adds_strategy_when_requested():
 
 def test_template_plan_profile_only_and_fallback():
     from sentinel.agent.orchestrator_planner import _template_plan
-    only = _template_plan(_task(objective="Profile BiltIQ AI and list its strengths"))
-    assert [s.capability for s in only.steps] == ["self_profile"]
+    # Non-compare market tasks (including "Profile ...") now fall through to the LLM planner so
+    # it can use project context to decide whether `self_profile` or an external-research capability
+    # is correct.  The old _PROFILE_RE hard-coded self_profile for any objective containing
+    # "profile/analyze/research", wrongly routing external market research (e.g. "Analyze VC
+    # trends") to the organisation's own self-profile agent.
+    assert _template_plan(_task(objective="Profile BiltIQ AI and list its strengths")) is None
     # SENTINEL-014: single-step domains get a deterministic 1-step plan (not LLM).
     nutrition_plan = _template_plan(_task(objective="Find a recipe for biryani", domain="nutrition"))
     assert nutrition_plan is not None
     assert [s.capability for s in nutrition_plan.steps] == ["nutrition"]
     # Truly novel domain (no registered template) → falls through to LLM planner.
     assert _template_plan(_task(objective="Random query", domain="custom_novel_xyz")) is None
+
+
+def test_template_plan_external_url_never_uses_self_profile():
+    from sentinel.agent.orchestrator_planner import _template_plan
+    # An objective containing an external URL should never produce a self_profile step —
+    # self_profile profiles OUR organisation, not the external company being studied.
+    # program_strategy is also excluded: it requires ComparisonMatrix inputs (from compare),
+    # which are unavailable without self_profile. Two parallel steps cover the use-case:
+    # product_research (product/market context) + competitor (battlecard on the target company).
+    plan = _template_plan(_task(objective="study https://rumz.ai/ and how they can capture market"))
+    assert plan is not None
+    caps = [s.capability for s in plan.steps]
+    assert "self_profile" not in caps                          # must never appear for external URLs
+    assert "program_strategy" not in caps                      # needs ComparisonMatrix, not available
+    assert "product_research" in caps                          # product/market context
+    assert "competitor" in caps                                # full battlecard on the target
+    assert len(caps) == 2                                      # exactly two parallel steps
+
+
+def test_template_plan_external_url_compare_takes_priority():
+    from sentinel.agent.orchestrator_planner import _template_plan
+    # "compare" keyword + external URL → _COMPARE_RE fires first (compare-us-vs-rival chain),
+    # not the external-URL path.  self_profile IS correct here (it's "us vs them").
+    plan = _template_plan(_task(objective="Compare BiltIQ vs https://rival.com — who wins?"))
+    caps = [s.capability for s in plan.steps]
+    assert caps == ["self_profile", "competitor", "compare"]
+
+
+def test_plan_task_external_url_uses_template_without_llm(monkeypatch, tmp_path):
+    monkeypatch.setenv("ATCUALITY_API_KEY", "atc")
+    task = _task(objective="study https://rumz.ai/ and how they can capture the meeting AI market")
+    proposal = asyncio.run(plan_task(task, _registry(tmp_path), cfg=_tiered_cfg(), backend="vllm",
+                                     cloud_allowed=False))
+    caps = [s.capability for s in proposal.plan.steps]
+    assert "self_profile" not in caps
+    assert "program_strategy" not in caps
+    assert set(caps) == {"product_research", "competitor"}
+    assert all(s.agent_spec_id for s in proposal.plan.steps)   # every step staffed
 
 
 def test_plan_task_uses_template_without_calling_llm(monkeypatch, tmp_path):
