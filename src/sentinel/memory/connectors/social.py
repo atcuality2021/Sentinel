@@ -1,5 +1,5 @@
 # src/sentinel/memory/connectors/social.py
-"""Social connector — searches Twitter/LinkedIn via SearchAPI MCP and extracts public facts."""
+"""Social connector — searches Twitter/LinkedIn via Firecrawl MCP and extracts public facts."""
 from __future__ import annotations
 
 import json
@@ -39,16 +39,16 @@ class SocialConnector(SourceConnector):
     async def _search_and_extract(self, entity: str, query: str) -> list[SourceFinding]:
         try:
             from sentinel.tools.mcp_registry import get_mcp_tool
-            searchapi = get_mcp_tool("searchapi")
-            result = await searchapi.call("google_search", q=query, num=5)
-            items = result.get("organic_results", [])[:5]
+            firecrawl = get_mcp_tool("firecrawl")
+            result = await firecrawl.call("firecrawl_search", query=query, limit=5)
+            items = result.get("results", result.get("data", []))[:5]
             if not items:
                 return []
             raw = "\n\n".join(
-                f"Title: {r.get('title', '')}\nSnippet: {r.get('snippet', '')}"
+                f"Title: {r.get('title', '')}\nSnippet: {r.get('description', r.get('snippet', ''))}"
                 for r in items
             )
-            url = items[0].get("link", "") if items else ""
+            url = items[0].get("url", "") if items else ""
             from sentinel.memory.connectors._extractor import extract_findings
             return await extract_findings(
                 entity,

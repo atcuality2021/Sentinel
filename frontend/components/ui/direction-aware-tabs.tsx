@@ -70,7 +70,7 @@ function DirectionAwareTabs({
     <div className=" flex flex-col items-center w-full">
       <div
         className={cn(
-          "flex space-x-1 border border-none rounded-full cursor-pointer bg-neutral-600 px-[3px] py-[3.2px] shadow-inner-shadow",
+          "flex space-x-1 border border-none rounded-full cursor-pointer bg-[var(--foreground)]/10 dark:bg-neutral-600 px-[3px] py-[3.2px] shadow-inner-shadow",
           className,
           rounded
         )}
@@ -80,10 +80,10 @@ function DirectionAwareTabs({
             key={tab.id}
             onClick={() => handleTabClick(tab.id)}
             className={cn(
-              "relative rounded-full px-3.5 py-1.5 text-xs sm:text-sm font-medium text-neutral-200  transition focus-visible:outline-1 focus-visible:ring-1  focus-visible:outline-none flex gap-2 items-center ",
+              "relative rounded-full px-3.5 py-1.5 text-xs sm:text-sm font-medium transition focus-visible:outline-1 focus-visible:ring-1 focus-visible:outline-none flex gap-2 items-center",
               activeTab === tab.id
-                ? "text-white"
-                : "hover:text-neutral-300/60  text-neutral-200/80",
+                ? "text-[var(--foreground)] dark:text-white"
+                : "text-[var(--muted-foreground)] dark:text-neutral-200/80 hover:text-[var(--foreground)] dark:hover:text-neutral-300/60",
               rounded ? roundedInner : undefined
             )}
             style={{ WebkitTapHighlightColor: "transparent" }}
@@ -92,7 +92,7 @@ function DirectionAwareTabs({
               <motion.span
                 layoutId="bubble"
                 className={cn(
-                  "absolute inset-0 z-10 bg-neutral-700 mix-blend-difference shadow-inner-shadow border border-white/10",
+                  "absolute inset-0 z-10 bg-[var(--foreground)] dark:bg-neutral-700 mix-blend-difference shadow-inner-shadow border border-[var(--border)] dark:border-white/10",
                   rounded ? roundedInner : "rounded-full"
                 )}
                 transition={{ type: "spring", bounce: 0.19, duration: 0.4 }}

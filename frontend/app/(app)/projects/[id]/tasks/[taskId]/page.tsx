@@ -147,7 +147,7 @@ function MdMessage({ text }: { text: string }) {
 const VERDICT_STYLE: Record<string, string> = {
   win:    "bg-green-900/40 text-green-300 border border-green-700/40",
   loss:   "bg-red-900/40 text-red-300 border border-red-700/40",
-  parity: "bg-neutral-800 text-neutral-300 border border-neutral-700",
+  parity: "bg-[var(--muted)] dark:bg-neutral-800 text-[var(--foreground)] dark:text-neutral-300 border border-[var(--border)] dark:border-neutral-700",
 }
 
 /** Detect the semantic type of a structured object from its keys. */
@@ -478,7 +478,7 @@ function LiveRunPanel({
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               {lastDoneStep?.model && lastDoneStep.model !== runningStep.model && (
                 <>
-                  <span className="px-2 py-0.5 rounded text-xs bg-neutral-800 text-neutral-400 font-mono">
+                  <span className="px-2 py-0.5 rounded text-xs bg-[var(--muted)] dark:bg-neutral-800 text-[var(--muted-foreground)] dark:text-neutral-400 font-mono">
                     {lastDoneStep.model}
                   </span>
                   <span className="text-[var(--muted-foreground)] text-xs">→</span>
@@ -665,7 +665,7 @@ function callsBadge(calls: string) {
       ? "bg-blue-900/40 text-blue-300 border border-blue-700/40"
       : calls.includes("MCP")
       ? "bg-amber-900/40 text-amber-300 border border-amber-700/40"
-      : "bg-neutral-800 text-neutral-400 border border-neutral-700"
+      : "bg-[var(--muted)] dark:bg-neutral-800 text-[var(--muted-foreground)] dark:text-neutral-400 border border-[var(--border)] dark:border-neutral-700"
   return (
     <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${cls}`}>{calls}</span>
   )
@@ -897,10 +897,10 @@ function ResultPanel({ task }: { task: Task }) {
 
   // ── Inline chat ─────────────────────────────────────────────────────────────
   const inlineChat = (
-    <div className="rounded-2xl border border-neutral-800 bg-neutral-950 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-neutral-800">
-        <Sparkles className="w-3.5 h-3.5 text-violet-400" />
-        <span className="text-xs font-semibold text-neutral-200">Follow-up Questions</span>
+    <div className="rounded-2xl border border-[var(--border)] dark:border-neutral-800 bg-[var(--card)] dark:bg-neutral-950 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)] dark:border-neutral-800">
+        <Sparkles className="w-3.5 h-3.5 text-violet-500 dark:text-violet-400" />
+        <span className="text-xs font-semibold text-[var(--foreground)] dark:text-neutral-200">Follow-up Questions</span>
       </div>
 
       {chatHistory.length > 0 && (
@@ -910,18 +910,18 @@ function ResultPanel({ task }: { task: Task }) {
               <div className={`px-4 py-2.5 rounded-2xl max-w-[85%] leading-relaxed
                 ${m.role === "user"
                   ? "bg-violet-600 text-white text-sm rounded-br-sm"
-                  : "bg-neutral-800 text-neutral-100 rounded-bl-sm border border-neutral-700"}`}>
+                  : "bg-[var(--muted)] dark:bg-neutral-800 text-[var(--foreground)] dark:text-neutral-100 rounded-bl-sm border border-[var(--border)] dark:border-neutral-700"}`}>
                 {m.role === "user" ? m.content : <MdMessage text={m.content} />}
               </div>
             </div>
           ))}
           {chatLoading && (
             <div className="flex justify-start">
-              <div className="bg-neutral-800 border border-neutral-700 rounded-2xl rounded-bl-sm px-4 py-3">
+              <div className="bg-[var(--muted)] dark:bg-neutral-800 border border-[var(--border)] dark:border-neutral-700 rounded-2xl rounded-bl-sm px-4 py-3">
                 <div className="flex gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-bounce [animation-delay:0ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-bounce [animation-delay:150ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-bounce [animation-delay:300ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--muted-foreground)] dark:bg-neutral-400 animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--muted-foreground)] dark:bg-neutral-400 animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--muted-foreground)] dark:bg-neutral-400 animate-bounce [animation-delay:300ms]" />
                 </div>
               </div>
             </div>
@@ -936,22 +936,22 @@ function ResultPanel({ task }: { task: Task }) {
             <button
               key={q}
               onClick={() => setChatMsg(q)}
-              className="text-[11px] px-3 py-1.5 rounded-full border border-neutral-700
-                         text-neutral-300 hover:border-violet-500 hover:text-white
-                         transition-colors bg-neutral-900">
+              className="text-[11px] px-3 py-1.5 rounded-full border border-[var(--border)] dark:border-neutral-700
+                         text-[var(--muted-foreground)] dark:text-neutral-300 hover:border-violet-500 hover:text-violet-600 dark:hover:text-white
+                         transition-colors bg-[var(--muted)] dark:bg-neutral-900">
               {q}
             </button>
           ))}
         </div>
       )}
 
-      <form onSubmit={sendChat} className="flex gap-2 items-center p-3 border-t border-neutral-800">
+      <form onSubmit={sendChat} className="flex gap-2 items-center p-3 border-t border-[var(--border)] dark:border-neutral-800">
         <input
           value={chatMsg}
           onChange={(e) => setChatMsg(e.target.value)}
           placeholder="Ask a follow-up question…"
-          className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900
-                     px-4 py-2 text-sm text-white placeholder:text-neutral-500
+          className="flex-1 rounded-xl border border-[var(--border)] dark:border-neutral-700 bg-[var(--muted)] dark:bg-neutral-900
+                     px-4 py-2 text-sm text-[var(--foreground)] dark:text-white placeholder:text-[var(--muted-foreground)] dark:placeholder:text-neutral-500
                      outline-none focus:border-violet-500 transition-colors" />
         <button
           type="submit"

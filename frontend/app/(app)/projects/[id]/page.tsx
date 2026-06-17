@@ -56,18 +56,18 @@ type TabKey = (typeof TABS)[number]["key"]
 // ── Tab bar (controlled, URL-driven) ──────────────────────────────────────────
 function TabBar({ active, onChange }: { active: TabKey; onChange: (t: TabKey) => void }) {
   return (
-    <div className="flex gap-1 p-1 rounded-full bg-neutral-800 w-fit">
+    <div className="flex gap-1 p-1 rounded-full bg-[var(--muted)] dark:bg-neutral-800 w-fit">
       {TABS.map((t) => (
         <button
           key={t.key}
           onClick={() => onChange(t.key)}
           className={`relative px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-colors
-            ${active === t.key ? "text-white" : "text-neutral-400 hover:text-neutral-200"}`}
+            ${active === t.key ? "text-[var(--foreground)] dark:text-white" : "text-[var(--muted-foreground)] dark:text-neutral-400 hover:text-[var(--foreground)] dark:hover:text-neutral-200"}`}
         >
           {active === t.key && (
             <motion.span
               layoutId="project-tab-bubble"
-              className="absolute inset-0 z-0 bg-neutral-700 rounded-full border border-white/10"
+              className="absolute inset-0 z-0 bg-white dark:bg-neutral-700 rounded-full border border-[var(--border)] dark:border-white/10 shadow-sm"
               transition={{ type: "spring", bounce: 0.19, duration: 0.4 }}
             />
           )}
@@ -81,7 +81,7 @@ function TabBar({ active, onChange }: { active: TabKey; onChange: (t: TabKey) =>
 // ── Status badge ───────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: Task["status"] }) {
   const map: Record<Task["status"], { label: string; cls: string; icon: React.ReactNode }> = {
-    created: { label: "Created",  cls: "bg-gray-700 text-gray-300",      icon: <Clock className="w-3 h-3" /> },
+    created: { label: "Created",  cls: "bg-[var(--muted)] dark:bg-gray-700 text-[var(--muted-foreground)] dark:text-gray-300", icon: <Clock className="w-3 h-3" /> },
     planned: { label: "Planned",  cls: "bg-blue-900/70 text-blue-300",   icon: <CheckCircle2 className="w-3 h-3" /> },
     running: { label: "Running",  cls: "bg-amber-900/70 text-amber-300", icon: <Loader2 className="w-3 h-3 animate-spin" /> },
     done:    { label: "Done",     cls: "bg-green-900/70 text-green-300", icon: <CheckCircle2 className="w-3 h-3" /> },
@@ -1366,7 +1366,7 @@ function ArtifactCard({ a, projectId }: { a: Artifact; projectId: string }) {
   const [open, setOpen] = useState(false)
   const domainLabel = DOMAIN_LABELS[a.type] ?? a.type
   const domainIcon  = DOMAIN_ICONS[a.type] ?? <FileText className="w-3 h-3" />
-  const badgeCls    = DOMAIN_TYPE_COLOR[a.type] ?? "bg-gray-800 text-gray-300 border-gray-700"
+  const badgeCls    = DOMAIN_TYPE_COLOR[a.type] ?? "bg-[var(--muted)] dark:bg-gray-800 text-[var(--muted-foreground)] dark:text-gray-300 border-[var(--border)] dark:border-gray-700"
   const taskHref    = a.task_id ? `/projects/${projectId}/tasks/${a.task_id}` : null
   const findings    = a.finding_texts ?? []
 

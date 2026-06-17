@@ -1,5 +1,5 @@
 # src/sentinel/memory/connectors/youtube.py
-"""YouTube source connector — searches for channel/entity videos via SearchAPI MCP."""
+"""YouTube source connector — searches for channel/entity videos via Firecrawl MCP."""
 from __future__ import annotations
 
 import logging
@@ -23,17 +23,16 @@ class YouTubeConnector(SourceConnector):
     async def _search_and_extract(self, entity: str, query: str) -> list[SourceFinding]:
         try:
             from sentinel.tools.mcp_registry import get_mcp_tool
-            searchapi = get_mcp_tool("searchapi")
-            result = await searchapi.call("youtube_search", q=query, num=3)
-            videos = result.get("organic_results", [])[:3]
+            firecrawl = get_mcp_tool("firecrawl")
+            result = await firecrawl.call("firecrawl_search", query=query, limit=3)
+            videos = result.get("results", result.get("data", []))[:3]
             if not videos:
                 return []
             raw = "\n\n".join(
-                f"Title: {v.get('title', '')}\nDescription: {v.get('description', '')}"
-                f"\nSnippet: {v.get('snippet', '')}\nCaptions: {v.get('captions', '')}"
+                f"Title: {v.get('title', '')}\nDescription: {v.get('description', v.get('snippet', ''))}"
                 for v in videos
             )
-            urls = [v.get("link", "") for v in videos]
+            urls = [v.get("url", "") for v in videos]
             from sentinel.memory.connectors._extractor import extract_findings
             return await extract_findings(
                 entity,
