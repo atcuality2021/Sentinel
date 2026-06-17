@@ -24,6 +24,20 @@ function fmtLabel(key: string) {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+// Extract a human-readable label from a step id+capability pair.
+// Step IDs encode the target: comp_zoom → "Zoom", research_dept_flood_management → "Flood Management".
+// Falls back to prettifying capability when no target prefix is found.
+function stepLabel(step: { id: string; capability: string }): string {
+  const prefixes = ["comp_", "competitor_", "compare_", "profile_", "research_dept_"]
+  for (const p of prefixes) {
+    if (step.id.startsWith(p)) {
+      const remainder = step.id.slice(p.length).replace(/_/g, " ")
+      if (remainder) return remainder.replace(/\b\w/g, (c) => c.toUpperCase())
+    }
+  }
+  return step.capability.replace(/_/g, " ")
+}
+
 // Case-insensitive prefix strip so "research_dept_..." and "RESEARCH_DEPT_..." both work
 function cleanArtType(type: string): string {
   return (
@@ -512,7 +526,7 @@ function LiveRunPanel({
             </span>
           </div>
           <p className="text-base font-semibold capitalize text-[var(--foreground)]">
-            {runningStep.capability.replace(/_/g, " ")}
+            {stepLabel(runningStep)}
           </p>
           {runningStep.agent && (
             <p className="text-sm font-mono text-amber-300/80 mt-0.5">{runningStep.agent}</p>
@@ -621,7 +635,7 @@ function LiveRunPanel({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium capitalize">
-                        {step.capability.replace(/_/g, " ")}
+                        {stepLabel(step)}
                       </span>
                       {!isPending && (
                         <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded
@@ -753,7 +767,7 @@ function PipelinePanel({ projectId, taskId }: { projectId: string; taskId: strin
               <div key={step.id}>
                 <div className="flex items-center gap-3 py-2">
                   <div className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
-                  <span className="text-sm font-semibold capitalize">{step.capability.replace(/_/g, " ")}</span>
+                  <span className="text-sm font-semibold capitalize">{stepLabel(step)}</span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-900/30 text-green-400 border border-green-700/30 font-mono">
                     full pipeline
                   </span>
@@ -778,7 +792,7 @@ function PipelinePanel({ projectId, taskId }: { projectId: string; taskId: strin
               <div className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${dotColor}`} />
               <span className="text-sm shrink-0">{icon}</span>
               <div className="min-w-0">
-                <p className="text-sm font-medium capitalize">{step.capability.replace(/_/g, " ")}</p>
+                <p className="text-sm font-medium capitalize">{stepLabel(step)}</p>
                 <p className="text-xs text-[var(--muted-foreground)]">{callsBadge(step.calls)}</p>
               </div>
             </div>
@@ -808,7 +822,7 @@ function PipelinePanel({ projectId, taskId }: { projectId: string; taskId: strin
                   }`}
                 >
                   <p className="text-[10px] font-mono text-[var(--muted-foreground)] truncate">{step.id}</p>
-                  <p className="text-sm font-semibold capitalize mt-0.5">{step.capability.replace(/_/g, " ")}</p>
+                  <p className="text-sm font-semibold capitalize mt-0.5">{stepLabel(step)}</p>
                   <div className="mt-1.5">{callsBadge(step.calls)}</div>
                   <p className="text-[10px] font-mono text-[var(--muted-foreground)] mt-1.5 break-all leading-relaxed" title={step.agent_spec_id}>
                     {step.agent_spec_id}
@@ -854,7 +868,7 @@ function PipelinePanel({ projectId, taskId }: { projectId: string; taskId: strin
                 }`}
               >
                 <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)]">{step.id}</td>
-                <td className="px-4 py-3 font-semibold capitalize">{step.capability.replace(/_/g, " ")}</td>
+                <td className="px-4 py-3 font-semibold capitalize">{stepLabel(step)}</td>
                 <td className="px-4 py-3">{callsBadge(step.calls)}</td>
                 <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)]">
                   {step.depends_on.length > 0 ? step.depends_on.join(", ") : "—"}
