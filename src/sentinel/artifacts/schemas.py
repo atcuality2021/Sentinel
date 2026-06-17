@@ -418,7 +418,7 @@ class Task(BaseModel):
     result: "Result | None" = Field(default=None, description="Latest persisted run Result (render-only).")
 
 
-StepStatus = Literal["pending", "running", "done", "failed", "skipped"]
+StepStatus = Literal["pending", "running", "done", "failed", "skipped", "cached"]
 
 
 class Step(BaseModel):
