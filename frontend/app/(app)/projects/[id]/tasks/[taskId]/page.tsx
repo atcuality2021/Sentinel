@@ -415,6 +415,7 @@ function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string
   )
 
   const steps = status?.steps ?? []
+  const doneCount = steps.filter((s) => s.status === "done").length
   const logLines = (status?.log ?? []).map((l) => ({
     command: `[${l.agent}] ${l.message}`,
     output: l.type === "error" ? "ERROR" : undefined,
@@ -422,32 +423,86 @@ function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Pipeline card */}
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] mb-4">
-          Pipeline
-        </p>
-        <div className="flex flex-col gap-2">
-          {steps.map((step) => (
-            <div key={step.id} className="flex items-center gap-3">
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0
-                ${step.status === "done"    ? "bg-green-100 text-green-600" :
-                  step.status === "running" ? "bg-amber-100 text-amber-600" :
-                  step.status === "failed"  ? "bg-red-100 text-red-600" :
-                  "bg-[var(--muted)] text-[var(--muted-foreground)]"}`}>
-                {step.status === "done"    ? <CheckCircle2 className="w-3.5 h-3.5" /> :
-                 step.status === "running" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
-                 step.status === "failed"  ? <XCircle className="w-3.5 h-3.5" /> :
-                 <Clock className="w-3.5 h-3.5" />}
-              </div>
-              <span className="text-sm capitalize">{step.capability.replace(/_/g, " ")}</span>
-              {step.status === "running" && status?.current_step === step.id && (
-                <span className="text-xs text-amber-600 animate-pulse">Running…</span>
-              )}
-            </div>
-          ))}
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+            Pipeline
+          </p>
+          {steps.length > 0 && (
+            <span className="text-xs font-mono text-[var(--muted-foreground)]">
+              {doneCount}/{steps.length} STEPS
+            </span>
+          )}
         </div>
+
+        {/* Initialising skeleton when no steps yet */}
+        {steps.length === 0 ? (
+          <div className="flex flex-col gap-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center gap-3 animate-pulse">
+                <div className="w-6 h-6 rounded-full bg-[var(--muted)] shrink-0" />
+                <div className="h-3 rounded bg-[var(--muted)]" style={{ width: `${40 + i * 15}%` }} />
+              </div>
+            ))}
+            <p className="text-xs text-[var(--muted-foreground)] mt-1 animate-pulse">
+              Initialising pipeline…
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {steps.map((step) => {
+              const isRunning = step.status === "running"
+              const isDone = step.status === "done"
+              const isFailed = step.status === "failed"
+              return (
+                <div
+                  key={step.id}
+                  className={`rounded-xl px-3 py-2.5 flex items-start gap-3 transition-all duration-300
+                    ${isRunning ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800" :
+                      isDone    ? "bg-green-50 dark:bg-green-950/20 border border-green-100 dark:border-green-900" :
+                      isFailed  ? "bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900" :
+                      "border border-transparent"}`}
+                >
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5
+                    ${isDone    ? "bg-green-100 dark:bg-green-900 text-green-600" :
+                      isRunning ? "bg-amber-100 dark:bg-amber-900 text-amber-600" :
+                      isFailed  ? "bg-red-100 dark:bg-red-900 text-red-600" :
+                      "bg-[var(--muted)] text-[var(--muted-foreground)]"}`}>
+                    {isDone    ? <CheckCircle2 className="w-3.5 h-3.5" /> :
+                     isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
+                     isFailed  ? <XCircle className="w-3.5 h-3.5" /> :
+                     <Clock className="w-3.5 h-3.5" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium capitalize">
+                        {step.capability.replace(/_/g, " ")}
+                      </span>
+                      <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded
+                        ${isDone    ? "bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300" :
+                          isRunning ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 animate-pulse" :
+                          isFailed  ? "bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300" :
+                          "bg-[var(--muted)] text-[var(--muted-foreground)]"}`}>
+                        {step.status}
+                      </span>
+                    </div>
+                    {(step.agent || step.model) && (
+                      <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5 truncate">
+                        {step.agent && <span className="font-mono">{step.agent}</span>}
+                        {step.agent && step.model && <span className="mx-1">·</span>}
+                        {step.model && <span>{step.model}</span>}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
+      {/* Live stats */}
       {(status?.findings_so_far !== undefined || status?.sources_checked !== undefined) && (
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 text-center">
