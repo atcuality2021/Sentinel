@@ -408,6 +408,7 @@ function ArtifactAccordion({ art, defaultOpen }: { art: ArtifactData; defaultOpe
 // ── LiveRunPanel ──────────────────────────────────────────────────────────────
 
 function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string }) {
+  const startRef = useState(() => Date.now())[0]
   const { data: status } = useSWR<TaskStatus>(
     `/projects/${projectId}/tasks/${taskId}/status.json`,
     fetcher,
@@ -420,6 +421,8 @@ function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string
     command: `[${l.agent}] ${l.message}`,
     output: l.type === "error" ? "ERROR" : undefined,
   }))
+  const elapsed = Date.now() - startRef
+  const timedOut = elapsed > 20000 && steps.length === 0
 
   return (
     <div className="flex flex-col gap-6">
@@ -438,17 +441,31 @@ function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string
 
         {/* Initialising skeleton when no steps yet */}
         {steps.length === 0 ? (
-          <div className="flex flex-col gap-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="flex items-center gap-3 animate-pulse">
-                <div className="w-6 h-6 rounded-full bg-[var(--muted)] shrink-0" />
-                <div className="h-3 rounded bg-[var(--muted)]" style={{ width: `${40 + i * 15}%` }} />
+          status?.state === "failed" || timedOut ? (
+            <div className="flex items-center gap-3 py-2">
+              <XCircle className="w-5 h-5 text-red-500 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                  {status?.error ?? "Pipeline failed to start"}
+                </p>
+                <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                  Re-run the task to try again.
+                </p>
               </div>
-            ))}
-            <p className="text-xs text-[var(--muted-foreground)] mt-1 animate-pulse">
-              Initialising pipeline…
-            </p>
-          </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center gap-3 animate-pulse">
+                  <div className="w-6 h-6 rounded-full bg-[var(--muted)] shrink-0" />
+                  <div className="h-3 rounded bg-[var(--muted)]" style={{ width: `${40 + i * 15}%` }} />
+                </div>
+              ))}
+              <p className="text-xs text-[var(--muted-foreground)] mt-1 animate-pulse">
+                Initialising pipeline…
+              </p>
+            </div>
+          )
         ) : (
           <div className="flex flex-col gap-2">
             {steps.map((step) => {
