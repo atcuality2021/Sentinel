@@ -20,7 +20,8 @@ import pytest
 
 from sentinel.agent import dag
 from sentinel.agent import orchestrator as orch
-from sentinel.agent.dag import StepCache, TaskBudget, biltiq_program_plan, run_plan
+from sentinel.agent.dag import StepCache, TaskBudget, _execute_plan, biltiq_program_plan, run_plan
+from sentinel.artifacts.schemas import Plan, Step
 from sentinel.artifacts.schemas import (
     Boundary,
     ComparisonAxis,
@@ -502,3 +503,49 @@ def test_cache_hit_skips_research(monkeypatch):
     # the cached profile still flows downstream into the dashboard
     assert result.dashboard_payload["map"]["org"] == "BiltIQ"
     assert result.degraded is False
+
+
+# --- LLM plan: shared output_key regression (fix for non-unique "comparison_matrix") -------- #
+
+
+def test_strategy_receives_all_matrices_when_compare_steps_share_output_key(monkeypatch):
+    """Regression: LLM planners assign the same output_key ('comparison_matrix') to every compare
+    step. _fold_outcome must index results by step ID (unique) in addition to output_key so that
+    the program_strategy fallback (inputs={}, depends_on scan) retrieves all N distinct matrices
+    instead of just the last surviving one."""
+    monkeypatch.setenv("ATCUALITY_API_KEY", "atc")
+    monkeypatch.setattr(orch, "InMemoryRunner", FakeRunnerFactory())
+
+    # Mimic an LLM-generated plan: all compare steps share output_key="comparison_matrix"
+    # and strategy_synthesis has inputs={} (not wired by the planner).
+    plan = Plan(id="plan-llm", task_id="task-llm", steps=[
+        Step(id="profile_us", capability="self_profile", output_key="self_profile"),
+        Step(id="comp_rival_a", capability="competitor", output_key="battlecard"),
+        Step(id="comp_rival_b", capability="competitor", output_key="battlecard"),
+        Step(id="compare_rival_a", capability="compare", output_key="comparison_matrix",
+             depends_on=["profile_us", "comp_rival_a"], inputs={}),
+        Step(id="compare_rival_b", capability="compare", output_key="comparison_matrix",
+             depends_on=["profile_us", "comp_rival_b"], inputs={}),
+        Step(id="strategy_synthesis", capability="program_strategy", output_key="program_strategy",
+             depends_on=["compare_rival_a", "compare_rival_b"], inputs={}),
+    ])
+    seeds = {
+        "profile_us": {"target": "BiltIQ"},
+        "comp_rival_a": {"target": "Rival A"},
+        "comp_rival_b": {"target": "Rival B"},
+    }
+
+    execu = asyncio.run(_execute_plan(
+        plan, seeds=seeds, cfg=_tiered_cfg(), backend="vllm", cloud_allowed=False,
+        search_provider="duckduckgo", use_cache=False,
+    ))
+
+    ids = _by_id(plan)
+    assert ids["strategy_synthesis"].status == "done"
+    assert execu.degraded is False
+    # both compare results stored by step ID — not just the last one overwriting the shared key
+    assert "compare_rival_a" in execu.results
+    assert "compare_rival_b" in execu.results
+    # strategy artifact present and not the "no data" error message
+    strat = execu.results.get("program_strategy", {})
+    assert "no ComparisonMatrix data" not in strat.get("assessment", "")

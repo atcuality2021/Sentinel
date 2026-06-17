@@ -783,13 +783,14 @@ async def _run_one_step(
         if step.capability == PROGRAM_STRATEGY_CAP:
             # step.inputs maps output_key → compare_step_id (set by the template planner).
             # LLM-generated multi-compare plans often leave inputs={}, so fall back to
-            # resolving depends_on step IDs → output_keys (results_snapshot is keyed by
-            # output_key, not step ID — using step IDs directly always returns None).
+            # scanning depends_on by step ID — _fold_outcome also indexes results by step ID
+            # (unique) in addition to output_key, so "compare_zoom", "compare_microsoft", …
+            # each resolve to their own matrix even when all share output_key="comparison_matrix".
             if step.inputs:
                 _keys_to_check = list(step.inputs.keys())
             else:
                 _keys_to_check = [
-                    by_id[dep_id].output_key
+                    dep_id
                     for dep_id in step.depends_on
                     if dep_id in by_id
                 ]
