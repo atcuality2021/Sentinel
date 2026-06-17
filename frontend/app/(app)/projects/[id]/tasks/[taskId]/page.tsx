@@ -431,6 +431,8 @@ function LiveRunPanel({
   const runningStep = steps.find((s) => s.status === "running")
   const lastDoneStep = [...steps].filter((s) => s.status === "done").pop()
   const doneCount = steps.filter((s) => s.status === "done").length
+  // All live steps returned as "pending" = pipeline started but no step has actually begun work yet
+  const allPending = steps.length > 0 && steps.every((s) => s.status === "pending")
   const logLines = (status?.log ?? []).map((l) => ({
     command: `[${l.agent}] ${l.message}`,
     output: l.type === "error" ? "ERROR" : undefined,
@@ -438,6 +440,11 @@ function LiveRunPanel({
   const elapsed = Date.now() - startRef
   const timedOut = elapsed > 20000 && steps.length === 0
   const hasFailed = status?.state === "failed" || timedOut
+  // Warming-up = plan loaded but nothing running yet (covers both the pre-step phase where the
+  // status endpoint returns [] and the phase where it returns all-pending steps)
+  const isWarmingUp = !runningStep && !hasFailed && (
+    (steps.length === 0 && planSteps.length > 0) || allPending
+  )
 
   // Show live steps when available; fall back to plan steps as dim pending preview
   const displaySteps: Array<{ id: string; capability: string; status: string; agent?: string; model?: string; pending?: boolean }> =
@@ -471,8 +478,8 @@ function LiveRunPanel({
         </div>
       )}
 
-      {/* ── Warming-up banner ── plan loaded but no live step has started yet */}
-      {!runningStep && steps.length === 0 && planSteps.length > 0 && !hasFailed && (
+      {/* ── Warming-up banner ── plan loaded but no step is running yet */}
+      {isWarmingUp && (
         <div className="rounded-2xl border border-violet-500/30 bg-violet-950/20 p-5">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2.5 w-2.5 shrink-0">
@@ -480,11 +487,13 @@ function LiveRunPanel({
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-violet-500" />
             </span>
             <span className="text-[10px] font-bold text-violet-400 uppercase tracking-wider animate-pulse">
-              Warming up · {planSteps.length} steps queued
+              {allPending ? `Pipeline starting · ${steps.length} steps queued` : `Warming up · ${planSteps.length} steps queued`}
             </span>
           </div>
           <p className="text-sm text-violet-300/70 mt-2">
-            Agents are initialising — the first step will begin shortly.
+            {allPending
+              ? "Steps are loaded — agents will begin executing shortly."
+              : "Agents are initialising — the first step will begin shortly."}
           </p>
         </div>
       )}
@@ -535,14 +544,14 @@ function LiveRunPanel({
           <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
             Pipeline
           </p>
-          {steps.length > 0 && (
+          {steps.length > 0 && !allPending && (
             <span className="text-xs font-mono text-[var(--muted-foreground)]">
               {doneCount}/{steps.length} STEPS
             </span>
           )}
-          {steps.length === 0 && planSteps.length > 0 && (
-            <span className="text-xs font-mono text-[var(--muted-foreground)]">
-              {planSteps.length} planned
+          {(steps.length === 0 || allPending) && (steps.length > 0 || planSteps.length > 0) && (
+            <span className="text-xs font-mono text-violet-400/70 animate-pulse">
+              {steps.length || planSteps.length} planned
             </span>
           )}
         </div>
@@ -596,7 +605,7 @@ function LiveRunPanel({
                     ${isRunning    ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800" :
                       isDone       ? "bg-green-50 dark:bg-green-950/20 border border-green-100 dark:border-green-900" :
                       isStepFailed ? "bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900" :
-                      steps.length === 0 ? "border border-transparent opacity-60 animate-pulse" :
+                      (steps.length === 0 || allPending) ? "border border-transparent opacity-60 animate-pulse" :
                       "border border-transparent opacity-50"}`}
                 >
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5
