@@ -618,9 +618,16 @@ def _dependency_state(step: Step, by_id: dict, results: dict) -> dict:
     pool: dict = {}
     for dep_id in step.depends_on:
         dep = by_id.get(dep_id)
-        if dep is None or dep.output_key not in results:
+        if dep is None:
             continue
-        art = results[dep.output_key]
+        # Prefer step-ID indexed result (always unique) over output_key (may be shared by N steps
+        # when the LLM planner assigns the same output_key to every step of a given capability).
+        if dep_id in results:
+            art = results[dep_id]
+        elif dep.output_key in results:
+            art = results[dep.output_key]
+        else:
+            continue
         pool[dep.output_key] = art                      # under the producer's own output_key
         dep_spec = SKILL_SPECS.get(dep.capability)
         if dep_spec is not None or dep.capability == PROGRAM_STRATEGY_CAP:
