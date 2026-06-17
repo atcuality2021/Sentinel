@@ -147,10 +147,12 @@ def make_agent(
     # Thinking-token floor (see GEMINI_MIN_OUTPUT_TOKENS): a cap tuned for vLLM's visible output
     # starves a Gemini thinking model and decapitates the JSON. Applied at build time so every
     # mode/config inherits it — the per-machine config file never needs touching.
-    if (
-        gen.max_output_tokens is not None
-        and gen.max_output_tokens < GEMINI_MIN_OUTPUT_TOKENS
-        and _agent_backend(cfg, ac, mode_backend, cloud_allowed=cloud_allowed) == "gemini"
+    # Also applies when max_output_tokens is None (API default) — None means "let Gemini pick",
+    # which for gemini-2.5-flash is often ≤8192. The thinking budget silently burns those tokens
+    # first, leaving <2k for the actual JSON payload → EOF truncation (seen live 2026-06-17).
+    if _agent_backend(cfg, ac, mode_backend, cloud_allowed=cloud_allowed) == "gemini" and (
+        gen.max_output_tokens is None
+        or gen.max_output_tokens < GEMINI_MIN_OUTPUT_TOKENS
     ):
         gen = gen.merge(GenerationConfig(max_output_tokens=GEMINI_MIN_OUTPUT_TOKENS))
     instruction = render_prompt(cfg.prompts[prompt_key or key])
