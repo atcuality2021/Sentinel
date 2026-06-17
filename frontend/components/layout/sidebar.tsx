@@ -32,12 +32,18 @@ export function Sidebar() {
   const { theme, toggle } = useTheme()
 
   return (
-    <aside className="fixed left-0 top-0 h-full w-16 z-40 flex flex-col items-center py-4 gap-1
-                      bg-[var(--card)] border-r border-[var(--border)]">
+    <aside className="group/sidebar fixed left-0 top-0 h-full z-40 flex flex-col py-4 gap-1
+                      bg-[var(--card)] border-r border-[var(--border)]
+                      w-16 hover:w-48 overflow-hidden transition-[width] duration-200 ease-in-out">
       {/* Logo */}
-      <Link href="/" className="mb-4 flex items-center justify-center w-10 h-10
-                                 bg-black dark:bg-white rounded-xl">
-        <Shield className="w-5 h-5 text-white dark:text-black" />
+      <Link href="/" className="mb-4 mx-3 flex items-center gap-3 shrink-0">
+        <div className="w-10 h-10 shrink-0 flex items-center justify-center bg-black dark:bg-white rounded-xl">
+          <Shield className="w-5 h-5 text-white dark:text-black" />
+        </div>
+        <span className="text-sm font-bold whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100
+                         transition-opacity duration-150 delay-75">
+          Sentinel
+        </span>
       </Link>
 
       {NAV.map(({ href, icon: Icon, label }) => {
@@ -46,19 +52,18 @@ export function Sidebar() {
           <Link
             key={href}
             href={href}
-            title={label}
             className={cn(
-              "group relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-150",
+              "mx-3 flex items-center gap-3 px-0 h-10 rounded-xl transition-all duration-150 shrink-0",
               active
                 ? "bg-black dark:bg-white text-white dark:text-black"
                 : "text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
             )}
           >
-            <Icon className="w-4 h-4" />
-            <span className="pointer-events-none absolute left-14 whitespace-nowrap
-                             rounded-md bg-black dark:bg-white text-white dark:text-black
-                             px-2 py-1 text-xs font-medium opacity-0 group-hover:opacity-100
-                             transition-opacity shadow-lg z-50">
+            <div className="w-10 h-10 shrink-0 flex items-center justify-center">
+              <Icon className="w-4 h-4" />
+            </div>
+            <span className="text-sm font-medium whitespace-nowrap opacity-0
+                             group-hover/sidebar:opacity-100 transition-opacity duration-150 delay-75">
               {label}
             </span>
           </Link>
@@ -66,18 +71,17 @@ export function Sidebar() {
       })}
 
       {/* Theme toggle — pinned to bottom */}
-      <div className="mt-auto">
+      <div className="mt-auto mx-3">
         <button
           onClick={toggle}
-          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          className="group relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-150
+          className="flex items-center gap-3 h-10 w-full rounded-xl transition-all duration-150
                      text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
         >
-          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          <span className="pointer-events-none absolute left-14 whitespace-nowrap
-                           rounded-md bg-black dark:bg-white text-white dark:text-black
-                           px-2 py-1 text-xs font-medium opacity-0 group-hover:opacity-100
-                           transition-opacity shadow-lg z-50">
+          <div className="w-10 h-10 shrink-0 flex items-center justify-center">
+            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </div>
+          <span className="text-sm font-medium whitespace-nowrap opacity-0
+                           group-hover/sidebar:opacity-100 transition-opacity duration-150 delay-75">
             {theme === "dark" ? "Light mode" : "Dark mode"}
           </span>
         </button>

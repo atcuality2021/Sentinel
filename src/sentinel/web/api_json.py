@@ -48,6 +48,8 @@ async def api_dashboard() -> JSONResponse:
                 "id": r.id, "entity": r.entity, "target": r.target,
                 "mode": r.mode, "backend": r.backend,
                 "public": r.public, "private": r.private, "gaps": r.gaps,
+                "project_id": r.project_id,
+                "task_id": r.task_id,
                 "created_at": r.created_at.isoformat(),
             }
             for r in records[:10]

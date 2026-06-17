@@ -105,7 +105,7 @@ function RunRow({ run, projectName }: { run: RunRecord; projectName?: string }) 
     : run.backend ?? "AI"
 
   return (
-    <Link href={run.project_id ? `/projects/${run.project_id}` : "#"}>
+    <Link href={run.project_id && run.task_id ? `/projects/${run.project_id}/tasks/${run.task_id}` : run.project_id ? `/projects/${run.project_id}` : "#"}>
       <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-[var(--border)]
                       bg-[var(--card)] hover:border-black/10 dark:hover:border-white/10
                       hover:shadow-sm transition-all cursor-pointer group">

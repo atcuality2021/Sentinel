@@ -269,6 +269,7 @@ export interface RunRecord {
   finding_texts: string[]
   created_at: string
   project_id?: string
+  task_id?: string
 }
 
 export interface Artifact {
