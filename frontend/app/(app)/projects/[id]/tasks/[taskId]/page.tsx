@@ -454,6 +454,24 @@ function LiveRunPanel({
   return (
     <div className="flex flex-col gap-6">
 
+      {/* ── Warming-up banner ── plan loaded but no live step has started yet */}
+      {!runningStep && steps.length === 0 && planSteps.length > 0 && !hasFailed && (
+        <div className="rounded-2xl border border-violet-500/30 bg-violet-950/20 p-5">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-violet-500" />
+            </span>
+            <span className="text-[10px] font-bold text-violet-400 uppercase tracking-wider animate-pulse">
+              Warming up · {planSteps.length} steps queued
+            </span>
+          </div>
+          <p className="text-sm text-violet-300/70 mt-2">
+            Agents are initialising — the first step will begin shortly.
+          </p>
+        </div>
+      )}
+
       {/* ── Active-agent hero banner ── shown while a step is running */}
       {runningStep && (
         <div className="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-5">
@@ -561,6 +579,7 @@ function LiveRunPanel({
                     ${isRunning    ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800" :
                       isDone       ? "bg-green-50 dark:bg-green-950/20 border border-green-100 dark:border-green-900" :
                       isStepFailed ? "bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900" :
+                      steps.length === 0 ? "border border-transparent opacity-60 animate-pulse" :
                       "border border-transparent opacity-50"}`}
                 >
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5

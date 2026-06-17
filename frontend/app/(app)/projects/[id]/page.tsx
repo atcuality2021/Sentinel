@@ -303,6 +303,7 @@ function NewTaskForm({ projectId, onCreated, onCancel }: {
   projectId: string; onCreated: () => void; onCancel: () => void
 }) {
   const { toast } = useToast()
+  const router = useRouter()
   const [objective, setObjective] = useState("")
   const [domain, setDomain] = useState("market")
   const [persona, setPersona] = useState("auto")
@@ -340,13 +341,13 @@ function NewTaskForm({ projectId, onCreated, onCancel }: {
       ? `${objective.trim()} [Target: ${target.trim()}]`
       : objective.trim()
     try {
-      await tasksApi.create(projectId, {
+      const result = await tasksApi.create(projectId, {
         objective: fullObjective,
         domain,
         persona: persona === "auto" ? undefined : persona,
       })
-      toast("Research commissioned — planning in progress", "success")
       onCreated()
+      router.push(`/projects/${projectId}/tasks/${result.task_id}`)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to create task"
       setError(msg); toast(msg, "error")
