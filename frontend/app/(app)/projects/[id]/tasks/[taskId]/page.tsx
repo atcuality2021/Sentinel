@@ -1171,7 +1171,8 @@ export default function TaskDetailPage({
   const { data: task, mutate: refresh } = useSWR<Task>(
     `/api/projects/${projectId}/tasks/${taskId}`,
     fetcher,
-    { refreshInterval: (data: Task | undefined) => (data?.status === "running" ? 3000 : 0) }
+    { refreshInterval: (data: Task | undefined) =>
+        (data?.status === "running" || data?.status === "created" || data?.status === "planned" ? 2000 : 0) }
   )
 
   const { data: project } = useSWR<Project>(`/api/projects/${projectId}`, fetcher)
@@ -1264,23 +1265,32 @@ export default function TaskDetailPage({
           </button>
         </div>
       )}
-      {(task?.status === "created" || task?.status === "planned") && (
+      {task?.status === "created" && (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              Pipeline
+            </p>
+          </div>
+          <div className="flex flex-col gap-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center gap-3 animate-pulse">
+                <div className="w-6 h-6 rounded-full bg-[var(--muted)] shrink-0" />
+                <div className="h-3 rounded bg-[var(--muted)]" style={{ width: `${40 + i * 15}%` }} />
+              </div>
+            ))}
+            <p className="text-xs text-[var(--muted-foreground)] mt-1 animate-pulse">
+              Planning research pipeline…
+            </p>
+          </div>
+        </div>
+      )}
+      {task?.status === "planned" && (
         <div className="rounded-2xl border border-dashed border-[var(--border)] p-12 text-center">
           <Play className="w-8 h-8 text-[var(--muted-foreground)] mx-auto mb-3" />
           <p className="text-sm text-[var(--muted-foreground)]">
-            Task is ready. Hit <strong>Run</strong> to start the research pipeline.
+            Plan ready — hit <strong>Run</strong> to start the research pipeline.
           </p>
-          <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
-            {task.domain && (
-              <span className="text-xs bg-[var(--muted)] px-2 py-0.5 rounded">{task.domain}</span>
-            )}
-            {task?.persona && (
-              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">{task.persona}</span>
-            )}
-            {task?.status === "planned" && (
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Plan ready</span>
-            )}
-          </div>
         </div>
       )}
     </div>
