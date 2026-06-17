@@ -27,8 +27,10 @@ export function Topbar({ title }: { title?: string }) {
     })
       .then((r) => r.json())
       .then((d) => {
-        setBackend(d?.backend?.default ?? "unknown")
-        setGov(d?.governance?.compliance_mode ?? "cloud_ok")
+        setBackend(d?.backend?.default ?? d?.backend ?? "unknown")
+        // /api/settings returns governance as a plain string, not {compliance_mode}
+        const rawGov = d?.governance?.compliance_mode ?? d?.governance
+        setGov((rawGov as GovernanceMode) ?? "cloud_ok")
       })
       .catch(() => {})
   }, [])
