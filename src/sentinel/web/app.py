@@ -1971,17 +1971,19 @@ async def _execute_run(task, plan, proj, override_backend: str) -> None:
             entry["state"] = task.status
         else:
             task.status = "failed"
+            task.fail_reason = "Run was gated or produced no result."
             store.save_task(task)
             entry["state"] = "failed"
-            entry["error"] = "Run was gated or produced no result."
+            entry["error"] = task.fail_reason
     except Exception as exc:
         task.status = "failed"
+        task.fail_reason = f"{type(exc).__name__}: {str(exc)[:300]}"
         try:
             store.save_task(task)
         except Exception:
             pass
         entry["state"] = "failed"
-        entry["error"] = f"{type(exc).__name__}: {exc}"
+        entry["error"] = task.fail_reason
 
 
 async def _approve_and_run(task_id: str, override_backend: str = "",
@@ -2057,9 +2059,9 @@ async def task_run_status(project_id: str, task_id: str) -> JSONResponse:
     if task is None:
         return JSONResponse({"state": "unknown", "error": "task not found", "steps": []}, status_code=404)
     # No live entry (restart mid-run leaves status='running' in the DB — report failed so the
-    # poller stops; the user can re-run).
+    # poller stops; the user can re-run). Surface fail_reason so the UI shows the actual error.
     state = "failed" if task.status == "running" else task.status
-    return JSONResponse({"state": state, "error": None, "steps": []})
+    return JSONResponse({"state": state, "error": task.fail_reason or None, "steps": []})
 
 
 @app.post("/projects/{project_id}/tasks/{task_id}/run", response_model=None)

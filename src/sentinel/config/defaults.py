@@ -400,7 +400,8 @@ _P_SOFTWARE_SYNTH = (
     "Populate tech_stack, api_quality, community_health, maintenance_activity, integration_support, "
     "pricing_model from the findings. List named alternatives. "
     "Write a one-line 'assessment' with a build/buy/adopt signal. "
-    "If a category had no reliable source, add a Gap rather than inventing content."
+    "If a category had no reliable source, add a Gap rather than inventing content. "
+    "CONCISENESS: limit each list field to 5 items max. Keep each Finding.text under 30 words."
 )
 _P_SOFTWARE_SYNTH_2T = (
     "Synthesize a SoftwareBrief for '{target}' from these per-source extractions:\n\n{extractions}\n\n"
@@ -591,7 +592,8 @@ _P_TRAVEL_SYNTH = (
     "Populate practical_info, highlights, safety_notes (all cited). "
     "Set best_time and budget_range as concise strings (e.g. 'Oct–Mar', '₹5,000–8,000/day'). "
     "Write a 'destination_overview' narrative. "
-    "If a category had no reliable source, add a Gap rather than guessing."
+    "If a category had no reliable source, add a Gap rather than guessing. "
+    "CONCISENESS: limit each list field to 5 items max. Keep each Finding.text under 30 words."
 )
 _P_TRAVEL_SYNTH_2T = (
     "Synthesize a TravelBrief for '{target}' from these per-source extractions:\n\n{extractions}\n\n"
@@ -896,45 +898,45 @@ def build_default() -> SentinelConfig:
         "software.public_research": AgentConfig(
             role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
         "software.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
-        "software.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "software.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 6144)),
         "finance.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
         "finance.public_research": AgentConfig(
             role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
         "finance.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
-        "finance.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "finance.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 6144)),
         "academic.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
         "academic.public_research": AgentConfig(
             role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
         "academic.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
-        "academic.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "academic.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 6144)),
         "nutrition.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
         "nutrition.public_research": AgentConfig(
             role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
         "nutrition.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
-        "nutrition.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "nutrition.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 6144)),
         "travel.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
         "travel.public_research": AgentConfig(
             role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
         "travel.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
-        "travel.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "travel.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 6144)),
         # SENTINEL-017: govt_proposal — research client govt needs + vendor capabilities → proposal.
         "govt_proposal.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
         "govt_proposal.public_research": AgentConfig(
             role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
         "govt_proposal.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
-        "govt_proposal.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "govt_proposal.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 6144)),
         # Per-dept researcher (tool-caller 12B) + synthesizer (reasoner 26B).
         "govt_dept_research.public_research": AgentConfig(
             role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
-        "govt_dept_research.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 2048)),
+        "govt_dept_research.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 4096)),
         # Final proposal synthesis from all dept findings.
-        "govt_synthesis.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "govt_synthesis.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 6144)),
         # SENTINEL-017: product_research — discover ALL products meeting criteria → compare → recommend.
         "product_research.planner": AgentConfig(role="planner", generation=_gen(0.2, 1024)),
         "product_research.public_research": AgentConfig(
             role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
         "product_research.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
-        "product_research.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 3072)),
+        "product_research.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 6144)),
     }
     prompts = {
         "competitor.planner": _prompt(_P_COMPETITOR_PLANNER, ["target"]),

@@ -177,6 +177,7 @@ export interface Task {
   created_at: string
   result?: TaskResult
   chat?: ChatMessage[]
+  fail_reason?: string | null
 }
 
 export interface TaskStatus {

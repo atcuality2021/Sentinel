@@ -411,6 +411,9 @@ class Task(BaseModel):
     # Conversational chat history — list of {role, content} dicts for post-run refinement.
     # Rides in tasks.data JSON — no DDL change.
     chat: list[dict] = Field(default_factory=list, description="Chat history for post-run refinement (role/content dicts).")
+    # Error message from the most recent failed run. Persisted so the status endpoint can surface
+    # it even after a backend restart (when _ACTIVE_RUNS is cleared). Rides in tasks.data JSON.
+    fail_reason: str | None = Field(default=None, description="Error from last failed run, shown in the pipeline UI.")
     # The latest run output, persisted on the task so it lives at the task's own URL (PRG): Approve &
     # Run redirects to /tasks/{id}, which re-renders this instead of the result being trapped in a POST
     # response body. Forward-ref to ``Result`` (defined below) — resolved by ``Task.model_rebuild()`` at

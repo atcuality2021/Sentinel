@@ -765,7 +765,7 @@ function PipelinePanel({ projectId, taskId }: { projectId: string; taskId: strin
                   <p className="text-[10px] font-mono text-[var(--muted-foreground)] truncate">{step.id}</p>
                   <p className="text-sm font-semibold capitalize mt-0.5">{step.capability.replace(/_/g, " ")}</p>
                   <div className="mt-1.5">{callsBadge(step.calls)}</div>
-                  <p className="text-[10px] font-mono text-[var(--muted-foreground)] mt-1.5 truncate">
+                  <p className="text-[10px] font-mono text-[var(--muted-foreground)] mt-1.5 break-all leading-relaxed" title={step.agent_spec_id}>
                     {step.agent_spec_id}
                   </p>
                 </div>
@@ -814,8 +814,8 @@ function PipelinePanel({ projectId, taskId }: { projectId: string; taskId: strin
                 <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)]">
                   {step.depends_on.length > 0 ? step.depends_on.join(", ") : "—"}
                 </td>
-                <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)] max-w-[200px] truncate">
-                  {step.agent_spec_id}
+                <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)] max-w-[260px]" title={step.agent_spec_id}>
+                  <span className="block break-all leading-relaxed">{step.agent_spec_id}</span>
                 </td>
                 <td className="px-4 py-3">
                   {step.is_new ? (
@@ -1340,14 +1340,28 @@ export default function TaskDetailPage({
       {task?.status === "running" && <LiveRunPanel projectId={projectId} taskId={taskId} onRerun={runTask} />}
       {task?.status === "done" && task.result && <ResultPanel task={task} />}
       {task?.status === "failed" && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 dark:bg-red-900/10 p-6 text-center">
-          <XCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-          <p className="font-semibold text-red-700 dark:text-red-400">Task failed</p>
-          <button
-            onClick={runTask}
-            className="mt-3 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:opacity-80 transition-opacity">
-            Retry
-          </button>
+        <div className="rounded-2xl border border-red-200 bg-red-50 dark:bg-red-900/10 p-6">
+          <div className="flex items-start gap-3">
+            <XCircle className="w-6 h-6 text-red-500 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-red-700 dark:text-red-400">Task failed</p>
+              {task.fail_reason && (
+                <p className="mt-1 text-sm text-red-600 dark:text-red-300 font-mono break-all leading-relaxed">
+                  {task.fail_reason}
+                </p>
+              )}
+              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                Re-run the task to retry with the same pipeline.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <button
+              onClick={runTask}
+              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:opacity-80 transition-opacity">
+              Retry
+            </button>
+          </div>
         </div>
       )}
       {task?.status === "created" && (
