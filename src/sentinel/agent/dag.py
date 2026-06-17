@@ -776,11 +776,20 @@ async def _run_one_step(
     try:
         reasoner_delta = 0
         if step.capability == PROGRAM_STRATEGY_CAP:
-            matrices = [
-                ComparisonMatrix.model_validate(results_snapshot[k])
-                for k in step.inputs
-                if k in results_snapshot
-            ]
+            # step.inputs maps output_key → compare_step_id (set by the template planner).
+            # LLM-generated multi-compare plans often leave inputs={}, so fall back to
+            # scanning depends_on for any key that yields a valid ComparisonMatrix.
+            _input_keys = list(step.inputs.keys()) or step.depends_on
+            _raw_matrices = []
+            for k in _input_keys:
+                raw = results_snapshot.get(k)
+                if raw is None:
+                    continue
+                try:
+                    _raw_matrices.append(ComparisonMatrix.model_validate(raw))
+                except Exception:
+                    pass
+            matrices = _raw_matrices
             artifact = await _run_program_strategy(
                 matrices, missing=len(unsatisfied), cfg=cfg, backend=backend,
                 cloud_allowed=cloud_allowed, trace=trace,
