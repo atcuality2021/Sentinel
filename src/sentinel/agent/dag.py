@@ -694,6 +694,11 @@ def _fold_outcome(
     missing_inputs.extend(outcome.missing)
     if outcome.status in _SATISFIED:
         results[outcome.output_key] = outcome.artifact
+        # Also index by step ID so that depends_on lookups always resolve — even when the
+        # LLM planner assigns the same output_key (e.g. "comparison_matrix") to multiple
+        # steps, the step ID ("compare_zoom", "compare_microsoft", …) is always unique.
+        if outcome.step.id != outcome.output_key:
+            results[outcome.step.id] = outcome.artifact
         produced.append((outcome.step.capability, outcome.output_key))
         satisfied.add(outcome.step.id)
 
