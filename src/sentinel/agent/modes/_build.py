@@ -27,7 +27,7 @@ from sentinel.llm.gateway import build_model, resolve_backend
 # discover.py:60 hit the same wall at 1024 and settled on 4096 for a short list). 8192 leaves room
 # for thinking + a full multi-section research artifact. vLLM is unaffected (no thinking budget,
 # and the 26B synthesizes in chunks), so the floor applies only when the agent resolves to Gemini.
-GEMINI_MIN_OUTPUT_TOKENS = 8192
+GEMINI_MIN_OUTPUT_TOKENS = 32768
 
 
 def _agent_backend(
