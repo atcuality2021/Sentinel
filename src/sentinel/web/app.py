@@ -2084,10 +2084,9 @@ async def task_run_status(project_id: str, task_id: str) -> JSONResponse:
         steps = [
             {
                 "id": s.id, "capability": s.capability,
-                # dag.py stamps started_at but leaves status='pending' until done/failed —
-                # derive 'running' so the timeline can spin the in-flight step(s).
-                "status": (s.status if s.status != "pending"
-                           else ("running" if s.started_at else "pending")),
+                # dag.py explicitly sets status="running" when a step starts (line 739),
+                # so we read s.status directly — no started_at derivation needed.
+                "status": s.status,
                 # Who's working and on what — drives the active-agent banner + handover animation.
                 "agent": s.agent_spec_id or s.capability,
                 "model": _step_models(s.capability, backend),

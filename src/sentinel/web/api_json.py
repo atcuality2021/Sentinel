@@ -414,7 +414,7 @@ async def api_run_task(
 
     async def _replan_and_run() -> None:
         from sentinel.llm.gateway import _is_vllm_error
-        from sentinel.web.app import _approve_and_run, _cloud_allowed_for
+        from sentinel.web.app import _approve_and_run, _cloud_allowed_for, _ACTIVE_RUNS
         from sentinel.agent.registry import AgentRegistry
         from sentinel.agent.orchestrator_planner import plan_task
         _store = ProjectStore()
@@ -424,6 +424,13 @@ async def api_run_task(
             return
         _run_backend = override_backend
         _proj_ctx = (getattr(_proj, "context", None) or getattr(_proj, "description", None) or "").strip() or None
+
+        # Show a "planning" sentinel in _ACTIVE_RUNS so status.json always returns
+        # something (steps=[]) and the frontend shows the warming-up skeleton instead
+        # of the old plan's stale clock icons during the re-plan LLM call.
+        _ACTIVE_RUNS[task_id] = {"plan": type("_FakePlan", (), {"steps": []})(),
+                                 "state": "planning", "error": None}
+
         try:
             proposal = await plan_task(_task, AgentRegistry(),
                                        cloud_allowed=_cloud_allowed_for(_proj),
@@ -441,21 +448,22 @@ async def api_run_task(
                     _task.status = "failed"
                     _task.fail_reason = f"Re-plan failed — vLLM down; fallback also failed: {str(exc2)[:200]}"
                     _store.save_task(_task)
+                    _ACTIVE_RUNS.pop(task_id, None)
                     return
             else:
                 _task.status = "failed"
                 _task.fail_reason = f"Re-plan failed: {type(exc).__name__}: {str(exc)[:300]}"
                 _store.save_task(_task)
+                _ACTIVE_RUNS.pop(task_id, None)
                 return
+
+        # Clear stale fail_reason from any previous run before saving
+        _task.fail_reason = None
         _task.status = "planned"
         _task.plan_id = proposal.plan.id
         _store.save_task(_task)
         _store.save_plan(proposal.plan)
-        # Clear any stale _ACTIVE_RUNS entry so the double-submit guard doesn't block
-        # re-plan execution (a previous failed/stuck run leaves state != "running" but
-        # a racing first invocation of _replan_and_run may have set it to "running"
-        # before we finish planning — pop it unconditionally before handing off).
-        from sentinel.web.app import _ACTIVE_RUNS
+        # Pop the planning sentinel — _approve_and_run will set a proper "running" entry
         _ACTIVE_RUNS.pop(task_id, None)
         await _approve_and_run(task_id, override_backend=_run_backend,
                                extra_context="", background_tasks=None)

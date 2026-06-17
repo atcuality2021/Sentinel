@@ -737,6 +737,7 @@ async def _run_one_step(
             seed[state_key] = results_snapshot[out_key]
 
     step.started_at = _now_iso()
+    step.status = "running"
     entity = seed.get("target")
 
     # --- govt_synthesis: aggregate all per-dept research into a single public_findings block ------ #
