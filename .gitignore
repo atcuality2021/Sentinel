@@ -35,6 +35,11 @@ test-scaffolds/
 .remember/
 .playwright-mcp/
 
+# BiltIQ internal tooling — not part of the Sentinel product
+.superpowers/
+docs/superpowers/
+docs/eod/
+
 # Local runtime config (self-seeded; holds no secrets but is environment-local)
 sentinel.config.yaml
 

@@ -407,15 +407,29 @@ function ArtifactAccordion({ art, defaultOpen }: { art: ArtifactData; defaultOpe
 
 // ── LiveRunPanel ──────────────────────────────────────────────────────────────
 
-function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string }) {
+function LiveRunPanel({
+  projectId, taskId, onRerun,
+}: {
+  projectId: string
+  taskId: string
+  onRerun?: () => void
+}) {
   const startRef = useState(() => Date.now())[0]
   const { data: status } = useSWR<TaskStatus>(
     `/projects/${projectId}/tasks/${taskId}/status.json`,
     fetcher,
     { refreshInterval: (d) => (d?.state === "done" || d?.state === "failed" ? 0 : 2000) }
   )
+  // Plan data: shown as a pending-steps preview before live steps arrive
+  const { data: plan } = useSWR<PlanData>(
+    `/api/projects/${projectId}/tasks/${taskId}/plan`,
+    fetcher,
+  )
 
   const steps = status?.steps ?? []
+  const planSteps = plan?.steps ?? []
+  const runningStep = steps.find((s) => s.status === "running")
+  const lastDoneStep = [...steps].filter((s) => s.status === "done").pop()
   const doneCount = steps.filter((s) => s.status === "done").length
   const logLines = (status?.log ?? []).map((l) => ({
     command: `[${l.agent}] ${l.message}`,
@@ -423,10 +437,64 @@ function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string
   }))
   const elapsed = Date.now() - startRef
   const timedOut = elapsed > 20000 && steps.length === 0
+  const hasFailed = status?.state === "failed" || timedOut
+
+  // Show live steps when available; fall back to plan steps as dim pending preview
+  const displaySteps: Array<{ id: string; capability: string; status: string; agent?: string; model?: string; pending?: boolean }> =
+    steps.length > 0
+      ? steps
+      : planSteps.map((ps) => ({
+          id: ps.id,
+          capability: ps.capability,
+          status: "pending",
+          agent: ps.agent_spec_id,
+          pending: true,
+        }))
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Pipeline card */}
+
+      {/* ── Active-agent hero banner ── shown while a step is running */}
+      {runningStep && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-5">
+          <div className="flex items-center gap-2 mb-3">
+            {/* Pulsing live dot */}
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+            </span>
+            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
+              Live · {doneCount}/{steps.length} steps done
+            </span>
+          </div>
+          <p className="text-base font-semibold capitalize text-[var(--foreground)]">
+            {runningStep.capability.replace(/_/g, " ")}
+          </p>
+          {runningStep.agent && (
+            <p className="text-sm font-mono text-amber-300/80 mt-0.5">{runningStep.agent}</p>
+          )}
+          {/* Model handover: prev model → current model */}
+          {(lastDoneStep?.model || runningStep.model) && (
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {lastDoneStep?.model && lastDoneStep.model !== runningStep.model && (
+                <>
+                  <span className="px-2 py-0.5 rounded text-xs bg-neutral-800 text-neutral-400 font-mono">
+                    {lastDoneStep.model}
+                  </span>
+                  <span className="text-[var(--muted-foreground)] text-xs">→</span>
+                </>
+              )}
+              {runningStep.model && (
+                <span className="px-2 py-0.5 rounded text-xs bg-amber-900/40 text-amber-300 font-mono font-semibold">
+                  {runningStep.model}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Pipeline steps card ── */}
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
         <div className="flex items-center justify-between mb-4">
           <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
@@ -437,20 +505,33 @@ function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string
               {doneCount}/{steps.length} STEPS
             </span>
           )}
+          {steps.length === 0 && planSteps.length > 0 && (
+            <span className="text-xs font-mono text-[var(--muted-foreground)]">
+              {planSteps.length} planned
+            </span>
+          )}
         </div>
 
-        {/* Initialising skeleton when no steps yet */}
-        {steps.length === 0 ? (
-          status?.state === "failed" || timedOut ? (
-            <div className="flex items-center gap-3 py-2">
-              <XCircle className="w-5 h-5 text-red-500 shrink-0" />
-              <div>
+        {displaySteps.length === 0 ? (
+          hasFailed ? (
+            <div className="flex items-start gap-3 py-2">
+              <XCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-red-600 dark:text-red-400">
                   {status?.error ?? "Pipeline failed to start"}
                 </p>
                 <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                  Re-run the task to try again.
+                  Server may have restarted mid-run. Re-run to retry.
                 </p>
+                {onRerun && (
+                  <button
+                    onClick={onRerun}
+                    className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+                               bg-black dark:bg-white text-white dark:text-black
+                               text-xs font-semibold hover:opacity-80 transition-opacity">
+                    <Play className="w-3 h-3" /> Re-run research
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -468,27 +549,28 @@ function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string
           )
         ) : (
           <div className="flex flex-col gap-2">
-            {steps.map((step) => {
+            {displaySteps.map((step) => {
               const isRunning = step.status === "running"
               const isDone = step.status === "done"
-              const isFailed = step.status === "failed"
+              const isStepFailed = step.status === "failed"
+              const isPending = step.pending || step.status === "pending"
               return (
                 <div
                   key={step.id}
                   className={`rounded-xl px-3 py-2.5 flex items-start gap-3 transition-all duration-300
-                    ${isRunning ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800" :
-                      isDone    ? "bg-green-50 dark:bg-green-950/20 border border-green-100 dark:border-green-900" :
-                      isFailed  ? "bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900" :
-                      "border border-transparent"}`}
+                    ${isRunning    ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800" :
+                      isDone       ? "bg-green-50 dark:bg-green-950/20 border border-green-100 dark:border-green-900" :
+                      isStepFailed ? "bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900" :
+                      "border border-transparent opacity-50"}`}
                 >
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5
-                    ${isDone    ? "bg-green-100 dark:bg-green-900 text-green-600" :
-                      isRunning ? "bg-amber-100 dark:bg-amber-900 text-amber-600" :
-                      isFailed  ? "bg-red-100 dark:bg-red-900 text-red-600" :
+                    ${isDone       ? "bg-green-100 dark:bg-green-900 text-green-600" :
+                      isRunning    ? "bg-amber-100 dark:bg-amber-900 text-amber-600" :
+                      isStepFailed ? "bg-red-100 dark:bg-red-900 text-red-600" :
                       "bg-[var(--muted)] text-[var(--muted-foreground)]"}`}>
-                    {isDone    ? <CheckCircle2 className="w-3.5 h-3.5" /> :
-                     isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
-                     isFailed  ? <XCircle className="w-3.5 h-3.5" /> :
+                    {isDone       ? <CheckCircle2 className="w-3.5 h-3.5" /> :
+                     isRunning    ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
+                     isStepFailed ? <XCircle className="w-3.5 h-3.5" /> :
                      <Clock className="w-3.5 h-3.5" />}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -496,17 +578,20 @@ function LiveRunPanel({ projectId, taskId }: { projectId: string; taskId: string
                       <span className="text-sm font-medium capitalize">
                         {step.capability.replace(/_/g, " ")}
                       </span>
-                      <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded
-                        ${isDone    ? "bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300" :
-                          isRunning ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 animate-pulse" :
-                          isFailed  ? "bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300" :
-                          "bg-[var(--muted)] text-[var(--muted-foreground)]"}`}>
-                        {step.status}
-                      </span>
+                      {!isPending && (
+                        <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded
+                          ${isDone       ? "bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300" :
+                            isRunning    ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 animate-pulse" :
+                            isStepFailed ? "bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300" :
+                            "bg-[var(--muted)] text-[var(--muted-foreground)]"}`}>
+                          {step.status}
+                        </span>
+                      )}
                     </div>
                     {(step.agent || step.model) && (
-                      <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5 truncate">
-                        {step.agent && <span className="font-mono">{step.agent}</span>}
+                      <p className={`text-[11px] mt-0.5 truncate font-mono
+                        ${isPending ? "text-[var(--muted-foreground)]/40" : "text-[var(--muted-foreground)]"}`}>
+                        {step.agent && <span>{step.agent}</span>}
                         {step.agent && step.model && <span className="mx-1">·</span>}
                         {step.model && <span>{step.model}</span>}
                       </p>
@@ -1252,7 +1337,7 @@ export default function TaskDetailPage({
       </div>
 
       {/* Content */}
-      {task?.status === "running" && <LiveRunPanel projectId={projectId} taskId={taskId} />}
+      {task?.status === "running" && <LiveRunPanel projectId={projectId} taskId={taskId} onRerun={runTask} />}
       {task?.status === "done" && task.result && <ResultPanel task={task} />}
       {task?.status === "failed" && (
         <div className="rounded-2xl border border-red-200 bg-red-50 dark:bg-red-900/10 p-6 text-center">
