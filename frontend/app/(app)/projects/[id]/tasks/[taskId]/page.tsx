@@ -454,6 +454,23 @@ function LiveRunPanel({
   return (
     <div className="flex flex-col gap-6">
 
+      {/* ── Fallback banner ── vLLM was down; running on Gemini/Claude instead */}
+      {status?.fallback_active && (
+        <div className="rounded-2xl border border-yellow-500/40 bg-yellow-950/20 p-4">
+          <div className="flex items-start gap-3">
+            <span className="text-yellow-400 text-lg shrink-0">⚡</span>
+            <div>
+              <p className="text-sm font-semibold text-yellow-300">
+                Switched to cloud fallback
+              </p>
+              <p className="text-xs text-yellow-400/70 mt-0.5">
+                {status.fallback_reason ?? "vLLM was unreachable — pipeline is running on the cloud backend."}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Warming-up banner ── plan loaded but no live step has started yet */}
       {!runningStep && steps.length === 0 && planSteps.length > 0 && !hasFailed && (
         <div className="rounded-2xl border border-violet-500/30 bg-violet-950/20 p-5">

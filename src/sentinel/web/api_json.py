@@ -314,30 +314,51 @@ async def api_create_task(
     task_id = task.id
 
     async def _plan_and_run() -> None:
+        from sentinel.llm.gateway import _is_vllm_error
         _store = ProjectStore()
         _task = _store.get_task(task_id)
         _proj = _store.get_project(project_id)
         if _task is None or _proj is None:
             return
+        _cfg = get_config()
+        _fallback = _cfg.backend.fallback  # "gemini" | "claude" | None
+        _run_backend = override_backend  # may be "" meaning "use config default"
+
         try:
             proposal = await plan_task(_task, AgentRegistry(),
                                        cloud_allowed=_cloud_allowed_for(_proj))
-            _task.status = "planned"
-            _task.plan_id = proposal.plan.id
-            _store.save_task(_task)
-            _store.save_plan(proposal.plan)
         except Exception as exc:
-            _task.status = "failed"
-            _task.fail_reason = f"{type(exc).__name__}: {str(exc)[:300]}"
-            try:
-                _store.save_task(_task)
-            except Exception:
-                pass
-            return
+            if _is_vllm_error(exc) and _fallback:
+                # vLLM is down — retry planning on the fallback backend
+                try:
+                    proposal = await plan_task(_task, AgentRegistry(),
+                                               backend=_fallback, cloud_allowed=True)
+                    _run_backend = _fallback  # carry fallback through to execution
+                except Exception as exc2:
+                    _task.status = "failed"
+                    _task.fail_reason = f"vLLM down; fallback also failed — {type(exc2).__name__}: {str(exc2)[:200]}"
+                    try:
+                        _store.save_task(_task)
+                    except Exception:
+                        pass
+                    return
+            else:
+                _task.status = "failed"
+                _task.fail_reason = f"{type(exc).__name__}: {str(exc)[:300]}"
+                try:
+                    _store.save_task(_task)
+                except Exception:
+                    pass
+                return
+
+        _task.status = "planned"
+        _task.plan_id = proposal.plan.id
+        _store.save_task(_task)
+        _store.save_plan(proposal.plan)
         # _approve_and_run with background_tasks=None runs _execute_run inline
         await _approve_and_run(
             task_id,
-            override_backend=override_backend,
+            override_backend=_run_backend,
             extra_context="",
             background_tasks=None,
         )

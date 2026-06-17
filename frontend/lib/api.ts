@@ -190,6 +190,8 @@ export interface TaskStatus {
   findings_so_far?: number
   sources_checked?: number
   log?: LogEntry[]
+  fallback_active?: boolean
+  fallback_reason?: string | null
 }
 
 export interface StepStatus {

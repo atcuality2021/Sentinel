@@ -1934,27 +1934,33 @@ def _step_models(capability: str, backend: str) -> str:
 
 async def _execute_run(task, plan, proj, override_backend: str) -> None:
     """The actual run (background task): gate → DAG → persist Result. Updates _ACTIVE_RUNS so the
-    live timeline on the task page can poll progress; never raises (state carries the error)."""
+    live timeline on the task page can poll progress; never raises (state carries the error).
+
+    LLM router: if vLLM is unreachable (timeout / Cloudflare 524) the run is automatically retried
+    on the fallback backend configured in ``backend.fallback`` (default: "gemini"). The UI receives
+    ``fallback_active=True`` so it can display a notice to the user.
+    """
+    from sentinel.llm.gateway import _is_vllm_error
     store = ProjectStore()
     entry = _ACTIVE_RUNS[task.id]
     cloud_allowed = _cloud_allowed_for(proj) if proj is not None else True
     proposal = PlanProposal(plan=plan, created_specs=[])
-    try:
+
+    async def _run_with_backend(backend_override: str) -> object:
+        """Inner runner — builds policy for the given backend and fires gate_proposal."""
         trace: list[str] = []
         policy = _run_policy(cloud_allowed)
-        # Apply user's explicit backend choice, honouring sovereignty.
-        if override_backend == "vllm-26b":
+        if backend_override == "vllm-26b":
             policy["backend"] = "vllm"
             policy["vllm_model"] = "gemma-4-27b-it"
-        elif override_backend in ("gemini", "vllm") and (cloud_allowed or override_backend != "gemini"):
-            policy["backend"] = override_backend
-        # Re-derive search_provider now that backend is finalised — the initial _run_policy call used
-        # the config default (vllm), so google_search would never be attached even when the user
-        # picked gemini. Re-computing here ensures the search provider matches the resolved backend.
+        elif backend_override in ("gemini", "vllm", "claude") and (
+            cloud_allowed or backend_override not in ("gemini", "claude")
+        ):
+            policy["backend"] = backend_override
         from sentinel.agent.governance import effective_search_provider as _esp
         policy["search_provider"] = _esp(get_config(), allow_cloud=cloud_allowed, backend=policy["backend"])
-        entry["backend"] = policy["backend"]   # resolved truth — the timeline labels models off this
-        outcome = await gate_proposal(
+        entry["backend"] = policy["backend"]
+        return await gate_proposal(
             proposal, autonomy="autonomous", seeds=_plan_seeds(task, plan, proj),
             cfg=get_config(), cloud_allowed=cloud_allowed, trace=trace, **policy,
             persona=task.persona, grade=_grade_sample(), grade_objective=task.objective,
@@ -1962,26 +1968,50 @@ async def _execute_run(task, plan, proj, override_backend: str) -> None:
             user_id=task.user_id or None,
             handoff_id=task.handoff_id or None,
         )
-        if outcome.ran and outcome.result is not None:
-            task.status = "failed" if outcome.result.degraded else "done"   # reflect the run in the list
-            task.result = outcome.result      # persist on the task so it lives at the task's own URL
-            store.save_task(task)
-            _persist_run(task, outcome.result, policy["backend"])
-            store.save_plan(plan)            # flush in-memory step statuses (done/failed) to DB
-            entry["state"] = task.status
+
+    try:
+        outcome = await _run_with_backend(override_backend)
+    except Exception as exc:
+        _cfg = get_config()
+        fallback = _cfg.backend.fallback
+        if _is_vllm_error(exc) and fallback:
+            # vLLM infrastructure failure — transparently retry on the fallback backend
+            entry["fallback_active"] = True
+            entry["fallback_reason"] = f"vLLM unavailable ({type(exc).__name__}); switched to {fallback}"
+            try:
+                outcome = await _run_with_backend(fallback)
+            except Exception as exc2:
+                task.status = "failed"
+                task.fail_reason = f"vLLM down; {fallback} fallback also failed — {type(exc2).__name__}: {str(exc2)[:200]}"
+                try:
+                    store.save_task(task)
+                except Exception:
+                    pass
+                entry["state"] = "failed"
+                entry["error"] = task.fail_reason
+                return
         else:
             task.status = "failed"
-            task.fail_reason = "Run was gated or produced no result."
-            store.save_task(task)
+            task.fail_reason = f"{type(exc).__name__}: {str(exc)[:300]}"
+            try:
+                store.save_task(task)
+            except Exception:
+                pass
             entry["state"] = "failed"
             entry["error"] = task.fail_reason
-    except Exception as exc:
+            return
+
+    if outcome.ran and outcome.result is not None:
+        task.status = "failed" if outcome.result.degraded else "done"
+        task.result = outcome.result
+        store.save_task(task)
+        _persist_run(task, outcome.result, entry.get("backend", "vllm"))
+        store.save_plan(plan)
+        entry["state"] = task.status
+    else:
         task.status = "failed"
-        task.fail_reason = f"{type(exc).__name__}: {str(exc)[:300]}"
-        try:
-            store.save_task(task)
-        except Exception:
-            pass
+        task.fail_reason = "Run was gated or produced no result."
+        store.save_task(task)
         entry["state"] = "failed"
         entry["error"] = task.fail_reason
 
@@ -2054,7 +2084,9 @@ async def task_run_status(project_id: str, task_id: str) -> JSONResponse:
             for s in entry["plan"].steps
         ]
         return JSONResponse({"state": entry["state"], "error": entry.get("error"),
-                             "backend": backend, "steps": steps})
+                             "backend": backend, "steps": steps,
+                             "fallback_active": entry.get("fallback_active", False),
+                             "fallback_reason": entry.get("fallback_reason")})
     task = ProjectStore().get_task(task_id)
     if task is None:
         return JSONResponse({"state": "unknown", "error": "task not found", "steps": []}, status_code=404)

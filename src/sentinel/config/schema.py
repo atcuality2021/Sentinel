@@ -134,6 +134,11 @@ class BackendConfig(BaseModel):
     # Total max wait = 1+2+4 = 7s for default max_retries=3. Set to 1 to disable retry.
     max_retries: int = Field(default=3, ge=1)
     base_retry_delay_s: float = Field(default=1.0, gt=0)
+    # LLM router fallback (SENTINEL-router): when vLLM is unreachable (timeout / 524), automatically
+    # re-run planning + execution on this backend. "gemini" uses the existing gemini config.
+    # "claude" uses ANTHROPIC_API_KEY. None disables fallback (fail fast).
+    fallback: Literal["gemini", "claude"] | None = "gemini"
+    fallback_model: str = "claude-haiku-4-5-20251001"
 
 
 class PromptTemplate(BaseModel):

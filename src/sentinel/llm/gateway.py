@@ -47,6 +47,40 @@ def _vllm_api_key(api_base: str | None) -> str:  # noqa: ARG001 — api_base res
     )
 
 
+def _is_vllm_error(exc: BaseException) -> bool:
+    """True when the exception signals a vLLM infrastructure failure (not a bad prompt).
+
+    Catches Cloudflare 524 pages, litellm Timeout/APIConnectionError, and bare HTTP 5xx from
+    the vLLM endpoint. These are transient — a healthy fallback backend can serve the same request.
+    Bad-prompt errors (ValidationError, JSONDecodeError) are NOT vLLM errors; we don't retry those
+    on a different backend because the same prompt will fail there too.
+    """
+    msg = str(exc)
+    type_name = type(exc).__name__
+    transient_markers = (
+        "Hosted_vllmException",
+        "<!DOCTYPE html>",  # Cloudflare 524 page
+        "524",
+        "Connection",
+        "timeout",
+        "Timeout",
+        "ServiceUnavailable",
+        "502",
+        "503",
+        "504",
+    )
+    if any(k in msg for k in transient_markers):
+        return True
+    # litellm exception types
+    if type_name in ("Timeout", "APIConnectionError", "ServiceUnavailableError"):
+        return True
+    return False
+
+
+def _claude_api_key() -> str:
+    return os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY") or ""
+
+
 def build_model(
     backend: str,
     model_id: str,
@@ -88,7 +122,18 @@ def build_model(
         )
     if backend == "gemini":
         return model_id
-    raise ValueError(f"Unknown backend {backend!r} (expected 'gemini' or 'vllm')")
+    if backend == "claude":
+        try:
+            from google.adk.models.lite_llm import LiteLlm
+        except ImportError as e:  # pragma: no cover
+            raise RuntimeError(
+                "Claude backend needs LiteLlm: pip install 'google-adk[extensions]'"
+            ) from e
+        return LiteLlm(
+            model=f"anthropic/{model_id}",
+            api_key=_claude_api_key(),
+        )
+    raise ValueError(f"Unknown backend {backend!r} (expected 'gemini', 'vllm', or 'claude')")
 
 
 def resolve_backend(backend: str | None = None) -> str:
@@ -99,8 +144,8 @@ def resolve_backend(backend: str | None = None) -> str:
     of the saved config.
     """
     name = (backend or os.getenv("SENTINEL_LLM_BACKEND", "gemini")).lower()
-    if name not in ("gemini", "vllm"):
-        raise ValueError(f"Unknown backend {name!r} (expected 'gemini' or 'vllm')")
+    if name not in ("gemini", "vllm", "claude"):
+        raise ValueError(f"Unknown backend {name!r} (expected 'gemini', 'vllm', or 'claude')")
     return name
 
 

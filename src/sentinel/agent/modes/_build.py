@@ -36,6 +36,8 @@ def _agent_backend(
     """The backend this agent will actually run on — same precedence as :func:`resolve_model`."""
     if not cloud_allowed:
         return "vllm"
+    if mode_backend in ("gemini", "claude"):
+        return mode_backend
     if ac.pin_gemini:
         return "gemini"
     return resolve_backend(mode_backend or cfg.backend.default)
@@ -100,6 +102,9 @@ def resolve_model(
     if backend == "gemini":
         model_id = ac.model or cfg.backend.gemini.model
         return build_model("gemini", model_id)
+    if backend == "claude":
+        model_id = ac.model or cfg.backend.fallback_model or "claude-haiku-4-5-20251001"
+        return build_model("claude", model_id)
     # Role tiering (SENTINEL-011): when an on-prem role map is set, pick this agent's role-specific
     # vLLM option (tool-callers → 12B, reasoners → 26B); otherwise the flat vllm option (today's
     # behaviour, byte-identical when roles is None). Per-agent ac.model still overrides the model id.
