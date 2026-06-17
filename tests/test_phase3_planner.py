@@ -244,6 +244,12 @@ def test_template_plan_profile_only_and_fallback():
     nutrition_plan = _template_plan(_task(objective="Find a recipe for biryani", domain="nutrition"))
     assert nutrition_plan is not None
     assert [s.capability for s in nutrition_plan.steps] == ["nutrition"]
+    # e-commerce is an alias for product_research — must NOT fall through to LLM planner.
+    laptop_plan = _template_plan(_task(
+        objective="Find best laptops in India under ₹1,00,000", domain="e-commerce"
+    ))
+    assert laptop_plan is not None
+    assert [s.capability for s in laptop_plan.steps] == ["product_research"]
     # Truly novel domain (no registered template) → falls through to LLM planner.
     assert _template_plan(_task(objective="Random query", domain="custom_novel_xyz")) is None
 

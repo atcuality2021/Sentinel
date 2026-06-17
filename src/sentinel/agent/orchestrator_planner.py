@@ -241,6 +241,14 @@ _SINGLE_STEP_DOMAINS: frozenset[str] = frozenset(
     # NOTE: govt_proposal removed — uses multi-step per-dept DAG (see _template_plan below)
 )
 
+# Domain aliases: UI-facing domain names → canonical SKILL_SPECS capability.
+# e-commerce tasks use the product_research skill (discovery + comparison + recommendation).
+_DOMAIN_TO_CAPABILITY: dict[str, str] = {
+    "e-commerce": "product_research",
+    "ecommerce": "product_research",
+    "shopping": "product_research",
+}
+
 
 def _template_plan(task: Task) -> Plan | None:
     """Deterministic plan for shipped value-chains, bypassing the LLM planner for reliability.
@@ -255,12 +263,14 @@ def _template_plan(task: Task) -> Plan | None:
     """
     pid = f"plan-{task.id}"
     dom = task.domain.name
+    cap = _DOMAIN_TO_CAPABILITY.get(dom, dom)
 
     # SENTINEL-014: each of these domains has exactly one registered skill; a deterministic
     # 1-step plan is both faster and 100% reliable vs. the LLM picking the capability slug.
-    if dom in _SINGLE_STEP_DOMAINS:
+    # Domain aliases (e.g. e-commerce → product_research) are resolved via _DOMAIN_TO_CAPABILITY.
+    if cap in _SINGLE_STEP_DOMAINS:
         return Plan(id=pid, task_id=task.id,
-                    steps=[Step(id=dom, capability=dom, output_key=dom)])
+                    steps=[Step(id=cap, capability=cap, output_key=cap)])
 
     # govt_proposal: one research step per extracted department + one synthesis step.
     # Dept name encoded in step ID so _plan_seeds() can decode it for per-dept targeting.

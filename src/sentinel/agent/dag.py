@@ -128,8 +128,8 @@ class TaskBudget:
     ``wall_clock_s`` is measured with an injectable monotonic ``clock`` (see :func:`run_plan`) so the
     timeout is testable without sleeping."""
 
-    max_steps: int = 8
-    max_reasoner_calls: int = 6
+    max_steps: int = 20
+    max_reasoner_calls: int = 15
     wall_clock_s: float = 600.0
 
     def exhausted(self, *, steps_run: int, reasoner_calls: int, elapsed_s: float) -> str | None:
