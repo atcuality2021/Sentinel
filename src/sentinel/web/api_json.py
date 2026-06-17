@@ -328,6 +328,7 @@ async def api_create_task(
             _store.save_plan(proposal.plan)
         except Exception as exc:
             _task.status = "failed"
+            _task.fail_reason = f"{type(exc).__name__}: {str(exc)[:300]}"
             try:
                 _store.save_task(_task)
             except Exception:
@@ -1018,6 +1019,7 @@ def _task_dict(t) -> dict:
         "created_at": t.created_at,
         "result": result,
         "chat": t.chat or [],
+        "fail_reason": getattr(t, "fail_reason", None),
     }
 
 
