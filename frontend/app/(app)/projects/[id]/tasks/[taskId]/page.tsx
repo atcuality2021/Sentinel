@@ -934,11 +934,19 @@ function ResultPanel({ task }: { task: Task }) {
   const result = task.result
   if (!result) return null
 
-  const synthArt =
-    result.artifacts.find((a) => /synthesis|overview|executive/i.test(a.type)) ??
-    (result.artifacts.length > 0 ? result.artifacts[result.artifacts.length - 1] : null)
-
-  const { brief, insights } = synthArt ? extractSummary(synthArt) : { brief: undefined, insights: [] }
+  // Scan all artifacts for brief + insights — prefer synthesis/compare types for brief,
+  // fall back to whichever artifact has a usable summary field first.
+  let brief: string | undefined
+  const insights: string[] = []
+  const orderedArts = [
+    ...result.artifacts.filter((a) => /synthesis|overview|executive|compare/i.test(a.type)),
+    ...result.artifacts.filter((a) => !/synthesis|overview|executive|compare/i.test(a.type)),
+  ]
+  for (const art of orderedArts) {
+    const { brief: b, insights: ins } = extractSummary(art)
+    if (!brief && b) brief = b
+    for (const i of ins) { if (!insights.includes(i) && insights.length < 6) insights.push(i) }
+  }
 
   async function sendChat(e: React.FormEvent) {
     e.preventDefault()
