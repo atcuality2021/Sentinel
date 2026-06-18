@@ -128,7 +128,7 @@ class BackendConfig(BaseModel):
     max_concurrency: int = Field(default=3, ge=1)
     # Turn controller (SENTINEL-015 FR-06): max LLM calls per step run. Passed to ADK
     # RunConfig.max_llm_calls — stops a runaway tool-call loop at this count.
-    max_turns: int = Field(default=30, ge=1)
+    max_turns: int = Field(default=60, ge=1)
     # Retry policy (SENTINEL-015 FR-07): on transient failure, retry up to max_retries times
     # with exponential backoff: delay = base_retry_delay_s * (2 ** attempt).
     # Total max wait = 1+2+4 = 7s for default max_retries=3. Set to 1 to disable retry.

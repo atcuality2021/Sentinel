@@ -245,7 +245,7 @@ def test_memory_config_episodic_defaults():
 def test_backend_config_turn_defaults():
     """New BackendConfig fields have correct defaults."""
     bc = BackendConfig()
-    assert bc.max_turns == 30
+    assert bc.max_turns == 60
     assert bc.max_retries == 3
     assert bc.base_retry_delay_s == 1.0
 
