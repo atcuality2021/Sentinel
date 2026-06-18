@@ -2896,15 +2896,16 @@ async def personas_generate(
 async def api_prompts_list():
     from fastapi.responses import JSONResponse as _J
     cfg = get_config()
-    return _J({
-        k: {
+    return _J([
+        {
+            "key": k,
             "template": v.template,
-            "variables": v.variables,
-            "has_default": v.default_template is not None,
+            "variables": list(v.variables) if v.variables else [],
+            "default_template": v.default_template or "",
             "is_custom": v.default_template is None,
         }
         for k, v in sorted(cfg.prompts.items())
-    })
+    ])
 
 
 @app.get("/api/prompts/{key}")

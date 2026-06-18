@@ -649,10 +649,15 @@ def test_api_prompts_list_returns_all_keys(client):
     r = client.get("/api/prompts")
     assert r.status_code == 200
     data = r.json()
-    assert "competitor.synthesizer" in data
-    assert "finance.planner" in data
-    assert isinstance(data["competitor.synthesizer"]["template"], str)
-    assert isinstance(data["competitor.synthesizer"]["has_default"], bool)
+    assert isinstance(data, list), "should return an array for .map() compatibility"
+    keys = {p["key"] for p in data}
+    assert "competitor.synthesizer" in keys
+    assert "finance.planner" in keys
+    synth = next(p for p in data if p["key"] == "competitor.synthesizer")
+    assert isinstance(synth["template"], str)
+    assert isinstance(synth["is_custom"], bool)
+    assert isinstance(synth["variables"], list)
+    assert "default_template" in synth
 
 
 def test_api_prompt_detail_returns_role(client):
