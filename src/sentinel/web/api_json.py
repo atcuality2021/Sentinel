@@ -488,11 +488,53 @@ async def api_task_chat(project_id: str, task_id: str, request: Request) -> JSON
     if not message:
         return JSONResponse({"error": "message is required"}, status_code=400)
 
-    # Append to chat history and persist
-    task.chat.append({"role": "user", "content": message})
-    # Basic echo-back; the full streaming path lives in the HTML route (task_chat)
-    reply = "Chat responses are available via the streaming endpoint at /projects/{id}/tasks/{taskId}/chat"
-    task.chat.append({"role": "assistant", "content": reply})
+    # Build system context from the task's artifact data
+    artifact_ctx = ""
+    if task.result and task.result.dashboard_payload:
+        payload = task.result.dashboard_payload
+        arts = payload.get("artifacts") or payload
+        if isinstance(arts, dict):
+            import json as _json
+            try:
+                artifact_ctx = _json.dumps(arts, indent=2)[:6000]
+            except Exception:
+                artifact_ctx = str(arts)[:3000]
+
+    system_prompt = (
+        f"You are a research assistant helping refine and discuss findings from a Sentinel research task.\n"
+        f"Task objective: {task.objective}\n"
+        f"Domain: {task.domain.name}\n"
+    )
+    if artifact_ctx:
+        system_prompt += f"\nResearch findings (summarized):\n{artifact_ctx}\n"
+    system_prompt += (
+        "\nAnswer questions, suggest improvements, and help the user act on these findings. "
+        "Be concise and cite specific data from the findings where relevant."
+    )
+
+    history = list(getattr(task, "chat", []) or [])
+    history.append({"role": "user", "content": message})
+    messages = [{"role": "system", "content": system_prompt}] + history
+
+    reply = ""
+    try:
+        import litellm as _litellm
+        from sentinel.config.loader import get_config
+        cfg = get_config()
+        response = await _litellm.acompletion(
+            model=f"gemini/{cfg.backend.gemini.model}",
+            messages=messages,
+            api_key=os.environ.get("GOOGLE_API_KEY"),
+            max_tokens=1024,
+            drop_params=True,
+            stream=False,
+        )
+        reply = response.choices[0].message.content or ""
+    except Exception as exc:
+        reply = f"I'm unable to answer right now ({type(exc).__name__}). Please try again."
+
+    history.append({"role": "assistant", "content": reply})
+    task.chat = history
     try:
         store.save_task(task)
     except Exception:

@@ -499,6 +499,15 @@ def build_step_agents(
         else:
             tools = None
 
+        # Hard cap on total tool calls for search steps — prevents runaway MCP tool loops
+        # (firecrawl_search has no built-in budget; the search function tool's max_calls
+        # only limits that one tool). 12 calls = 1 find_deals + ~4 reviews + ~3 comparisons.
+        _tool_budget_cb = None
+        if step.tool == "search" and spec.domain == "product_research":
+            from sentinel.agent.modes._build import _make_tool_budget_callback
+            _max = getattr(cfg.search, "max_calls", 0) or 12
+            _tool_budget_cb = _make_tool_budget_callback(max(12, _max))
+
         note_substitutions: dict[str, str] | None = None
         instruction_suffix = ""
         prompt_key: str | None = None
@@ -524,6 +533,7 @@ def build_step_agents(
             mode_backend=backend, tools=tools, output_schema=step.output_schema,
             note_substitutions=note_substitutions, instruction_suffix=instruction_suffix,
             cloud_allowed=cloud_allowed, prompt_key=prompt_key,
+            before_tool_callback=_tool_budget_cb,
         ))
     return agents
 

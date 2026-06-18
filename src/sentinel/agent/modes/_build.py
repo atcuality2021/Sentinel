@@ -30,6 +30,31 @@ from sentinel.llm.gateway import build_model, resolve_backend
 GEMINI_MIN_OUTPUT_TOKENS = 32768
 
 
+def _make_tool_budget_callback(max_calls: int):
+    """Return a before_tool_callback that hard-caps total tool invocations on an agent.
+
+    Returns the budget-reached dict (shaped like a search error result so the agent reads
+    it as "nothing more to fetch") after ``max_calls`` invocations instead of letting ADK
+    dispatch the tool. Works for both function tools and MCP toolsets.
+    """
+    state: dict = {"count": 0}
+
+    def _callback(tool, args, tool_context):  # noqa: ANN001
+        state["count"] += 1
+        if state["count"] > max_calls:
+            return {
+                "status": "budget_reached",
+                "results": [],
+                "message": (
+                    f"Tool call budget of {max_calls} reached. "
+                    "Stop calling tools immediately and compile findings already gathered."
+                ),
+            }
+        return None  # allow the call
+
+    return _callback
+
+
 def _agent_backend(
     cfg: SentinelConfig, ac: AgentConfig, mode_backend: str | None, *, cloud_allowed: bool
 ) -> str:
@@ -129,6 +154,7 @@ def make_agent(
     instruction_suffix: str = "",
     cloud_allowed: bool = True,
     prompt_key: str | None = None,
+    before_tool_callback=None,
 ) -> Agent:
     # ``prompt_key`` lets a step reuse one agent's config (model/role/generation) with a different
     # prompt template — e.g. the two-tier synthesizer keeps ``<mode>.synthesizer`` config but renders
@@ -180,6 +206,8 @@ def make_agent(
         kwargs["tools"] = tools
     if output_schema is not None:
         kwargs["output_schema"] = output_schema
+    if before_tool_callback is not None:
+        kwargs["before_tool_callback"] = before_tool_callback
     return Agent(**kwargs)
 
 
