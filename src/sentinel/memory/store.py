@@ -433,7 +433,10 @@ def _row_to_project(r: sqlite3.Row) -> Project:
 
 
 def _row_to_task(r: sqlite3.Row) -> Task:
-    return Task.model_validate_json(r["data"])
+    task = Task.model_validate_json(r["data"])
+    # The `status` column is authoritative — direct SQL updates only touch the column.
+    task.status = r["status"]
+    return task
 
 
 def _row_to_plan(r: sqlite3.Row) -> Plan:
