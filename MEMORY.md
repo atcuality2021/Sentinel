@@ -44,19 +44,7 @@ search. ADK 2.2.0 for agent orchestration.
 
 ## Recent decisions (last 30 days)
 
-- **2026-06-18** — `_row_to_task` and `_row_to_spec` now read authoritative DB columns
-  (`status`, `active`) instead of trusting the JSON blob. Fixes stale-status display bugs.
-- **2026-06-18** — 8 bad `agent_specs` rows with `(domain:...)` suffix deactivated in DB.
-  `build_from_spec` and `_mint_created_spec` now sanitize agent names to valid Python IDs.
-- **2026-06-16** — `sentinel-memory-worker` entry point ships as a separate PM2 process;
-  CrawlScheduler + MemoryWorker co-routines. 4 connectors: web, YouTube, email, social.
-- **2026-06-15** — `/accounts` routes removed; Memory Sources form moved to project memory tab.
-  Entity slug: `projectName.trim().toLowerCase().replace(/\s+/g, '-')`.
-- **2026-06-14** — vLLM → Gemini → Claude automatic fallback with UI notification banner.
-- **2026-06-14** — `find_deals` e-commerce domain uses SearchAPI `google_shopping_search`
-  (40 priced listings); provider collision with `google_search` fixed (non-pinned only).
-
----
+_(no decisions recorded)_
 
 ## Recently completed
 
@@ -101,11 +89,7 @@ search. ADK 2.2.0 for agent orchestration.
 
 ## Open questions
 
-- Memory worker on server: is CrawlScheduler running as a third PM2 process, or embedded in
-  the backend? (Check `pm2 list` — should be a separate `sentinel-memory-worker` entry.)
-- Synthesizer `sources` field: when to wire structured citations from the DAG output?
-
----
+_(no open questions)_
 
 ## Conventions specific to this repo
 
@@ -130,6 +114,26 @@ search. ADK 2.2.0 for agent orchestration.
 - **_leaf_semaphore** — process-wide asyncio.Semaphore for concurrent ADK runner cap.
 
 ---
+
+## Active task
+
+- _(none in flight)_ — last closed: **SENTINEL-012** _2026-06-08 08:27_
+
+## Today's activity
+
+_(no activity recorded today)_
+
+## Open blockers
+
+_(no open blockers)_
+
+## Doctor installs
+
+_(no doctor installs recorded yet)_
+
+## Documentation updates
+
+_(no documentation updates recorded yet)_
 
 ## Archive
 

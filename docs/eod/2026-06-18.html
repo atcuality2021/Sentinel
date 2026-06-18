@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EOD 2026-06-18 — Sentinel</title>
+<style>
+  :root { --bg:#0f1117; --card:#1a1d27; --border:#2a2d3a; --text:#e2e8f0; --muted:#94a3b8; --violet:#8b5cf6; --green:#22c55e; --amber:#f59e0b; --red:#ef4444; --blue:#3b82f6; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; line-height:1.6; padding:2rem; max-width:860px; margin:0 auto; }
+  h1 { font-size:1.5rem; font-weight:700; margin-bottom:0.25rem; }
+  .subtitle { color:var(--muted); font-size:.875rem; margin-bottom:2rem; }
+  section { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1.25rem 1.5rem; margin-bottom:1.25rem; }
+  h2 { font-size:.7rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:.75rem; }
+  ul { list-style:none; display:flex; flex-direction:column; gap:.5rem; }
+  li::before { content:"◆ "; color:var(--violet); font-size:.75rem; }
+  li { font-size:.9rem; }
+  .commit { font-family:monospace; font-size:.8rem; color:var(--muted); }
+  .tag { display:inline-block; padding:.15rem .6rem; border-radius:999px; font-size:.7rem; font-weight:600; }
+  .tag.fix  { background:rgba(239,68,68,.15); color:var(--red); border:1px solid rgba(239,68,68,.3); }
+  .tag.feat { background:rgba(139,92,246,.15); color:var(--violet); border:1px solid rgba(139,92,246,.3); }
+  .tag.docs { background:rgba(148,163,184,.15); color:var(--muted); border:1px solid rgba(148,163,184,.3); }
+  .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.75rem; margin-bottom:1rem; }
+  .stat { background:rgba(139,92,246,.08); border:1px solid rgba(139,92,246,.2); border-radius:8px; padding:.75rem; text-align:center; }
+  .stat .val { font-size:1.4rem; font-weight:700; color:var(--violet); }
+  .stat .lbl { font-size:.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:.07em; margin-top:.15rem; }
+  table { width:100%; border-collapse:collapse; font-size:.82rem; }
+  td,th { padding:.4rem .75rem; text-align:left; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; }
+  tr:last-child td { border-bottom:none; }
+</style>
+</head>
+<body>
+
+<h1>🌙 EOD — 2026-06-18</h1>
+<p class="subtitle">Sentinel · branch: main · engineer: atcuality2021</p>
+
+<section id="shipped">
+  <h2>Shipped (9 commits → main)</h2>
+  <ul>
+    <li><span class="tag feat">feat</span> Memory Sources form on project Memory tab <span class="commit">5b96085</span></li>
+    <li><span class="tag fix">fix</span> DB store: _row_to_task/_row_to_spec respect DB columns over stale JSON blob <span class="commit">67d3dcb ada940e</span></li>
+    <li><span class="tag fix">fix</span> Test isolation: 3 tests decoupled from SENTINEL_LLM_BACKEND env var <span class="commit">27268a9</span></li>
+    <li><span class="tag fix">fix</span> ASGI crash on legacy task status + friendly pipeline labels in task detail <span class="commit">bcca962</span></li>
+    <li><span class="tag fix">fix</span> /api/prompts returns array (not dict) — fixed frontend .map() crash on Settings → Prompts <span class="commit">521d0b6</span></li>
+    <li><span class="tag fix">fix</span> 4 UX/UI fixes on task detail page: JSON-leak in report items, 0-Gaps stat, Sources stat card, long title [Target:] in H1 <span class="commit">a2f2220</span></li>
+    <li><span class="tag fix">fix</span> Overview brief: scan all artifacts for summary instead of last-only — brief + Key Insights now always populate <span class="commit">99d59fc</span></li>
+    <li><span class="tag docs">docs</span> MEMORY.md + architecture overview updated to reflect current system state <span class="commit">87629a0</span></li>
+  </ul>
+  <p style="margin-top:.75rem;font-size:.8rem;color:var(--muted);">All shipped via direct push to main (no open PRs — solo repo workflow).</p>
+</section>
+
+<section id="wip">
+  <h2>WIP</h2>
+  <ul>
+    <li>MEMORY.md has minor unstaged edits (auto-memory updates from this session) — commit at session close</li>
+    <li>SENTINEL-022 (find_deals shopping-search): Steps 1-7 built + proven live; remaining = full-pipeline UI demo + human review + Test/Ship</li>
+  </ul>
+</section>
+
+<section id="tomorrow">
+  <h2>Tomorrow</h2>
+  <ul>
+    <li>Complete SENTINEL-022 Ship step: full UI demo, human review, final Test/Ship</li>
+    <li>Start SENTINEL-017 (v-next reusable workflows) — design is done, nothing built yet</li>
+    <li>Public Signals counter still 0 even when sources exist — investigate why artifact.public_count isn't being set by synthesizer</li>
+  </ul>
+</section>
+
+<section id="blockers">
+  <h2>Blockers</h2>
+  <ul>
+    <li>None</li>
+  </ul>
+</section>
+
+<section id="tech-debt-added">
+  <h2>Tech Debt Added</h2>
+  <ul>
+    <li>Frontend JSON-leak fix (a2f2220) is a symptom fix — root cause is synthesizer returning JSON-encoded strings in array fields instead of objects. Backend synthesizer should be hardened to always return plain objects. No ticket yet — TD to file.</li>
+    <li>Public Signals stat hardcoded to 0 — artifact.public_count not populated by synthesizer pipeline. Needs backend fix.</li>
+  </ul>
+</section>
+
+<section id="ai-usage">
+  <h2>🧠 AI Usage — 2026-06-18</h2>
+  <div class="stat-grid">
+    <div class="stat"><div class="val">1</div><div class="lbl">Sessions</div></div>
+    <div class="stat"><div class="val">1,284</div><div class="lbl">Prompts</div></div>
+    <div class="stat"><div class="val">2,234</div><div class="lbl">Responses</div></div>
+    <div class="stat"><div class="val">6.1M</div><div class="lbl">Billable tokens</div></div>
+  </div>
+  <table>
+    <thead><tr><th>Token type</th><th>Count</th></tr></thead>
+    <tbody>
+      <tr><td>Input</td><td>2,968</td></tr>
+      <tr><td>Output</td><td>855,824</td></tr>
+      <tr><td>Cache write</td><td>5,281,829</td></tr>
+      <tr><td>Cache read (free)</td><td>242,499,447</td></tr>
+    </tbody>
+  </table>
+  <table style="margin-top:.75rem;">
+    <thead><tr><th>Tool</th><th>Calls</th></tr></thead>
+    <tbody>
+      <tr><td>Bash</td><td>626</td></tr>
+      <tr><td>Read</td><td>161</td></tr>
+      <tr><td>browser_snapshot</td><td>81</td></tr>
+      <tr><td>browser_take_screenshot</td><td>77</td></tr>
+      <tr><td>browser_navigate</td><td>69</td></tr>
+      <tr><td>browser_click</td><td>53</td></tr>
+      <tr><td>Edit</td><td>46</td></tr>
+      <tr><td>browser_evaluate</td><td>42</td></tr>
+    </tbody>
+  </table>
+</section>
+
+</body>
+</html>
