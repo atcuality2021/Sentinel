@@ -443,7 +443,11 @@ def _row_to_plan(r: sqlite3.Row) -> Plan:
 # SENTINEL-012 (ADR-0004): reconstruct an AgentSpec straight from its `data` JSON, like every other
 # whole-model row (the scalar columns are denormalised duplicates used only for SQL lookup/ranking).
 def _row_to_spec(r: sqlite3.Row) -> AgentSpec:
-    return AgentSpec.model_validate_json(r["data"])
+    spec = AgentSpec.model_validate_json(r["data"])
+    # The `active` column is authoritative — direct SQL updates (e.g. bulk deactivation) only
+    # touch the column, not the JSON blob, so always let the column win.
+    spec.active = bool(r["active"])
+    return spec
 
 
 # --------------------------------------------------------------------------- #
