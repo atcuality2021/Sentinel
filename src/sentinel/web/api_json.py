@@ -519,7 +519,6 @@ async def api_task_chat(project_id: str, task_id: str, request: Request) -> JSON
     reply = ""
     try:
         import litellm as _litellm
-        from sentinel.config.loader import get_config
         cfg = get_config()
         response = await _litellm.acompletion(
             model=f"gemini/{cfg.backend.gemini.model}",
