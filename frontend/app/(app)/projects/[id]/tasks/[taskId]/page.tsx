@@ -256,7 +256,13 @@ function CitationRow({ o }: { o: Record<string, unknown> }) {
 }
 
 function ArtifactItem({ item }: { item: unknown }) {
-  if (typeof item === "string") return <span className="text-sm leading-relaxed">{item}</span>
+  if (typeof item === "string") {
+    const trimmed = item.trim()
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try { return <ArtifactItem item={JSON.parse(trimmed)} /> } catch {}
+    }
+    return <span className="text-sm leading-relaxed">{item}</span>
+  }
   if (typeof item !== "object" || item === null) return <span className="text-sm">{String(item)}</span>
   const o = item as Record<string, unknown>
   const shape = detectShape(o)
@@ -1038,8 +1044,12 @@ function ResultPanel({ task }: { task: Task }) {
     </div>
   )
 
-  // Count total gaps across all artifacts
-  const totalGaps = result.artifacts.reduce((n, a) => n + (a.gaps ?? 0), 0)
+  // Count total gaps across all artifacts; fall back to content.gaps array length when field is 0
+  const totalGaps = result.artifacts.reduce((n, a) => {
+    if (a.gaps > 0) return n + a.gaps
+    const contentGapsArr = (a.content as Record<string, unknown>)?.gaps
+    return n + (Array.isArray(contentGapsArr) ? contentGapsArr.length : 0)
+  }, 0)
   const totalPublic = result.artifacts.reduce((n, a) => n + (a.public_count ?? 0), 0)
 
   // ── Overview tab ────────────────────────────────────────────────────────────
@@ -1232,19 +1242,21 @@ function ResultPanel({ task }: { task: Task }) {
     result.citations.length > 0 ? (
       <div className="flex flex-col gap-4">
         {/* Stats */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className={`grid gap-3 ${privateCitations.length > 0 ? "grid-cols-2" : "grid-cols-1 max-w-xs"}`}>
           <div className="rounded-xl border border-blue-700/30 bg-blue-900/10 p-4 text-center">
             <p className="text-2xl font-bold text-blue-400">{publicCitations.length}</p>
             <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 uppercase tracking-wide flex items-center justify-center gap-1">
               <Globe className="w-3 h-3" /> Public Sources
             </p>
           </div>
-          <div className="rounded-xl border border-amber-700/30 bg-amber-900/10 p-4 text-center">
-            <p className="text-2xl font-bold text-amber-400">{privateCitations.length}</p>
-            <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 uppercase tracking-wide flex items-center justify-center gap-1">
-              <Lock className="w-3 h-3" /> Private Sources
-            </p>
-          </div>
+          {privateCitations.length > 0 && (
+            <div className="rounded-xl border border-amber-700/30 bg-amber-900/10 p-4 text-center">
+              <p className="text-2xl font-bold text-amber-400">{privateCitations.length}</p>
+              <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 uppercase tracking-wide flex items-center justify-center gap-1">
+                <Lock className="w-3 h-3" /> Private Sources
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Public sources */}
@@ -1316,6 +1328,12 @@ function ResultPanel({ task }: { task: Task }) {
   return <DirectionAwareTabs tabs={tabs} />
 }
 
+function splitObjective(obj: string): { question: string; target?: string } {
+  const m = obj.match(/^([\s\S]*?)\s*\[Target:\s*([^\]]+)\]\s*$/)
+  if (m) return { question: m[1].trim(), target: m[2].trim() }
+  return { question: obj }
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function TaskDetailPage({
@@ -1352,36 +1370,51 @@ export default function TaskDetailPage({
   return (
     <div className="flex flex-col gap-5 max-w-5xl mx-auto">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-        <Link href="/projects" className="hover:underline">Projects</Link>
-        <span>/</span>
-        <Link href={`/projects/${projectId}`} className="hover:underline truncate max-w-[160px]">
-          {project?.name ?? "Project"}
-        </Link>
-        <span>/</span>
-        <span className="truncate max-w-[260px] text-[var(--foreground)]">
-          {task?.objective ?? "Task"}
-        </span>
-      </div>
+      {(() => {
+        const { question } = splitObjective(task?.objective ?? "Task")
+        return (
+          <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+            <Link href="/projects" className="hover:underline">Projects</Link>
+            <span>/</span>
+            <Link href={`/projects/${projectId}`} className="hover:underline truncate max-w-[160px]">
+              {project?.name ?? "Project"}
+            </Link>
+            <span>/</span>
+            <span className="truncate max-w-[260px] text-[var(--foreground)]">{question}</span>
+          </div>
+        )
+      })()}
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-bold leading-snug text-[var(--foreground)] line-clamp-2">
-            {task?.objective ?? "Loading…"}
-          </h1>
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            {task?.domain && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--muted)] text-[var(--muted-foreground)] font-medium">
-                {task.domain}
-              </span>
-            )}
-            {task?.persona && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium">
-                {task.persona}
-              </span>
-            )}
-          </div>
+          {(() => {
+            const { question, target } = splitObjective(task?.objective ?? "")
+            return (
+              <>
+                <h1 className="text-xl font-bold leading-snug text-[var(--foreground)] line-clamp-2">
+                  {question || "Loading…"}
+                </h1>
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  {target && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 font-medium">
+                      🎯 {target}
+                    </span>
+                  )}
+                  {task?.domain && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--muted)] text-[var(--muted-foreground)] font-medium">
+                      {task.domain}
+                    </span>
+                  )}
+                  {task?.persona && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium">
+                      {task.persona}
+                    </span>
+                  )}
+                </div>
+              </>
+            )
+          })()}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {task?.status === "done" && task.result && (
