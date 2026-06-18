@@ -72,14 +72,17 @@ def test_parse_generation_non_numeric_rejected():
 # apply_backends -------------------------------------------------------------
 def test_apply_backends_updates_copy():
     cfg = _cfg()
+    orig_default = cfg.backend.default
+    # flip to the opposite backend so we can verify the original is unchanged
+    flip = "vllm" if orig_default == "gemini" else "gemini"
     new = S.apply_backends(
-        cfg, default="vllm", gemini_model="gemini-2.5-pro",
+        cfg, default=flip, gemini_model="gemini-2.5-pro",
         vllm_model="meta/llama", vllm_api_base="http://gpu:8000/v1",
     )
-    assert new.backend.default == "vllm"
+    assert new.backend.default == flip
     assert new.backend.gemini.model == "gemini-2.5-pro"
     assert new.backend.vllm.model == "meta/llama"
-    assert cfg.backend.default == "gemini"  # original untouched (deep copy)
+    assert cfg.backend.default == orig_default  # original untouched (deep copy)
 
 
 def test_apply_backends_rejects_unknown_backend():
@@ -219,6 +222,9 @@ def client(tmp_path, monkeypatch) -> TestClient:
     monkeypatch.setenv("SENTINEL_CONFIG_PATH", str(tmp_path / "cfg.yaml"))
     monkeypatch.setenv("SENTINEL_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    # Clear backend env override so SentinelConfig.default() always starts with gemini
+    # in these isolated settings tests — the tests assert on the default state explicitly.
+    monkeypatch.delenv("SENTINEL_LLM_BACKEND", raising=False)
     reset_config()
     yield TestClient(web_app.app)
     reset_config()

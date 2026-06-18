@@ -12,7 +12,10 @@ from sentinel.config.schema import GenerationConfig, PromptTemplate
 
 
 # --- AC-1: defaults reproduce the shipped behaviour (golden) ----------------------------- #
-def test_default_competitor_agents_match_config():
+def test_default_competitor_agents_match_config(monkeypatch):
+    # Clear backend env override so we always test against the shipped gemini default,
+    # not whatever SENTINEL_LLM_BACKEND happens to be set in the calling environment.
+    monkeypatch.delenv("SENTINEL_LLM_BACKEND", raising=False)
     cfg = SentinelConfig.default()
     agent = build_competitor_agent(config=cfg)
     by_step = {
