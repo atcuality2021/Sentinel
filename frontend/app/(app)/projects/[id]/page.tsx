@@ -1261,10 +1261,162 @@ function EpisodeCard({ ep, onDelete }: { ep: MemoryData["episodes"][number]; onD
   )
 }
 
-function MemoryTab({ projectId }: { projectId: string }) {
+// ── Memory Sources sub-form ────────────────────────────────────────────────────
+type MemSourceConfig = {
+  entity: string; priority: string; sources_enabled: string[];
+  website_url: string; youtube_channel: string; social_handles: string; email_filter: string;
+}
+
+function MemorySourcesForm({ projectName }: { projectName: string }) {
+  const { toast } = useToast()
+  const entitySlug = projectName.trim().toLowerCase().replace(/\s+/g, '-')
+  const { data, mutate } = useSWR<MemSourceConfig>(
+    entitySlug ? `/api/memory/source-config/${entitySlug}` : null, fetcher
+  )
+  const [saving, setSaving] = useState(false)
+  const [crawling, setCrawling] = useState(false)
+  const [form, setForm] = useState<MemSourceConfig | null>(null)
+
+  useEffect(() => { if (data && !form) setForm(data) }, [data, form])
+
+  if (!data || !form) return <div className="text-xs text-[var(--muted-foreground)] py-4 text-center">Loading source config…</div>
+
+  const sources: Array<{ key: string; label: string }> = [
+    { key: "website",  label: "Website" },
+    { key: "youtube",  label: "YouTube" },
+    { key: "email",    label: "Email" },
+    { key: "social",   label: "Social" },
+  ]
+
+  function toggleSource(key: string) {
+    setForm(f => !f ? f : {
+      ...f,
+      sources_enabled: f.sources_enabled.includes(key)
+        ? f.sources_enabled.filter(s => s !== key)
+        : [...f.sources_enabled, key],
+    })
+  }
+
+  async function save() {
+    setSaving(true)
+    try {
+      await fetch(`/api/memory/source-config/${entitySlug}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      }).then(r => { if (!r.ok) throw new Error("Save failed") })
+      toast("Memory sources saved", "success")
+      mutate()
+    } catch { toast("Failed to save", "error") }
+    finally { setSaving(false) }
+  }
+
+  async function crawlNow() {
+    setCrawling(true)
+    try {
+      const r = await fetch(`/api/memory/crawl-now/${entitySlug}`, { method: "POST" })
+      const d = await r.json()
+      toast(`Crawl enqueued — ${d.enqueued ?? 0} source(s) queued`, "success")
+    } catch { toast("Failed to enqueue crawl", "error") }
+    finally { setCrawling(false) }
+  }
+
+  const enabled = form.sources_enabled
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold">Autonomous Memory Sources</p>
+        <span className="text-[10px] text-[var(--muted-foreground)] font-mono">{form.entity}</span>
+      </div>
+
+      {/* Priority */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Crawl priority</label>
+        <div className="flex gap-2">
+          {(["high", "medium", "low"] as const).map(p => (
+            <button key={p} onClick={() => setForm(f => f ? { ...f, priority: p } : f)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors capitalize
+                ${form.priority === p
+                  ? p === "high" ? "bg-red-900/40 text-red-300 border-red-700/50"
+                  : p === "medium" ? "bg-blue-900/40 text-blue-300 border-blue-700/50"
+                  : "bg-[var(--muted)] text-[var(--foreground)] border-[var(--border)]"
+                  : "bg-transparent text-[var(--muted-foreground)] border-[var(--border)] hover:border-[var(--foreground)]/30"}`}>
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Source toggles */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Active sources</label>
+        <div className="flex gap-2 flex-wrap">
+          {sources.map(s => (
+            <button key={s.key} onClick={() => toggleSource(s.key)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors
+                ${enabled.includes(s.key)
+                  ? "bg-blue-900/40 text-blue-300 border-blue-700/50"
+                  : "bg-transparent text-[var(--muted-foreground)] border-[var(--border)] hover:border-[var(--foreground)]/30"}`}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Source-specific fields */}
+      {enabled.includes("website") && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Website URL</label>
+          <input value={form.website_url} onChange={e => setForm(f => f ? { ...f, website_url: e.target.value } : f)}
+            placeholder="https://example.com"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-white/30" />
+        </div>
+      )}
+      {enabled.includes("youtube") && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">YouTube channel</label>
+          <input value={form.youtube_channel} onChange={e => setForm(f => f ? { ...f, youtube_channel: e.target.value } : f)}
+            placeholder="@channel or channel URL"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-white/30" />
+        </div>
+      )}
+      {enabled.includes("email") && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Email filter</label>
+          <input value={form.email_filter} onChange={e => setForm(f => f ? { ...f, email_filter: e.target.value } : f)}
+            placeholder="sender@domain.com or domain.com"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-white/30" />
+        </div>
+      )}
+      {enabled.includes("social") && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wide">Social handles (JSON)</label>
+          <input value={form.social_handles} onChange={e => setForm(f => f ? { ...f, social_handles: e.target.value } : f)}
+            placeholder='{"twitter": "@handle", "linkedin": "company/name"}'
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs font-mono outline-none focus:ring-1 focus:ring-white/30" />
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2 pt-1">
+        <button onClick={save} disabled={saving}
+          className="px-4 py-1.5 rounded-lg bg-white text-black text-xs font-semibold hover:opacity-80 disabled:opacity-40 transition-opacity">
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button onClick={crawlNow} disabled={crawling}
+          className="px-4 py-1.5 rounded-lg border border-[var(--border)] text-xs font-semibold hover:bg-[var(--muted)] disabled:opacity-40 transition-colors flex items-center gap-1.5">
+          {crawling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+          {crawling ? "Enqueuing…" : "Crawl Now"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function MemoryTab({ projectId, projectName }: { projectId: string; projectName: string }) {
   const { toast } = useToast()
   const { data, mutate: refreshMemory } = useSWR<MemoryData>(`/api/projects/${projectId}/memory`, fetcher)
-  const [tab, setTab] = useState<"episodes" | "facts">("episodes")
+  const [tab, setTab] = useState<"episodes" | "facts" | "sources">("episodes")
 
   async function deleteEpisode(episodeId: string) {
     if (!confirm("Delete this memory episode?")) return
@@ -1299,13 +1451,21 @@ function MemoryTab({ projectId }: { projectId: string }) {
 
       {/* Sub-tabs */}
       <div className="flex gap-1 p-1 rounded-lg bg-[var(--muted)] w-fit">
-        {(["episodes", "facts"] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all capitalize
-              ${tab === t ? "bg-[var(--card)] shadow-sm text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>
-            {t === "episodes" ? `Episodes (${episodes.length})` : `Facts (${facts.length})`}
-          </button>
-        ))}
+        <button onClick={() => setTab("episodes")}
+          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all
+            ${tab === "episodes" ? "bg-[var(--card)] shadow-sm text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>
+          Episodes ({episodes.length})
+        </button>
+        <button onClick={() => setTab("facts")}
+          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all
+            ${tab === "facts" ? "bg-[var(--card)] shadow-sm text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>
+          Facts ({facts.length})
+        </button>
+        <button onClick={() => setTab("sources")}
+          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all
+            ${tab === "sources" ? "bg-[var(--card)] shadow-sm text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>
+          Sources
+        </button>
       </div>
 
       {tab === "episodes" && (
@@ -1343,6 +1503,8 @@ function MemoryTab({ projectId }: { projectId: string }) {
           )}
         </div>
       )}
+
+      {tab === "sources" && <MemorySourcesForm projectName={projectName} />}
     </div>
   )
 }
@@ -1621,7 +1783,7 @@ function ProjectDetail({ id }: { id: string }) {
   const tabContent: Record<TabKey, React.ReactNode> = {
     tasks:     <TasksTab projectId={id} />,
     kb:        <KBTab projectId={id} />,
-    memory:    <MemoryTab projectId={id} />,
+    memory:    <MemoryTab projectId={id} projectName={project?.name ?? ""} />,
     artifacts: <ArtifactsTab projectId={id} />,
   }
 
