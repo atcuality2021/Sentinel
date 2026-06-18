@@ -200,7 +200,11 @@ class AgentRegistry:
         )}
         tools = _resolve_tools(spec.tools, work, search_provider)
         schema = KNOWN_OUTPUT_SCHEMAS[spec.output_schema_ref]
+        import re as _re
+        # ADK requires agent name to be a valid Python identifier.
+        raw_name = name or spec.name
+        safe_agent_name = _re.sub(r"[^a-zA-Z0-9_]", "_", raw_name).strip("_") or "specialist"
         return make_agent(
-            work, key, name=name or spec.name, output_key=output_key or spec.capability,
+            work, key, name=safe_agent_name, output_key=output_key or spec.capability,
             mode_backend=backend, tools=tools, output_schema=schema, cloud_allowed=cloud_allowed,
         )

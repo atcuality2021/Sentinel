@@ -103,9 +103,12 @@ def _mint_created_spec(capability: str, domain: str, schema_ref: str) -> AgentSp
       - ``output_schema_ref`` constrained to a KNOWN schema (created agents can't invent a contract).
     ``id`` is deterministic ⇒ re-planning the same miss is idempotent (no duplicate rows).
     """
+    # ADK requires agent name to be a valid Python identifier — sanitize any chars the LLM may
+    # have left in the capability string (e.g. spaces, parentheses from "cap (domain: x)" format).
+    safe_name = _re.sub(r"[^a-zA-Z0-9_]", "_", capability).strip("_") or "specialist"
     return AgentSpec(
         id=f"created-{domain}-{capability}",
-        name=f"{capability}_specialist",
+        name=f"{safe_name}_specialist",
         capability=capability,
         domain=domain,
         role="synthesizer",
