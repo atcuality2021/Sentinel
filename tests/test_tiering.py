@@ -357,6 +357,14 @@ def test_sovereign_run_never_inflates_the_cap(monkeypatch):
     assert agent.generate_content_config.max_output_tokens == 3072
 
 
+def test_product_research_synthesizer_pins_gemini_by_default():
+    """product_research.synthesizer defaults to pin_gemini=True so it uses Gemini even on a
+    vllm-default server — prevents the 26B repetition loop on complex JSON schemas (streaming
+    + response_format=json_schema are incompatible on vLLM guided-decode)."""
+    cfg = build_default()
+    assert cfg.agents["product_research.synthesizer"].pin_gemini is True
+
+
 def test_generous_gemini_cap_is_not_lowered():
     """An agent already configured above the floor keeps its own (larger) budget — the floor only
     raises, never clamps."""

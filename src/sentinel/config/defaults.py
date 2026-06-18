@@ -939,7 +939,7 @@ def build_default() -> SentinelConfig:
         "product_research.public_research": AgentConfig(
             role="public_research", pin_gemini=False, generation=_gen(0.3, 2048)),
         "product_research.extractor": AgentConfig(role="extractor", generation=_gen(0.2, 2048)),
-        "product_research.synthesizer": AgentConfig(role="synthesizer", generation=_gen(0.4, 6144)),
+        "product_research.synthesizer": AgentConfig(role="synthesizer", pin_gemini=True, generation=_gen(0.4, 6144)),
     }
     prompts = {
         "competitor.planner": _prompt(_P_COMPETITOR_PLANNER, ["target"]),
