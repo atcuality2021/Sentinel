@@ -2112,8 +2112,12 @@ async def run_task_route(project_id: str, task_id: str,
                          backend: str = Form(""),
                          context: str = Form("")) -> RedirectResponse | str:
     """Per-task run route (the Approve & run control posts here) — each task runs at its own URL."""
-    return await _approve_and_run(task_id, override_backend=backend.strip().lower(),
-                                  extra_context=context, background_tasks=background_tasks)
+    try:
+        return await _approve_and_run(task_id, override_backend=backend.strip().lower(),
+                                      extra_context=context, background_tasks=background_tasks)
+    except Exception as exc:  # never let a bad task row crash the ASGI server
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"error": f"run failed: {type(exc).__name__}: {str(exc)[:200]}"}, status_code=500)
 
 
 @app.post("/projects/run-plan", response_model=None)
@@ -2122,8 +2126,12 @@ async def run_plan_route(background_tasks: BackgroundTasks,
                          backend: str = Form(""),
                          context: str = Form("")) -> RedirectResponse | str:
     """Back-compat alias for the per-task run route (kept so existing forms/links keep working)."""
-    return await _approve_and_run(task_id, override_backend=backend.strip().lower(),
-                                  extra_context=context, background_tasks=background_tasks)
+    try:
+        return await _approve_and_run(task_id, override_backend=backend.strip().lower(),
+                                      extra_context=context, background_tasks=background_tasks)
+    except Exception as exc:
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"error": f"run failed: {type(exc).__name__}: {str(exc)[:200]}"}, status_code=500)
 
 
 @app.post("/projects/{project_id}/tasks/{task_id}/chat")

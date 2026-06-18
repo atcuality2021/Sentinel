@@ -432,10 +432,20 @@ def _row_to_project(r: sqlite3.Row) -> Project:
     return Project.model_validate_json(r["data"])
 
 
+_TASK_STATUS_COERCE: dict[str, str] = {
+    "pending": "created",   # pre-schema-lock values from old code paths
+    "queued": "created",
+}
+
+
 def _row_to_task(r: sqlite3.Row) -> Task:
     task = Task.model_validate_json(r["data"])
     # The `status` column is authoritative — direct SQL updates only touch the column.
-    task.status = r["status"]
+    # Coerce any legacy status values that are no longer in TaskStatus so a stale DB
+    # row never crashes the ASGI request handler (ValidationError would propagate to
+    # uvicorn as "Exception in ASGI application").
+    col_status: str = r["status"]
+    task.status = _TASK_STATUS_COERCE.get(col_status, col_status)  # type: ignore[assignment]
     return task
 
 

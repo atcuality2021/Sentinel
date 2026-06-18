@@ -24,6 +24,19 @@ function fmtLabel(key: string) {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+// Convert an agent_spec_id like "created-market-program_strategy" or "seed-competitor-market"
+// to a readable label: strip the prefix/domain wrappers, then title-case.
+function friendlySpecId(specId: string): string {
+  if (!specId || specId === "—") return specId
+  // "created-{domain}-{capability}" → capability
+  const createdMatch = specId.match(/^created-[^-]+-(.+)$/)
+  if (createdMatch) return fmtLabel(createdMatch[1])
+  // "seed-{capability}-{domain}" → capability
+  const seedMatch = specId.match(/^seed-(.+)-[^-]+$/)
+  if (seedMatch) return fmtLabel(seedMatch[1])
+  return fmtLabel(specId)
+}
+
 // Extract a human-readable label from a step id+capability pair.
 // Step IDs encode the target: comp_zoom → "Zoom", research_dept_flood_management → "Flood Management".
 // Falls back to prettifying capability when no target prefix is found.
@@ -824,8 +837,8 @@ function PipelinePanel({ projectId, taskId }: { projectId: string; taskId: strin
                   <p className="text-[10px] font-mono text-[var(--muted-foreground)] truncate">{step.id}</p>
                   <p className="text-sm font-semibold capitalize mt-0.5">{stepLabel(step)}</p>
                   <div className="mt-1.5">{callsBadge(step.calls)}</div>
-                  <p className="text-[10px] font-mono text-[var(--muted-foreground)] mt-1.5 break-all leading-relaxed" title={step.agent_spec_id}>
-                    {step.agent_spec_id}
+                  <p className="text-[10px] text-[var(--muted-foreground)] mt-1.5 break-all leading-relaxed" title={step.agent_spec_id}>
+                    {friendlySpecId(step.agent_spec_id)}
                   </p>
                 </div>
               ))}
@@ -873,8 +886,8 @@ function PipelinePanel({ projectId, taskId }: { projectId: string; taskId: strin
                 <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)]">
                   {step.depends_on.length > 0 ? step.depends_on.join(", ") : "—"}
                 </td>
-                <td className="px-4 py-3 font-mono text-xs text-[var(--muted-foreground)] max-w-[260px]" title={step.agent_spec_id}>
-                  <span className="block break-all leading-relaxed">{step.agent_spec_id}</span>
+                <td className="px-4 py-3 text-xs text-[var(--muted-foreground)] max-w-[260px]" title={step.agent_spec_id}>
+                  <span className="block break-all leading-relaxed">{friendlySpecId(step.agent_spec_id)}</span>
                 </td>
                 <td className="px-4 py-3">
                   {step.is_new ? (
