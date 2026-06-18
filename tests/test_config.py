@@ -39,7 +39,10 @@ def test_default_client_synth_substitutes_absent_note():
 
 
 # --- AC-2 / AC-3: persistence -------------------------------------------------------------- #
-def test_config_yaml_roundtrips(tmp_path):
+def test_config_yaml_roundtrips(tmp_path, monkeypatch):
+    # Clear env overrides so the test exercises pure YAML roundtrip, not env-override logic.
+    monkeypatch.delenv("GEMMA_12B_API_BASE", raising=False)
+    monkeypatch.delenv("GEMMA_26B_API_BASE", raising=False)
     cfg = SentinelConfig.default()
     p = save_config(cfg, tmp_path / "c.yaml")
     assert p.exists()
@@ -47,7 +50,9 @@ def test_config_yaml_roundtrips(tmp_path):
     assert loaded == cfg
 
 
-def test_absent_file_self_seeds(tmp_path):
+def test_absent_file_self_seeds(tmp_path, monkeypatch):
+    monkeypatch.delenv("GEMMA_12B_API_BASE", raising=False)
+    monkeypatch.delenv("GEMMA_26B_API_BASE", raising=False)
     p = tmp_path / "seed.yaml"
     assert not p.exists()
     cfg = load_config(p, write_if_absent=True)

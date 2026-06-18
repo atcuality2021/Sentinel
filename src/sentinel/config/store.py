@@ -60,13 +60,39 @@ def _backfill_defaults(cfg: SentinelConfig) -> SentinelConfig:
     return cfg
 
 
+def _apply_env_overrides(cfg: SentinelConfig) -> SentinelConfig:
+    """Apply env-var overrides on top of whatever the YAML says (env is authoritative).
+
+    Env vars win over YAML values — the YAML holds structure/shape; the env holds
+    deployment-specific URLs and keys. This means operators never need to edit the
+    YAML to point at a different vLLM host; they only set env vars.
+
+    Supported overrides:
+      GEMMA_12B_API_BASE  → backend.vllm.api_base
+      GEMMA_26B_API_BASE  → backend.roles.*.api_base (all tiered roles)
+    """
+    api_12b = os.getenv("GEMMA_12B_API_BASE", "").strip()
+    api_26b = os.getenv("GEMMA_26B_API_BASE", "").strip()
+
+    if api_12b and cfg.backend.vllm is not None:
+        cfg.backend.vllm = cfg.backend.vllm.model_copy(update={"api_base": api_12b})
+
+    if api_26b and cfg.backend.roles:
+        cfg.backend.roles = {
+            role: rc.model_copy(update={"api_base": api_26b})
+            for role, rc in cfg.backend.roles.items()
+        }
+
+    return cfg
+
+
 def load_config(path: str | Path | None = None, *, write_if_absent: bool = True) -> SentinelConfig:
     """Load config from YAML. If absent, build defaults and (optionally) seed the file once."""
     p = Path(path) if path else config_path()
     if p.exists():
         data = yaml.safe_load(p.read_text("utf-8")) or {}
-        return _backfill_defaults(SentinelConfig.model_validate(data))
-    cfg = SentinelConfig.default()
+        return _apply_env_overrides(_backfill_defaults(SentinelConfig.model_validate(data)))
+    cfg = _apply_env_overrides(SentinelConfig.default())
     if write_if_absent:
         save_config(cfg, p)
     return cfg
